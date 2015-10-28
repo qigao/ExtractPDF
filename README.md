@@ -2,14 +2,14 @@
 Extract image and text from PDF file by mupdf
 
 
-# Compile #
+# Compile as a dll #
 
 `$ gcc -c libpdf.c -I../../include`
 
 `$ gcc -shared -o libpdf.dll libpdf.o -L/d/dev/mupdf/build/debug/ -lmupdf -lz -lopenjpeg -ljpeg -ljbig2dec -lfreetype \
 -lmupdf-js-none`
 
-# Execute #
+# Execute as exe #
 
 `c:\\> gcc -o libpdf.exe libpdf.o -L/d/dev/mupdf/build/debug/ -lmupdf -lz -lopenjpeg -ljpeg -ljbig2dec -lfreetype -lmupdf-js\
 -none
