@@ -11,7 +11,9 @@ Extract image and text from PDF file by mupdf
 
 # Execute as exe #
 
-`c:\\> gcc -o libpdf.exe libpdf.o -L/d/dev/mupdf/build/debug/ -lmupdf -lz -lopenjpeg -ljpeg -ljbig2dec -lfreetype -lmupdf-js\
--none
+`c:\\> gcc -o libpdf.exe libpdf.o -L/d/dev/mupdf/build/debug/ -lmupdf -lz -lopenjpeg -ljpeg -ljbig2dec -lfreetype -lmupdf-js
+-none`
 
 * As you can see, this worked both on Windows and linux. and sucessfully called by .Net
+
+this code use the orginal license as mupdf does.
