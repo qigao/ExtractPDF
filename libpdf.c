@@ -289,17 +289,19 @@ EXPORT_DLL void destroy_txt()
 
 int main(int argc, char *argv[])
 {
-  init_image("一期需求说明.pdf","");
-  printf("pages:%d\n",page_counts());
-  printf("pageinfo:%d\n",analysis_page_info(4));
-  char items[100];
-  get_image_obj_num(items);
-  printf("image obj num: %s\n",items);
-  //  extractImage(".",901);
+  char *filename= argv[1];
+  init_image(filename,"");
+  int pages=page_counts();
+  printf("pages:%d",pages);
   export_all_image(".");
   destroy_image();
-  init_txt("一期需求说明.pdf","");
-  extractText(4,"4.txt");
+  init_txt(filename,"");
+  int n=0;
+  for( n=1; n<pages+1;n++){
+    char txt[5];
+    sprintf(txt,"%d.txt",n);
+    extractText(n,txt);
+  }
   destroy_txt();
   return 0;
 }
