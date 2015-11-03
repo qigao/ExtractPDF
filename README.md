@@ -17,3 +17,4 @@ Extract image and text from PDF file by mupdf
 * As you can see, this worked both on Windows and linux. and sucessfully called by .Net
 
 this code use the orginal license as mupdf does.
+mupdf-1.3 compiled by:  make build=release NOX11=yes
