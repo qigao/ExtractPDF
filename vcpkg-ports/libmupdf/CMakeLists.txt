@@ -95,6 +95,7 @@ target_compile_definitions(libmupdf
     $<$<BOOL:${BUILD_SHARED_LIBS}>:FZ_DLL>
     FZ_ENABLE_BROTLI=0
     FZ_ENABLE_DOCX_OUTPUT=0
+    FZ_ENABLE_HYPHEN=0
     FZ_ENABLE_ICC=0
     FZ_ENABLE_JS=0
     FZ_ENABLE_MD=0
