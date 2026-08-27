@@ -33,6 +33,11 @@ typedef enum extractpdf_page_box {
     EXTRACTPDF_PAGE_BOX_CROP = 1
 } extractpdf_page_box;
 
+typedef struct extractpdf_render_options {
+    size_t struct_size;
+    float dpi;
+} extractpdf_render_options;
+
 typedef enum extractpdf_status {
     EXTRACTPDF_OK = 0,
     EXTRACTPDF_ERROR_ARGUMENT = 1,
@@ -69,6 +74,11 @@ EXTRACTPDF_API extractpdf_status extractpdf_page_box_bounds(
 
 EXTRACTPDF_API extractpdf_status extractpdf_render_page(
     extractpdf_page *page,
+    extractpdf_bitmap **out_bitmap);
+
+EXTRACTPDF_API extractpdf_status extractpdf_render_page_with_options(
+    extractpdf_page *page,
+    const extractpdf_render_options *options,
     extractpdf_bitmap **out_bitmap);
 
 EXTRACTPDF_API extractpdf_status extractpdf_bitmap_dimensions(
