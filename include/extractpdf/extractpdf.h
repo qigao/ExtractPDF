@@ -20,6 +20,13 @@ extern "C" {
 typedef struct extractpdf_document extractpdf_document;
 typedef struct extractpdf_page extractpdf_page;
 
+typedef struct extractpdf_rect {
+    float x0;
+    float y0;
+    float x1;
+    float y1;
+} extractpdf_rect;
+
 typedef enum extractpdf_status {
     EXTRACTPDF_OK = 0,
     EXTRACTPDF_ERROR_ARGUMENT = 1,
@@ -44,6 +51,10 @@ EXTRACTPDF_API extractpdf_status extractpdf_load_page(
     extractpdf_document *document,
     int page_index,
     extractpdf_page **out_page);
+
+EXTRACTPDF_API extractpdf_status extractpdf_page_bounds(
+    extractpdf_page *page,
+    extractpdf_rect *out_bounds);
 
 EXTRACTPDF_API const char *extractpdf_status_string(
     extractpdf_status status);
