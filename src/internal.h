@@ -14,6 +14,15 @@ struct extractpdf_page {
     fz_page *page;
 };
 
+struct extractpdf_bitmap {
+    int width;
+    int height;
+    int stride;
+    extractpdf_pixel_format pixel_format;
+    size_t data_size;
+    unsigned char *pixels;
+};
+
 extractpdf_status extractpdf_status_from_mupdf(int code);
 
 #endif
