@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: extractpdf-v2-${{ github.ref }}
+  group: extractpdf-v2-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
