@@ -67,7 +67,8 @@ set_tests_properties(extractpdf.images PROPERTIES TIMEOUT 30)
 add_executable(extractpdf_test_image_bitmap test_image_bitmap.c)
 target_link_libraries(extractpdf_test_image_bitmap PRIVATE ExtractPDF::ExtractPDF)
 target_compile_definitions(extractpdf_test_image_bitmap PRIVATE
-  PAGE_IMAGES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/page-images.pdf")
+  PAGE_IMAGES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/page-images.pdf"
+  PAGE_IMAGES_ALPHA_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/page-images-alpha.pdf")
 add_test(NAME extractpdf.image_bitmap COMMAND extractpdf_test_image_bitmap)
 set_tests_properties(extractpdf.image_bitmap PROPERTIES TIMEOUT 30)
 
