@@ -16,6 +16,9 @@ static void check_impl(int condition, const char *expression, int line)
 
 int main(void)
 {
+    fprintf(stderr, "[extractpdf.status] start\n");
+    fflush(stderr);
+
     CHECK(strcmp(extractpdf_status_string(EXTRACTPDF_OK), "ok") == 0);
     CHECK(strcmp(extractpdf_status_string(EXTRACTPDF_ERROR_ARGUMENT), "invalid argument") == 0);
     CHECK(strcmp(extractpdf_status_string(EXTRACTPDF_ERROR_IO), "I/O error") == 0);
@@ -25,5 +28,8 @@ int main(void)
     CHECK(strcmp(extractpdf_status_string(EXTRACTPDF_ERROR_NOMEM), "out of memory") == 0);
     CHECK(strcmp(extractpdf_status_string(EXTRACTPDF_ERROR_MUPDF), "MuPDF error") == 0);
     CHECK(strcmp(extractpdf_status_string((extractpdf_status)999), "unknown error") == 0);
+
+    fprintf(stderr, "[extractpdf.status] complete\n");
+    fflush(stderr);
     return EXIT_SUCCESS;
 }
