@@ -20,3 +20,13 @@ target_compile_definitions(extractpdf_test_document PRIVATE
   UTF8_PDF="${UTF8_PDF}")
 add_test(NAME extractpdf.document COMMAND extractpdf_test_document)
 set_tests_properties(extractpdf.document PROPERTIES TIMEOUT 60)
+
+if(WIN32 AND BUILD_SHARED_LIBS)
+  foreach(test_target IN ITEMS extractpdf_test_status extractpdf_test_document)
+    add_custom_command(TARGET ${test_target} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:extractpdf>
+        $<TARGET_FILE_DIR:${test_target}>
+      VERBATIM)
+  endforeach()
+endif()
