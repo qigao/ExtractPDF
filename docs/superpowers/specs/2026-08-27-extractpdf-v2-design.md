@@ -1,7 +1,7 @@
 # ExtractPDF v2 design
 
 Date: 2026-08-27
-Status: approved direction; implementation not started
+Status: design approved; implementation not started
 Target baseline: MuPDF 1.28.2
 
 ## Context
@@ -34,7 +34,8 @@ References:
 - PDF editing or writing.
 - OCR.
 - JavaScript execution.
-- Multi-threaded access to a single document handle.
+- Multi-threaded access to a document handle.
+- Concurrent MuPDF calls from multiple handles.
 - Raw extraction of every orphan PDF image object.
 - Preserving the old exported function names.
 - Bundling MuPDF source into this repository.
@@ -51,7 +52,7 @@ typedef struct extractpdf_document extractpdf_document;
 
 Each handle owns the MuPDF state required for one open document. No document, image list, text page, file pointer, or error state is global.
 
-The first implementation is deliberately single-handle/single-thread usage. Separate handles may exist simultaneously, but v2 does not promise concurrent MuPDF calls until a shared lock/clone-context design is added and tested. This matches MuPDF's documented threading constraints instead of pretending the underlying context is freely concurrent.
+The v2 foundation is deliberately single-threaded. Multiple handles may be alive and used sequentially/interleaved on one thread, but v2 does not promise concurrent MuPDF calls. A future concurrency design must follow MuPDF's shared-lock/clone-context rules and be added only with dedicated tests.
 
 ## Public API
 
@@ -99,8 +100,8 @@ EXTRACTPDF_API extractpdf_status extractpdf_page_count(
     extractpdf_document *document,
     int *out_page_count);
 
-EXTRACTPDF_API const char *extractpdf_last_error(
-    const extractpdf_document *document);
+EXTRACTPDF_API const char *extractpdf_status_string(
+    extractpdf_status status);
 
 EXTRACTPDF_API void extractpdf_close(
     extractpdf_document *document);
@@ -114,24 +115,24 @@ EXTRACTPDF_API void extractpdf_close(
 
 ### API rules
 
-- Input paths are UTF-8 at the public boundary. Windows path handling must be implemented deliberately rather than leaking ANSI `fopen` semantics into the ABI.
+- Input paths are UTF-8 at the public boundary. Windows UTF-8 path behavior is a required platform test; the implementation must not add ANSI `fopen` semantics of its own.
 - `password == NULL` means no password supplied.
 - `extractpdf_open` sets `*out_document = NULL` on every failure.
 - A password-protected document returns `EXTRACTPDF_ERROR_PASSWORD` unless authentication succeeds.
 - Page indexes in future page APIs are zero-based.
 - `extractpdf_close(NULL)` is allowed and is a no-op.
-- `extractpdf_last_error` returns diagnostic text owned by the handle and valid until the next operation on that handle or close. Status codes, not strings, define program behavior.
+- `extractpdf_status_string` returns an immutable static description for an ExtractPDF status. Status codes, not strings, define program behavior.
+- The foundation does not expose mutable global/thread-local "last error" state. Detailed logging may be added later through an explicit callback API if a real consumer needs it.
 - No exported function lets a MuPDF exception cross the C ABI.
 
 ## Internal document object
 
-The implementation owns all state through the opaque object:
+The implementation owns all per-document state through the opaque object:
 
 ```c
 struct extractpdf_document {
     fz_context *ctx;
     fz_document *doc;
-    char last_error[512];
 };
 ```
 
@@ -153,19 +154,19 @@ Any failure unwinds in reverse order. `fz_drop_document` happens before `fz_drop
 
 ## Error translation
 
-MuPDF errors are caught inside the implementation and translated into `extractpdf_status` plus a diagnostic message.
+MuPDF errors are caught inside the implementation and translated into `extractpdf_status`.
 
 The stable contract is intentionally coarse:
 
 - bad caller arguments -> `EXTRACTPDF_ERROR_ARGUMENT`
-- path/open failures -> `EXTRACTPDF_ERROR_IO`
+- path/system open failures -> `EXTRACTPDF_ERROR_IO`
 - authentication failure -> `EXTRACTPDF_ERROR_PASSWORD`
-- malformed PDF -> `EXTRACTPDF_ERROR_FORMAT`
+- malformed/syntax PDF failures -> `EXTRACTPDF_ERROR_FORMAT`
 - unsupported operation/content -> `EXTRACTPDF_ERROR_UNSUPPORTED`
 - allocation failure -> `EXTRACTPDF_ERROR_NOMEM`
 - anything else caught from MuPDF -> `EXTRACTPDF_ERROR_MUPDF`
 
-The implementation may inspect `fz_caught(ctx)` where useful, but callers must not depend on MuPDF numeric error values.
+The implementation may inspect `fz_caught(ctx)` and MuPDF error categories for translation, but callers must not depend on MuPDF numeric error values.
 
 ## Text extraction contract
 
@@ -185,13 +186,13 @@ EXTRACTPDF_API extractpdf_status extractpdf_extract_text(
 EXTRACTPDF_API void extractpdf_free(void *memory);
 ```
 
-`out_size` excludes the terminating NUL. Empty pages succeed with an allocated empty string or a documented zero-length representation; the implementation tests will lock this behavior before publishing the function.
+`out_size` excludes the terminating NUL. Before this function is published, tests will choose and lock one representation for an empty page rather than leaving NULL-vs-empty-string behavior ambiguous.
 
 ## Image extraction contract
 
 The default v2 meaning of "images on a page" is **images encountered in page content**, not every object in the PDF xref table. This avoids the legacy mismatch where one API walked page resources while another scanned all PDF objects and could return orphan/unreferenced images.
 
-Phase 3 will expose a callback or enumerator with metadata and bytes. The first implementation should favor page-observed images through MuPDF's public page/device/structured-text facilities. Raw PDF image-XObject extraction, if needed later, must be a separately named advanced API because it has different semantics.
+Phase 3 will expose a callback or enumerator with metadata and bytes. The implementation should favor page-observed images through MuPDF's public page/device/structured-text facilities. Raw PDF image-XObject extraction, if needed later, must be a separately named advanced API because it has different semantics.
 
 The core API will not choose output filenames or silently convert every image to PNG/PAM. Format policy belongs to the caller or an optional CLI layer.
 
@@ -219,7 +220,7 @@ ExtractPDF/
     └── libpdf.c        # legacy code moved intact only when migration lands
 ```
 
-The library is C11. CMake builds both a normal library target and tests with CTest. MuPDF remains an external dependency discovered through a CMake module/root hint; this repository does not vendor MuPDF.
+The library is C11. CMake builds the library and tests with CTest. MuPDF remains an external dependency discovered through a CMake module/root hint; this repository does not vendor MuPDF.
 
 ## Test strategy
 
@@ -234,8 +235,9 @@ The lifecycle slice is test-driven. Required RED/GREEN cases before adding extra
 7. correct password -> open succeeds
 8. malformed/truncated PDF -> clean error, no process abort
 9. repeated open/close -> no retained state
-10. two handles opened sequentially/interleaved -> no state contamination
+10. two handles opened and used interleaved on one thread -> no state contamination
 11. `extractpdf_close(NULL)` -> safe
+12. a UTF-8 path fixture opens on Windows, Linux, and macOS
 
 Sanitizer jobs should cover Linux when practical. Warnings are treated as errors for ExtractPDF-owned C code.
 
@@ -251,7 +253,9 @@ CI must use a known MuPDF 1.28.2 dependency and must not rely on a developer-mac
 
 ## Licensing
 
-MuPDF's open-source distribution is AGPL, with commercial licensing available from Artifex. ExtractPDF must add an explicit repository license/provenance decision before publishing a binary release. The v2 implementation must not imply that wrapping MuPDF in a DLL changes MuPDF's licensing obligations.
+The open-source v2 repository baseline is **AGPL-3.0-or-later**, matching the open-source licensing constraints of the MuPDF dependency. A root `LICENSE` and README notice are required before binary release.
+
+If a downstream product uses a commercial MuPDF license from Artifex, that is an explicit alternate distribution arrangement and does not silently change this repository's declared open-source license.
 
 No MuPDF source is copied into this repository by this design.
 
@@ -264,15 +268,27 @@ The legacy implementation remains untouched while v2 becomes green. Once the new
 3. optionally provide a narrow compatibility shim only if an actual downstream caller still needs the old names;
 4. do not preserve unsafe legacy buffer/output conventions merely for source compatibility.
 
-## Acceptance criteria for v2 foundation
+## Implementation decomposition
 
-The foundation is complete when an exact commit passes all of the following:
+The design is implemented in three independently reviewable slices:
 
+- **Phase 1 — foundation:** license, header, CMake/MuPDF discovery, open/password/page-count/close, fixtures, CTest, cross-platform CI.
+- **Phase 2 — text:** UTF-8 extraction plus exported deallocator and text-specific tests.
+- **Phase 3 — images:** page-observed image enumeration/extraction with its own explicit data/format contract.
+
+Phase 1 must be green before Phase 2 starts; Phase 2 must be green before Phase 3 starts.
+
+## Acceptance criteria for Phase 1
+
+Phase 1 is complete when an exact commit passes all of the following:
+
+- root license is AGPL-3.0-or-later;
 - public header contains no MuPDF types;
-- no mutable process-global state exists in ExtractPDF-owned code;
+- no mutable process-global or thread-local state exists in ExtractPDF-owned code;
 - open/password/page-count/close tests pass;
 - malformed and encrypted fixtures fail safely;
+- UTF-8 path behavior is tested;
 - Windows/Linux/macOS builds use the same C ABI;
 - CTest is the test entry point;
-- README documents dependency and license constraints;
+- README documents dependency, single-thread contract, and license constraints;
 - CI is green on the exact head commit.
