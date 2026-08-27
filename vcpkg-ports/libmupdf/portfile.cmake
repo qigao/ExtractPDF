@@ -10,6 +10,19 @@ vcpkg_from_git(
     HEAD_REF master
 )
 
+# MuPDF 1.28.2 keeps the regexp implementation in the thirdparty/mujs
+# gitlink even when JavaScript support is disabled. vcpkg source archives do
+# not populate git submodules, so reproduce the exact gitlink explicitly.
+vcpkg_from_git(
+    OUT_SOURCE_PATH MUJS_SOURCE_PATH
+    URL "https://github.com/ArtifexSoftware/mujs.git"
+    REF e892c9fdbbddba94e52f656ccb378ed4885e30cc
+    HEAD_REF master
+)
+file(REMOVE_RECURSE "${SOURCE_PATH}/thirdparty/mujs")
+file(MAKE_DIRECTORY "${SOURCE_PATH}/thirdparty/mujs")
+file(COPY "${MUJS_SOURCE_PATH}/" DESTINATION "${SOURCE_PATH}/thirdparty/mujs")
+
 file(COPY "${CMAKE_CURRENT_LIST_DIR}/CMakeLists.txt" DESTINATION "${SOURCE_PATH}")
 file(COPY "${CMAKE_CURRENT_LIST_DIR}/unofficial-libmupdf-config.cmake.in" DESTINATION "${SOURCE_PATH}")
 
