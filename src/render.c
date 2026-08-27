@@ -9,6 +9,7 @@ static extractpdf_status extractpdf_render_page_transformed(
     float dpi,
     float rotation_degrees,
     const extractpdf_rect *clip,
+    int alpha,
     extractpdf_bitmap **out_bitmap)
 {
     extractpdf_bitmap *bitmap;
@@ -22,7 +23,7 @@ static extractpdf_status extractpdf_render_page_transformed(
     *out_bitmap = NULL;
 
     if (page == NULL || !isfinite(dpi) || dpi <= 0.0f ||
-        !isfinite(rotation_degrees))
+        !isfinite(rotation_degrees) || (alpha != 0 && alpha != 1))
         return EXTRACTPDF_ERROR_ARGUMENT;
 
     bitmap = (extractpdf_bitmap *)calloc(1, sizeof(*bitmap));
@@ -53,8 +54,11 @@ static extractpdf_status extractpdf_render_page_transformed(
                 fz_device_rgb(ctx),
                 bbox,
                 NULL,
-                0);
-            fz_clear_pixmap_with_value(ctx, bitmap->pixmap, 0xFF);
+                alpha);
+            if (alpha)
+                fz_clear_pixmap(ctx, bitmap->pixmap);
+            else
+                fz_clear_pixmap_with_value(ctx, bitmap->pixmap, 0xFF);
             device = fz_new_draw_device(ctx, transform, bitmap->pixmap);
             fz_run_page(ctx, page->page, device, fz_identity, NULL);
             fz_close_device(ctx, device);
@@ -65,7 +69,7 @@ static extractpdf_status extractpdf_render_page_transformed(
                 page->page,
                 transform,
                 fz_device_rgb(ctx),
-                0);
+                alpha);
         }
     }
     fz_always(ctx)
@@ -102,6 +106,7 @@ extractpdf_status extractpdf_render_page(
         72.0f,
         0.0f,
         NULL,
+        0,
         out_bitmap);
 }
 
@@ -114,8 +119,10 @@ extractpdf_status extractpdf_render_page_with_options(
     size_t rotation_size;
     size_t clip_enabled_size;
     size_t clip_size;
+    size_t alpha_size;
     float rotation_degrees = 0.0f;
     int clip_enabled = 0;
+    int alpha = 0;
     extractpdf_rect clip = { 0 };
     const extractpdf_rect *clip_ptr = NULL;
 
@@ -153,11 +160,19 @@ extractpdf_status extractpdf_render_page_with_options(
         clip_ptr = &clip;
     }
 
+    alpha_size = offsetof(extractpdf_render_options, alpha) + sizeof(options->alpha);
+    if (options->struct_size >= alpha_size) {
+        alpha = options->alpha;
+        if (alpha != 0 && alpha != 1)
+            return EXTRACTPDF_ERROR_ARGUMENT;
+    }
+
     return extractpdf_render_page_transformed(
         page,
         options->dpi,
         rotation_degrees,
         clip_ptr,
+        alpha,
         out_bitmap);
 }
 
