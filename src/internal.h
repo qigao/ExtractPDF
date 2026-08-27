@@ -85,6 +85,20 @@ struct extractpdf_image_page {
     int oom;
 };
 
+typedef struct extractpdf_link_internal {
+    extractpdf_rect hotspot;
+    extractpdf_link_kind kind;
+    int target_page;
+    extractpdf_point target;
+    char *uri;
+    size_t uri_size;
+} extractpdf_link_internal;
+
+struct extractpdf_link_page {
+    extractpdf_link_internal *items;
+    size_t count;
+};
+
 extractpdf_status extractpdf_status_from_mupdf(int code);
 
 #endif

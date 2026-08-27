@@ -72,6 +72,13 @@ target_compile_definitions(extractpdf_test_image_bitmap PRIVATE
 add_test(NAME extractpdf.image_bitmap COMMAND extractpdf_test_image_bitmap)
 set_tests_properties(extractpdf.image_bitmap PROPERTIES TIMEOUT 30)
 
+add_executable(extractpdf_test_links test_links.c)
+target_link_libraries(extractpdf_test_links PRIVATE ExtractPDF::ExtractPDF)
+target_compile_definitions(extractpdf_test_links PRIVATE
+  PAGE_LINKS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/page-links.pdf")
+add_test(NAME extractpdf.links COMMAND extractpdf_test_links)
+set_tests_properties(extractpdf.links PROPERTIES TIMEOUT 30)
+
 if(WIN32 AND BUILD_SHARED_LIBS)
   foreach(test_target IN ITEMS
       extractpdf_test_status
@@ -81,7 +88,8 @@ if(WIN32 AND BUILD_SHARED_LIBS)
       extractpdf_test_structured_text
       extractpdf_test_text_search
       extractpdf_test_images
-      extractpdf_test_image_bitmap)
+      extractpdf_test_image_bitmap
+      extractpdf_test_links)
     add_custom_command(TARGET ${test_target} POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E copy_if_different
         $<TARGET_FILE:extractpdf>
