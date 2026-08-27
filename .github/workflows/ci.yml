@@ -77,14 +77,14 @@ jobs:
       - name: Install static MuPDF 1.28.2 with vcpkg
         shell: pwsh
         run: |
-          vcpkg install libmupdf:x64-windows-static --overlay-ports="$env:GITHUB_WORKSPACE\vcpkg-ports"
+          vcpkg install libmupdf:x64-windows-static-md --overlay-ports="$env:GITHUB_WORKSPACE\vcpkg-ports"
 
       - name: Configure ExtractPDF DLL
         shell: pwsh
         run: |
           cmake -S . -B build -A x64 `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
-            -DVCPKG_TARGET_TRIPLET=x64-windows-static `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static-md `
             -DVCPKG_OVERLAY_PORTS="$env:GITHUB_WORKSPACE\vcpkg-ports" `
             -DBUILD_SHARED_LIBS=ON
 
