@@ -3,7 +3,7 @@ name: ExtractPDF v2 foundation
 on:
   push:
     branches:
-      - refactor/v2-modern-mupdf
+      - master
   pull_request:
 
 permissions:
