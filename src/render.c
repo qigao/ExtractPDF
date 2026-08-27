@@ -176,6 +176,52 @@ extractpdf_status extractpdf_render_page_with_options(
         out_bitmap);
 }
 
+extractpdf_status extractpdf_render_thumbnail(
+    extractpdf_page *page,
+    int max_width,
+    int max_height,
+    extractpdf_bitmap **out_bitmap)
+{
+    extractpdf_rect bounds;
+    extractpdf_status status;
+    float page_width;
+    float page_height;
+    float scale_x;
+    float scale_y;
+    float scale;
+
+    if (out_bitmap == NULL)
+        return EXTRACTPDF_ERROR_ARGUMENT;
+    *out_bitmap = NULL;
+
+    if (page == NULL || max_width <= 0 || max_height <= 0)
+        return EXTRACTPDF_ERROR_ARGUMENT;
+
+    status = extractpdf_page_bounds(page, &bounds);
+    if (status != EXTRACTPDF_OK)
+        return status;
+
+    page_width = bounds.x1 - bounds.x0;
+    page_height = bounds.y1 - bounds.y0;
+    if (!isfinite(page_width) || !isfinite(page_height) ||
+        page_width <= 0.0f || page_height <= 0.0f)
+        return EXTRACTPDF_ERROR_FORMAT;
+
+    scale_x = (float)max_width / page_width;
+    scale_y = (float)max_height / page_height;
+    scale = scale_x < scale_y ? scale_x : scale_y;
+    if (scale > 1.0f)
+        scale = 1.0f;
+
+    return extractpdf_render_page_transformed(
+        page,
+        72.0f * scale,
+        0.0f,
+        NULL,
+        0,
+        out_bitmap);
+}
+
 extractpdf_status extractpdf_bitmap_dimensions(
     extractpdf_bitmap *bitmap,
     int *out_width,
