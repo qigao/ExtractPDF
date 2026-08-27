@@ -2,9 +2,11 @@
 
 ExtractPDF is a small C11 library that keeps MuPDF behind a stable C ABI suitable for native callers and .NET P/Invoke.
 
-The v2 foundation targets **MuPDF 1.28.2**. It replaces the original 2015 MuPDF 1.3 proof of concept with explicit document ownership, stable status handling, deterministic tests, CMake/CTest, and exact-head Windows/Linux/macOS CI.
+The v2 implementation targets **MuPDF 1.28.2**. It replaces the original 2015 MuPDF 1.3 proof of concept with explicit ownership, stable status handling, deterministic tests, CMake/CTest, and exact-head Windows/Linux/macOS CI.
 
-## Phase 1 API
+## Current v2 API
+
+Document lifecycle remains the root of the API:
 
 ```c
 #include <extractpdf/extractpdf.h>
@@ -20,27 +22,110 @@ if (extractpdf_open("file.pdf", NULL, &doc) == EXTRACTPDF_OK) {
 }
 ```
 
-Phase 1 exports only:
+Page + Render adds opaque page and bitmap handles:
 
-- `extractpdf_open`
-- `extractpdf_page_count`
-- `extractpdf_status_string`
-- `extractpdf_close`
+```c
+extractpdf_page *page = NULL;
+extractpdf_bitmap *bitmap = NULL;
+int width, height, stride, components;
 
-Text extraction is Phase 2. Page-observed image extraction is Phase 3.
+if (extractpdf_load_page(doc, 0, &page) == EXTRACTPDF_OK) {
+    if (extractpdf_render_page(page, &bitmap) == EXTRACTPDF_OK) {
+        extractpdf_bitmap_dimensions(
+            bitmap, &width, &height, &stride, &components);
+        /* inspect bitmap data */
+        extractpdf_drop_bitmap(bitmap);
+    }
+    extractpdf_drop_page(page);
+}
+```
+
+The current supported surface includes:
+
+- document open / password authentication / page count / close
+- opaque page load / drop
+- page bounds plus MediaBox/CropBox bounds
+- RGB and RGBA page rendering
+- DPI/zoom, rotation, and page-space clipping
+- aspect-preserving thumbnail rendering
+- bitmap dimensions and borrowed sample access
+- stable status strings
+
+Plain UTF-8 text, structured text/search, page images, and links are tracked as the next Content phase in issue #2.
 
 ## API contract
 
 - The public header contains no MuPDF types.
 - Each `extractpdf_document` owns one MuPDF context and document.
+- `extractpdf_page` and `extractpdf_bitmap` borrow their parent document. The document must outlive all derived page and bitmap handles.
+- A bitmap does not borrow its source page after rendering, so the page may be dropped before the bitmap, provided the document remains alive.
 - ExtractPDF keeps no mutable process-global or thread-local document state.
 - Input paths are UTF-8.
 - `password == NULL` means no password was supplied.
 - Missing or incorrect passwords return `EXTRACTPDF_ERROR_PASSWORD`.
 - `extractpdf_open` leaves the output handle NULL on failure.
-- `extractpdf_close(NULL)` is safe.
+- `extractpdf_close(NULL)`, `extractpdf_drop_page(NULL)`, and `extractpdf_drop_bitmap(NULL)` are safe.
 - MuPDF exceptions are caught inside the library and translated to `extractpdf_status`.
-- Phase 1 is deliberately single-threaded. Separate handles may coexist and be used sequentially/interleaved on one thread; concurrent MuPDF calls are not yet part of the contract.
+- The current runtime contract is deliberately single-threaded. Separate handles may coexist and be used sequentially/interleaved on one thread; concurrent MuPDF calls are not yet part of the contract.
+
+## Page coordinates
+
+All public page rectangles use **Fitz page space** rather than raw PDF object coordinates:
+
+- the CropBox top-left is the page-space origin `(0, 0)`;
+- x increases to the right;
+- y increases downward;
+- values are page points before render scaling (`72 points = 1 inch`).
+
+`extractpdf_page_box_bounds(..., EXTRACTPDF_PAGE_BOX_MEDIA, ...)` may therefore have negative coordinates when MediaBox extends outside CropBox.
+
+This same page-space contract is intended for later text geometry, search quads, images, links, and annotations.
+
+Intrinsic format-specific rotation metadata is intentionally not part of the generic Page API. Fitz bounds already describe displayed page geometry; PDF `/Rotate`, if needed by callers, belongs in a later PDF-specific metadata surface. Rendering rotation is explicit and per-call.
+
+## Rendering
+
+The convenience call:
+
+```c
+extractpdf_render_page(page, &bitmap);
+```
+
+renders the full page at 72 DPI, zero additional rotation, opaque DeviceRGB, and a white background.
+
+For explicit rendering use a versioned options struct:
+
+```c
+extractpdf_render_options options = {
+    sizeof(extractpdf_render_options),
+    144.0f, /* dpi */
+    0.0f,   /* rotation_degrees */
+    0,      /* clip_enabled */
+    { 0 },  /* clip in Fitz page space */
+    0       /* alpha */
+};
+
+extractpdf_render_page_with_options(page, &options, &bitmap);
+```
+
+`struct_size` is part of the ABI contract. Callers should initialize it to the size of the struct they compiled against. New fields are append-only; the library ignores fields beyond the caller-provided size so older binaries retain their original defaults.
+
+`dpi` is the canonical zoom/resolution input: 72 DPI is scale 1.0, 144 DPI is scale 2.0. Rotation is in degrees and is applied only to that render call. When clipping is enabled, `clip` is expressed in Fitz page space and is transformed by the same DPI/rotation matrix; ExtractPDF renders directly into the clipped device bbox rather than allocating a full-page intermediate image.
+
+`alpha` accepts only 0 or 1:
+
+- `0`: 8-bit interleaved RGB, opaque white untouched pixels;
+- `1`: 8-bit interleaved RGBA, transparent untouched pixels.
+
+RGBA samples produced by the renderer use **premultiplied alpha**, matching MuPDF's rendered pixmap contract. `stride` returned by `extractpdf_bitmap_dimensions` is the authoritative byte distance between rows; callers must not assume a different packing rule. The pointer returned by `extractpdf_bitmap_data` is borrowed read-only storage and remains valid only until `extractpdf_drop_bitmap`.
+
+## Thumbnails
+
+```c
+extractpdf_render_thumbnail(page, max_width, max_height, &bitmap);
+```
+
+renders opaque RGB while preserving the page aspect ratio. The result fits inside the requested pixel box and never upscales beyond the page's 72-DPI size. Thumbnail rendering derives a DPI and reuses the same renderer rather than maintaining a separate raster path.
 
 ## Dependency model
 
@@ -69,7 +154,7 @@ Only the `extractpdf_*` ABI is exported by the wrapper.
 
 ## Build with vcpkg
 
-Set `VCPKG_ROOT` to a vcpkg checkout compatible with the baseline in `vcpkg.json`. CI bootstraps the exact baseline commit declared by the repository workflow.
+Set `VCPKG_ROOT` to a vcpkg checkout compatible with the baseline in `vcpkg.json`. CI bootstraps the exact pinned commit declared by the repository workflow.
 
 ### Linux x64
 
@@ -90,23 +175,7 @@ ctest --test-dir build --output-on-failure
 
 ### macOS
 
-Use `arm64-osx` on Apple Silicon or `x64-osx` on Intel, then run the same manifest/overlay flow. For example:
-
-```sh
-triplet=arm64-osx
-"$VCPKG_ROOT/vcpkg" install \
-  --triplet "$triplet" \
-  --overlay-ports="$PWD/vcpkg-ports"
-
-cmake -S . -B build \
-  -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
-  -DVCPKG_TARGET_TRIPLET="$triplet" \
-  -DVCPKG_OVERLAY_PORTS="$PWD/vcpkg-ports" \
-  -DBUILD_SHARED_LIBS=OFF
-
-cmake --build build
-ctest --test-dir build --output-on-failure
-```
+Use `arm64-osx` on Apple Silicon or `x64-osx` on Intel, then run the same manifest/overlay flow.
 
 ### Windows x64 DLL
 
@@ -125,25 +194,25 @@ cmake --build build --config Release
 ctest --test-dir build -C Release --output-on-failure
 ```
 
-The test build stages `extractpdf.dll` beside the Windows test executables. Consumers are responsible for deploying `extractpdf.dll` beside their executable or otherwise making it available through normal Windows DLL search rules.
+The test build stages `extractpdf.dll` beside every Windows test executable. Consumers are responsible for deploying `extractpdf.dll` beside their executable or otherwise making it available through normal Windows DLL search rules.
 
 ## Tests
 
-CTest covers the Phase 1 contract, including invalid arguments, missing files, one/two-page counts, encrypted PDFs with missing/wrong/correct passwords, malformed input, 100 repeated open/count/close cycles, interleaved independent handles, `close(NULL)`, and a UTF-8 filename.
+CTest covers the document lifecycle plus Page + Render contracts, including invalid arguments, page geometry, MediaBox/CropBox coordinates, RGB/RGBA output, versioned render options, DPI, rotation, clipping, thumbnails, encrypted PDFs, malformed input, repeated lifecycle stress, interleaved handles, and UTF-8 paths.
 
-Linux additionally runs AddressSanitizer and UndefinedBehaviorSanitizer. Windows tests have explicit runtime bounds so a loader or lifecycle regression cannot occupy CI indefinitely.
+Linux additionally runs AddressSanitizer and UndefinedBehaviorSanitizer.
 
 ## CI
 
-Feature branches are validated by the pull-request workflow. `master` is validated again on push after merge. All three desktop jobs bootstrap the same pinned vcpkg baseline and consume the same MuPDF 1.28.2 overlay port.
+Normal pull-request updates use Linux as the fast development loop. Windows and macOS are reserved for explicit `full-ci` checkpoints, manual workflow dispatch, and pushes to `master`.
 
-The supported proof is always the CI result on the **exact PR head SHA**; an older green run is not considered evidence for a newer head.
+The workflow persists vcpkg binary packages through GitHub Actions cache, keyed by OS/architecture, pinned vcpkg commit, manifest, and overlay content. This avoids rebuilding the MuPDF/HarfBuzz/FreeType dependency graph on each RED/GREEN iteration while leaving vcpkg's package ABI checks authoritative.
+
+A feature is not considered cross-platform complete until Linux, macOS, and Windows pass on the same exact head SHA. Older green runs do not satisfy acceptance for a newer head.
 
 ## Legacy implementation
 
 The root `libpdf.c` is the original MuPDF 1.3 experiment from 2015. It remains untouched during the v2 migration for historical reference and is not the supported v2 API.
-
-After the v2 lifecycle, text, and image surfaces are covered, it can be moved intact under `legacy/` as a separate migration step.
 
 ## License
 
