@@ -6,9 +6,51 @@ on:
       - refactor/v2-modern-mupdf
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: extractpdf-v2-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   linux:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build MuPDF 1.28.2
+        shell: bash
+        run: |
+          git clone --branch 1.28.2 --depth 1 --recurse-submodules https://github.com/ArtifexSoftware/mupdf.git "$RUNNER_TEMP/mupdf"
+          make -C "$RUNNER_TEMP/mupdf" -j2 build=release HAVE_LIBCRYPTO=no libs
+
+      - name: Configure static build
+        run: cmake -S . -B build -DMUPDF_ROOT="$RUNNER_TEMP/mupdf" -DBUILD_SHARED_LIBS=OFF
+
+      - name: Build static library and tests
+        run: cmake --build build --parallel 2
+
+      - name: Test static build
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Configure sanitizer build
+        shell: bash
+        run: |
+          cmake -S . -B build-asan \
+            -DMUPDF_ROOT="$RUNNER_TEMP/mupdf" \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+
+      - name: Build sanitizer configuration
+        run: cmake --build build-asan --parallel 2
+
+      - name: Test sanitizer configuration
+        run: ctest --test-dir build-asan --output-on-failure
+
+  macos:
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -26,3 +68,32 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout MuPDF 1.28.2
+        shell: pwsh
+        run: |
+          git clone --branch 1.28.2 --depth 1 --recurse-submodules https://github.com/ArtifexSoftware/mupdf.git "$env:RUNNER_TEMP\mupdf"
+
+      - name: Build MuPDF DLL client library
+        shell: pwsh
+        run: |
+          msbuild "$env:RUNNER_TEMP\mupdf\platform\win32\mupdfcpp.vcxproj" /m /p:Configuration=Release /p:Platform=x64
+
+      - name: Configure shared build
+        shell: pwsh
+        run: |
+          cmake -S . -B build -A x64 -DMUPDF_ROOT="$env:RUNNER_TEMP\mupdf" -DBUILD_SHARED_LIBS=ON
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Test
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:RUNNER_TEMP\mupdf\platform\win32\x64\Release;$env:PATH"
+          ctest --test-dir build -C Release --output-on-failure
