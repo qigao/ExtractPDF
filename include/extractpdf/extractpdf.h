@@ -19,6 +19,7 @@ extern "C" {
 
 typedef struct extractpdf_document extractpdf_document;
 typedef struct extractpdf_page extractpdf_page;
+typedef struct extractpdf_bitmap extractpdf_bitmap;
 
 typedef struct extractpdf_rect {
     float x0;
@@ -66,8 +67,27 @@ EXTRACTPDF_API extractpdf_status extractpdf_page_box_bounds(
     extractpdf_page_box box,
     extractpdf_rect *out_bounds);
 
+EXTRACTPDF_API extractpdf_status extractpdf_render_page(
+    extractpdf_page *page,
+    extractpdf_bitmap **out_bitmap);
+
+EXTRACTPDF_API extractpdf_status extractpdf_bitmap_dimensions(
+    extractpdf_bitmap *bitmap,
+    int *out_width,
+    int *out_height,
+    int *out_stride,
+    int *out_components);
+
+EXTRACTPDF_API extractpdf_status extractpdf_bitmap_data(
+    extractpdf_bitmap *bitmap,
+    const unsigned char **out_data,
+    size_t *out_size);
+
 EXTRACTPDF_API const char *extractpdf_status_string(
     extractpdf_status status);
+
+EXTRACTPDF_API void extractpdf_drop_bitmap(
+    extractpdf_bitmap *bitmap);
 
 EXTRACTPDF_API void extractpdf_drop_page(
     extractpdf_page *page);
