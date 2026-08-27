@@ -184,17 +184,18 @@ static void test_page_box_bounds(void)
     CHECK(extractpdf_page_box_bounds(page, EXTRACTPDF_PAGE_BOX_MEDIA, NULL) == EXTRACTPDF_ERROR_ARGUMENT);
     CHECK(extractpdf_page_box_bounds(page, (extractpdf_page_box)99, &sentinel) == EXTRACTPDF_ERROR_ARGUMENT);
 
+    /* Box bounds use MuPDF/Fitz page space: CropBox top-left is (0,0), y increases down. */
     CHECK(extractpdf_page_box_bounds(page, EXTRACTPDF_PAGE_BOX_MEDIA, &media) == EXTRACTPDF_OK);
-    CHECK(media.x0 == 0.0f);
-    CHECK(media.y0 == 0.0f);
-    CHECK(media.x1 == 200.0f);
-    CHECK(media.y1 == 100.0f);
+    CHECK(media.x0 == -10.0f);
+    CHECK(media.y0 == -20.0f);
+    CHECK(media.x1 == 190.0f);
+    CHECK(media.y1 == 80.0f);
 
     CHECK(extractpdf_page_box_bounds(page, EXTRACTPDF_PAGE_BOX_CROP, &crop) == EXTRACTPDF_OK);
-    CHECK(crop.x0 == 10.0f);
-    CHECK(crop.y0 == 20.0f);
-    CHECK(crop.x1 == 190.0f);
-    CHECK(crop.y1 == 80.0f);
+    CHECK(crop.x0 == 0.0f);
+    CHECK(crop.y0 == 0.0f);
+    CHECK(crop.x1 == 180.0f);
+    CHECK(crop.y1 == 60.0f);
 
     extractpdf_drop_page(page);
     extractpdf_close(doc);
