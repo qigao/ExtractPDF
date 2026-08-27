@@ -95,6 +95,24 @@ int main(void)
     CHECK(bitmap == NULL);
     options.alpha = 0;
 
+    bitmap = (extractpdf_bitmap *)&sentinel;
+    CHECK(extractpdf_render_thumbnail(NULL, 144, 144, &bitmap) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(bitmap == NULL);
+    CHECK(extractpdf_render_thumbnail(page, 0, 144, &bitmap) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(bitmap == NULL);
+    CHECK(extractpdf_render_thumbnail(page, 144, 0, &bitmap) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(bitmap == NULL);
+    CHECK(extractpdf_render_thumbnail(page, 144, 144, NULL) == EXTRACTPDF_ERROR_ARGUMENT);
+
+    /* Thumbnail policy never upscales above the page's 72-DPI size. */
+    CHECK(extractpdf_render_thumbnail(page, 144, 144, &bitmap) == EXTRACTPDF_OK);
+    CHECK(extractpdf_bitmap_dimensions(bitmap, &width, &height, &stride, &components) == EXTRACTPDF_OK);
+    CHECK(width == 72);
+    CHECK(height == 72);
+    CHECK(stride == 72 * 3);
+    CHECK(components == 3);
+    extractpdf_drop_bitmap(bitmap);
+
     extractpdf_drop_page(page);
     extractpdf_close(doc);
 
@@ -191,6 +209,25 @@ int main(void)
     bitmap = (extractpdf_bitmap *)&sentinel;
     CHECK(extractpdf_render_page_with_options(page, &options, &bitmap) == EXTRACTPDF_ERROR_ARGUMENT);
     CHECK(bitmap == NULL);
+
+    /* Fit within the requested pixel box while preserving aspect ratio. */
+    bitmap = NULL;
+    CHECK(extractpdf_render_thumbnail(page, 90, 90, &bitmap) == EXTRACTPDF_OK);
+    CHECK(extractpdf_bitmap_dimensions(bitmap, &width, &height, &stride, &components) == EXTRACTPDF_OK);
+    CHECK(width == 90);
+    CHECK(height == 30);
+    CHECK(stride == 90 * 3);
+    CHECK(components == 3);
+    extractpdf_drop_bitmap(bitmap);
+
+    bitmap = NULL;
+    CHECK(extractpdf_render_thumbnail(page, 100, 20, &bitmap) == EXTRACTPDF_OK);
+    CHECK(extractpdf_bitmap_dimensions(bitmap, &width, &height, &stride, &components) == EXTRACTPDF_OK);
+    CHECK(width == 60);
+    CHECK(height == 20);
+    CHECK(stride == 60 * 3);
+    CHECK(components == 3);
+    extractpdf_drop_bitmap(bitmap);
 
     extractpdf_drop_page(page);
     extractpdf_close(doc);
