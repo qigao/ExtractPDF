@@ -44,6 +44,7 @@ set_tests_properties(extractpdf.text PROPERTIES TIMEOUT 30)
 add_executable(extractpdf_test_structured_text test_structured_text.c)
 target_link_libraries(extractpdf_test_structured_text PRIVATE ExtractPDF::ExtractPDF)
 target_compile_definitions(extractpdf_test_structured_text PRIVATE
+  ONE_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
   STRUCTURED_TEXT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/structured-text.pdf")
 add_test(NAME extractpdf.structured_text COMMAND extractpdf_test_structured_text)
 set_tests_properties(extractpdf.structured_text PROPERTIES TIMEOUT 30)
