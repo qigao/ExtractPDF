@@ -389,8 +389,11 @@ extractpdf_status extractpdf_text_get_block_info(
         return EXTRACTPDF_ERROR_ARGUMENT;
     minimum_size = offsetof(extractpdf_text_block_info, bounds) +
         sizeof(out_info->bounds);
-    if (out_info->struct_size < minimum_size ||
-        text == NULL || block_index >= text->block_count)
+    if (out_info->struct_size < minimum_size)
+        return EXTRACTPDF_ERROR_ARGUMENT;
+
+    out_info->bounds = (extractpdf_rect){ 0 };
+    if (text == NULL || block_index >= text->block_count)
         return EXTRACTPDF_ERROR_ARGUMENT;
 
     out_info->bounds = text->blocks[block_index].bounds;
@@ -442,6 +445,11 @@ extractpdf_status extractpdf_text_get_line_info(
         sizeof(out_info->writing_mode);
     if (out_info->struct_size < minimum_size)
         return EXTRACTPDF_ERROR_ARGUMENT;
+
+    out_info->bounds = (extractpdf_rect){ 0 };
+    out_info->direction_x = 0.0f;
+    out_info->direction_y = 0.0f;
+    out_info->writing_mode = 0;
 
     line = extractpdf_lookup_line(text, block_index, line_index);
     if (line == NULL)
@@ -504,6 +512,11 @@ extractpdf_status extractpdf_text_get_span_info(
         sizeof(out_info->bidi_level);
     if (out_info->struct_size < minimum_size)
         return EXTRACTPDF_ERROR_ARGUMENT;
+
+    out_info->bounds = (extractpdf_rect){ 0 };
+    out_info->font_size = 0.0f;
+    out_info->argb = 0;
+    out_info->bidi_level = 0;
 
     span = extractpdf_lookup_span(text, block_index, line_index, span_index);
     if (span == NULL)
