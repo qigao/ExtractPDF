@@ -3,17 +3,9 @@ project(ExtractPDF VERSION 2.0.0 LANGUAGES C)
 
 option(EXTRACTPDF_BUILD_TESTS "Build ExtractPDF tests" ON)
 
-if(POLICY CMP0144)
-  cmake_policy(SET CMP0144 NEW)
-endif()
-
-find_package(unofficial-libmupdf CONFIG QUIET)
-if(TARGET unofficial::libmupdf::libmupdf)
-  set(EXTRACTPDF_MUPDF_TARGET unofficial::libmupdf::libmupdf)
-else()
-  list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
-  find_package(MuPDF REQUIRED)
-  set(EXTRACTPDF_MUPDF_TARGET MuPDF::MuPDF)
+find_package(unofficial-libmupdf CONFIG REQUIRED)
+if(NOT TARGET unofficial::libmupdf::libmupdf)
+  message(FATAL_ERROR "unofficial-libmupdf did not provide unofficial::libmupdf::libmupdf")
 endif()
 
 add_library(extractpdf
@@ -24,7 +16,7 @@ target_compile_features(extractpdf PUBLIC c_std_11)
 target_include_directories(extractpdf PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
-target_link_libraries(extractpdf PRIVATE ${EXTRACTPDF_MUPDF_TARGET})
+target_link_libraries(extractpdf PRIVATE unofficial::libmupdf::libmupdf)
 
 if(BUILD_SHARED_LIBS)
   target_compile_definitions(extractpdf
