@@ -224,6 +224,11 @@ EXTRACTPDF_API extractpdf_status extractpdf_image_get_info(
     size_t index,
     extractpdf_image_info *out_info);
 
+EXTRACTPDF_API extractpdf_status extractpdf_image_render(
+    const extractpdf_image_page *images,
+    size_t index,
+    extractpdf_bitmap **out_bitmap);
+
 EXTRACTPDF_API const char *extractpdf_status_string(
     extractpdf_status status);
 
