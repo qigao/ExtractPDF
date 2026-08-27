@@ -41,12 +41,21 @@ target_compile_definitions(extractpdf_test_text PRIVATE
 add_test(NAME extractpdf.text COMMAND extractpdf_test_text)
 set_tests_properties(extractpdf.text PROPERTIES TIMEOUT 30)
 
+add_executable(extractpdf_test_structured_text test_structured_text.c)
+target_link_libraries(extractpdf_test_structured_text PRIVATE ExtractPDF::ExtractPDF)
+target_compile_definitions(extractpdf_test_structured_text PRIVATE
+  ONE_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
+  STRUCTURED_TEXT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/structured-text.pdf")
+add_test(NAME extractpdf.structured_text COMMAND extractpdf_test_structured_text)
+set_tests_properties(extractpdf.structured_text PROPERTIES TIMEOUT 30)
+
 if(WIN32 AND BUILD_SHARED_LIBS)
   foreach(test_target IN ITEMS
       extractpdf_test_status
       extractpdf_test_document
       extractpdf_test_render
-      extractpdf_test_text)
+      extractpdf_test_text
+      extractpdf_test_structured_text)
     add_custom_command(TARGET ${test_target} POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E copy_if_different
         $<TARGET_FILE:extractpdf>

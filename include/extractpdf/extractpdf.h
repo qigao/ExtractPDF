@@ -2,6 +2,7 @@
 #define EXTRACTPDF_EXTRACTPDF_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -20,6 +21,7 @@ extern "C" {
 typedef struct extractpdf_document extractpdf_document;
 typedef struct extractpdf_page extractpdf_page;
 typedef struct extractpdf_bitmap extractpdf_bitmap;
+typedef struct extractpdf_text_page extractpdf_text_page;
 
 typedef struct extractpdf_rect {
     float x0;
@@ -41,6 +43,27 @@ typedef struct extractpdf_render_options {
     extractpdf_rect clip;
     int alpha;
 } extractpdf_render_options;
+
+typedef struct extractpdf_text_block_info {
+    size_t struct_size;
+    extractpdf_rect bounds;
+} extractpdf_text_block_info;
+
+typedef struct extractpdf_text_line_info {
+    size_t struct_size;
+    extractpdf_rect bounds;
+    float direction_x;
+    float direction_y;
+    int writing_mode;
+} extractpdf_text_line_info;
+
+typedef struct extractpdf_text_span_info {
+    size_t struct_size;
+    extractpdf_rect bounds;
+    float font_size;
+    uint32_t argb;
+    uint32_t bidi_level;
+} extractpdf_text_span_info;
 
 typedef enum extractpdf_status {
     EXTRACTPDF_OK = 0,
@@ -108,11 +131,59 @@ EXTRACTPDF_API extractpdf_status extractpdf_extract_text(
     char **out_utf8,
     size_t *out_size);
 
+EXTRACTPDF_API extractpdf_status extractpdf_extract_structured_text(
+    extractpdf_page *page,
+    extractpdf_text_page **out_text);
+
+EXTRACTPDF_API extractpdf_status extractpdf_text_block_count(
+    const extractpdf_text_page *text,
+    size_t *out_count);
+
+EXTRACTPDF_API extractpdf_status extractpdf_text_get_block_info(
+    const extractpdf_text_page *text,
+    size_t block_index,
+    extractpdf_text_block_info *out_info);
+
+EXTRACTPDF_API extractpdf_status extractpdf_text_line_count(
+    const extractpdf_text_page *text,
+    size_t block_index,
+    size_t *out_count);
+
+EXTRACTPDF_API extractpdf_status extractpdf_text_get_line_info(
+    const extractpdf_text_page *text,
+    size_t block_index,
+    size_t line_index,
+    extractpdf_text_line_info *out_info);
+
+EXTRACTPDF_API extractpdf_status extractpdf_text_span_count(
+    const extractpdf_text_page *text,
+    size_t block_index,
+    size_t line_index,
+    size_t *out_count);
+
+EXTRACTPDF_API extractpdf_status extractpdf_text_get_span_info(
+    const extractpdf_text_page *text,
+    size_t block_index,
+    size_t line_index,
+    size_t span_index,
+    extractpdf_text_span_info *out_info);
+
+EXTRACTPDF_API extractpdf_status extractpdf_text_span_text(
+    const extractpdf_text_page *text,
+    size_t block_index,
+    size_t line_index,
+    size_t span_index,
+    const char **out_utf8,
+    size_t *out_size);
+
 EXTRACTPDF_API const char *extractpdf_status_string(
     extractpdf_status status);
 
 EXTRACTPDF_API void extractpdf_free(
     void *memory);
+
+EXTRACTPDF_API void extractpdf_drop_text_page(
+    extractpdf_text_page *text);
 
 EXTRACTPDF_API void extractpdf_drop_bitmap(
     extractpdf_bitmap *bitmap);
