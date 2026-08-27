@@ -1,4 +1,6 @@
 #include <extractpdf/extractpdf.h>
+#include <math.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -18,7 +20,7 @@ int main(void)
     extractpdf_document *doc = NULL;
     extractpdf_page *page = NULL;
     extractpdf_bitmap *bitmap = (extractpdf_bitmap *)&sentinel;
-    extractpdf_render_options options = { sizeof(options), 144.0f };
+    extractpdf_render_options options = { sizeof(options), 144.0f, 0.0f };
     int width = 0;
     int height = 0;
     int stride = 0;
@@ -54,6 +56,41 @@ int main(void)
     CHECK(components == 3);
 
     extractpdf_drop_bitmap(bitmap);
+    extractpdf_drop_page(page);
+    extractpdf_close(doc);
+
+    doc = NULL;
+    page = NULL;
+    bitmap = NULL;
+    CHECK(extractpdf_open(PAGE_BOXES_PDF, NULL, &doc) == EXTRACTPDF_OK);
+    CHECK(extractpdf_load_page(doc, 0, &page) == EXTRACTPDF_OK);
+
+    /* A caller using the v1 struct size gets the new field's default behavior. */
+    options.struct_size = offsetof(extractpdf_render_options, rotation_degrees);
+    options.dpi = 72.0f;
+    options.rotation_degrees = 90.0f;
+    CHECK(extractpdf_render_page_with_options(page, &options, &bitmap) == EXTRACTPDF_OK);
+    CHECK(extractpdf_bitmap_dimensions(bitmap, &width, &height, &stride, &components) == EXTRACTPDF_OK);
+    CHECK(width == 180);
+    CHECK(height == 60);
+    extractpdf_drop_bitmap(bitmap);
+
+    options.struct_size = sizeof(options);
+    options.rotation_degrees = 90.0f;
+    bitmap = NULL;
+    CHECK(extractpdf_render_page_with_options(page, &options, &bitmap) == EXTRACTPDF_OK);
+    CHECK(extractpdf_bitmap_dimensions(bitmap, &width, &height, &stride, &components) == EXTRACTPDF_OK);
+    CHECK(width == 60);
+    CHECK(height == 180);
+    CHECK(stride == 60 * 3);
+    CHECK(components == 3);
+    extractpdf_drop_bitmap(bitmap);
+
+    options.rotation_degrees = NAN;
+    bitmap = (extractpdf_bitmap *)&sentinel;
+    CHECK(extractpdf_render_page_with_options(page, &options, &bitmap) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(bitmap == NULL);
+
     extractpdf_drop_page(page);
     extractpdf_close(doc);
     return EXIT_SUCCESS;
