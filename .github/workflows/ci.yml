@@ -28,6 +28,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg-binary-cache
+          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json', 'vcpkg-ports/**') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-
+
       - name: Bootstrap pinned vcpkg
         shell: bash
         run: |
@@ -40,7 +48,10 @@ jobs:
 
       - name: Install MuPDF 1.28.2 with vcpkg
         shell: bash
+        env:
+          VCPKG_DEFAULT_BINARY_CACHE: ${{ runner.temp }}/vcpkg-binary-cache
         run: |
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
           "$VCPKG_ROOT/vcpkg" install \
             --triplet x64-linux \
             --overlay-ports="$GITHUB_WORKSPACE/vcpkg-ports"
@@ -62,6 +73,8 @@ jobs:
 
       - name: Configure sanitizer build
         shell: bash
+        env:
+          VCPKG_DEFAULT_BINARY_CACHE: ${{ runner.temp }}/vcpkg-binary-cache
         run: |
           cmake -S . -B build-asan \
             -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
@@ -88,6 +101,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg-binary-cache
+          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json', 'vcpkg-ports/**') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-
+
       - name: Bootstrap pinned vcpkg
         shell: bash
         run: |
@@ -110,7 +131,10 @@ jobs:
 
       - name: Install MuPDF 1.28.2 with vcpkg
         shell: bash
+        env:
+          VCPKG_DEFAULT_BINARY_CACHE: ${{ runner.temp }}/vcpkg-binary-cache
         run: |
+          mkdir -p "$VCPKG_DEFAULT_BINARY_CACHE"
           "$VCPKG_ROOT/vcpkg" install \
             --triplet "$VCPKG_TRIPLET" \
             --overlay-ports="$GITHUB_WORKSPACE/vcpkg-ports"
@@ -141,6 +165,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg-binary-cache
+          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json', 'vcpkg-ports/**') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-
+
       - name: Bootstrap pinned vcpkg
         shell: pwsh
         run: |
@@ -154,7 +186,10 @@ jobs:
 
       - name: Install static MuPDF 1.28.2 with vcpkg
         shell: pwsh
+        env:
+          VCPKG_DEFAULT_BINARY_CACHE: ${{ runner.temp }}/vcpkg-binary-cache
         run: |
+          New-Item -ItemType Directory -Force -Path $env:VCPKG_DEFAULT_BINARY_CACHE | Out-Null
           & "$env:VCPKG_ROOT\vcpkg.exe" install `
             --triplet x64-windows-static-md `
             --overlay-ports="$env:GITHUB_WORKSPACE\vcpkg-ports"
