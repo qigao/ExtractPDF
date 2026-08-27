@@ -79,6 +79,15 @@ target_compile_definitions(extractpdf_test_links PRIVATE
 add_test(NAME extractpdf.links COMMAND extractpdf_test_links)
 set_tests_properties(extractpdf.links PROPERTIES TIMEOUT 30)
 
+add_executable(extractpdf_test_pdf_export test_pdf_export.c)
+target_link_libraries(extractpdf_test_pdf_export PRIVATE ExtractPDF::ExtractPDF)
+target_compile_definitions(extractpdf_test_pdf_export PRIVATE
+  COMPOSITION_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-three-page.pdf"
+  COMPOSITION_NON_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-non-pdf.txt"
+  COMPOSITION_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/composition-export-output.pdf")
+add_test(NAME extractpdf.pdf_export COMMAND extractpdf_test_pdf_export)
+set_tests_properties(extractpdf.pdf_export PROPERTIES TIMEOUT 30)
+
 if(WIN32 AND BUILD_SHARED_LIBS)
   foreach(test_target IN ITEMS
       extractpdf_test_status
@@ -89,7 +98,8 @@ if(WIN32 AND BUILD_SHARED_LIBS)
       extractpdf_test_text_search
       extractpdf_test_images
       extractpdf_test_image_bitmap
-      extractpdf_test_links)
+      extractpdf_test_links
+      extractpdf_test_pdf_export)
     add_custom_command(TARGET ${test_target} POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E copy_if_different
         $<TARGET_FILE:extractpdf>
