@@ -27,6 +27,11 @@ typedef struct extractpdf_rect {
     float y1;
 } extractpdf_rect;
 
+typedef enum extractpdf_page_box {
+    EXTRACTPDF_PAGE_BOX_MEDIA = 0,
+    EXTRACTPDF_PAGE_BOX_CROP = 1
+} extractpdf_page_box;
+
 typedef enum extractpdf_status {
     EXTRACTPDF_OK = 0,
     EXTRACTPDF_ERROR_ARGUMENT = 1,
@@ -54,6 +59,11 @@ EXTRACTPDF_API extractpdf_status extractpdf_load_page(
 
 EXTRACTPDF_API extractpdf_status extractpdf_page_bounds(
     extractpdf_page *page,
+    extractpdf_rect *out_bounds);
+
+EXTRACTPDF_API extractpdf_status extractpdf_page_box_bounds(
+    extractpdf_page *page,
+    extractpdf_page_box box,
     extractpdf_rect *out_bounds);
 
 EXTRACTPDF_API const char *extractpdf_status_string(
