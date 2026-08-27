@@ -4,9 +4,10 @@
 #include <stddef.h>
 #include <stdlib.h>
 
-static extractpdf_status extractpdf_render_page_at_dpi(
+static extractpdf_status extractpdf_render_page_transformed(
     extractpdf_page *page,
     float dpi,
+    float rotation_degrees,
     extractpdf_bitmap **out_bitmap)
 {
     extractpdf_bitmap *bitmap;
@@ -17,7 +18,8 @@ static extractpdf_status extractpdf_render_page_at_dpi(
         return EXTRACTPDF_ERROR_ARGUMENT;
     *out_bitmap = NULL;
 
-    if (page == NULL || !isfinite(dpi) || dpi <= 0.0f)
+    if (page == NULL || !isfinite(dpi) || dpi <= 0.0f ||
+        !isfinite(rotation_degrees))
         return EXTRACTPDF_ERROR_ARGUMENT;
 
     bitmap = (extractpdf_bitmap *)calloc(1, sizeof(*bitmap));
@@ -26,6 +28,7 @@ static extractpdf_status extractpdf_render_page_at_dpi(
 
     bitmap->document = page->document;
     transform = fz_scale(dpi / 72.0f, dpi / 72.0f);
+    transform = fz_pre_rotate(transform, rotation_degrees);
     fz_var(caught_code);
 
     fz_try(page->document->ctx)
@@ -60,7 +63,7 @@ extractpdf_status extractpdf_render_page(
     extractpdf_page *page,
     extractpdf_bitmap **out_bitmap)
 {
-    return extractpdf_render_page_at_dpi(page, 72.0f, out_bitmap);
+    return extractpdf_render_page_transformed(page, 72.0f, 0.0f, out_bitmap);
 }
 
 extractpdf_status extractpdf_render_page_with_options(
@@ -69,6 +72,8 @@ extractpdf_status extractpdf_render_page_with_options(
     extractpdf_bitmap **out_bitmap)
 {
     size_t minimum_size;
+    size_t rotation_size;
+    float rotation_degrees = 0.0f;
 
     if (out_bitmap == NULL)
         return EXTRACTPDF_ERROR_ARGUMENT;
@@ -81,7 +86,16 @@ extractpdf_status extractpdf_render_page_with_options(
     if (options->struct_size < minimum_size)
         return EXTRACTPDF_ERROR_ARGUMENT;
 
-    return extractpdf_render_page_at_dpi(page, options->dpi, out_bitmap);
+    rotation_size = offsetof(extractpdf_render_options, rotation_degrees) +
+        sizeof(options->rotation_degrees);
+    if (options->struct_size >= rotation_size)
+        rotation_degrees = options->rotation_degrees;
+
+    return extractpdf_render_page_transformed(
+        page,
+        options->dpi,
+        rotation_degrees,
+        out_bitmap);
 }
 
 extractpdf_status extractpdf_bitmap_dimensions(
