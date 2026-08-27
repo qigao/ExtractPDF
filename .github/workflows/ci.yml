@@ -13,20 +13,40 @@ concurrency:
   group: extractpdf-v2-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
+env:
+  VCPKG_COMMIT: f74a2eade17a628413746557d04db25ccf6e76f9
+
 jobs:
   linux:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build MuPDF 1.28.2
+      - name: Bootstrap pinned vcpkg
         shell: bash
         run: |
-          git clone --branch 1.28.2 --depth 1 --recurse-submodules https://github.com/ArtifexSoftware/mupdf.git "$RUNNER_TEMP/mupdf"
-          make -C "$RUNNER_TEMP/mupdf" -j2 build=release HAVE_LIBCRYPTO=no libs
+          git init "$RUNNER_TEMP/vcpkg"
+          git -C "$RUNNER_TEMP/vcpkg" remote add origin https://github.com/microsoft/vcpkg.git
+          git -C "$RUNNER_TEMP/vcpkg" fetch --depth 1 origin "$VCPKG_COMMIT"
+          git -C "$RUNNER_TEMP/vcpkg" checkout --detach FETCH_HEAD
+          "$RUNNER_TEMP/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+          echo "VCPKG_ROOT=$RUNNER_TEMP/vcpkg" >> "$GITHUB_ENV"
+
+      - name: Install MuPDF 1.28.2 with vcpkg
+        shell: bash
+        run: |
+          "$VCPKG_ROOT/vcpkg" install \
+            --triplet x64-linux \
+            --overlay-ports="$GITHUB_WORKSPACE/vcpkg-ports"
 
       - name: Configure static build
-        run: cmake -S . -B build -DMUPDF_ROOT="$RUNNER_TEMP/mupdf" -DBUILD_SHARED_LIBS=OFF
+        shell: bash
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET=x64-linux \
+            -DVCPKG_OVERLAY_PORTS="$GITHUB_WORKSPACE/vcpkg-ports" \
+            -DBUILD_SHARED_LIBS=OFF
 
       - name: Build static library and tests
         run: cmake --build build --parallel 2
@@ -38,7 +58,9 @@ jobs:
         shell: bash
         run: |
           cmake -S . -B build-asan \
-            -DMUPDF_ROOT="$RUNNER_TEMP/mupdf" \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET=x64-linux \
+            -DVCPKG_OVERLAY_PORTS="$GITHUB_WORKSPACE/vcpkg-ports" \
             -DBUILD_SHARED_LIBS=OFF \
             -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
             -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
@@ -54,14 +76,41 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build MuPDF 1.28.2
+      - name: Bootstrap pinned vcpkg
         shell: bash
         run: |
-          git clone --branch 1.28.2 --depth 1 --recurse-submodules https://github.com/ArtifexSoftware/mupdf.git "$RUNNER_TEMP/mupdf"
-          make -C "$RUNNER_TEMP/mupdf" -j2 build=release HAVE_LIBCRYPTO=no libs
+          git init "$RUNNER_TEMP/vcpkg"
+          git -C "$RUNNER_TEMP/vcpkg" remote add origin https://github.com/microsoft/vcpkg.git
+          git -C "$RUNNER_TEMP/vcpkg" fetch --depth 1 origin "$VCPKG_COMMIT"
+          git -C "$RUNNER_TEMP/vcpkg" checkout --detach FETCH_HEAD
+          "$RUNNER_TEMP/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+          echo "VCPKG_ROOT=$RUNNER_TEMP/vcpkg" >> "$GITHUB_ENV"
+
+      - name: Select vcpkg triplet
+        shell: bash
+        run: |
+          case "$(uname -m)" in
+            arm64) triplet=arm64-osx ;;
+            x86_64) triplet=x64-osx ;;
+            *) echo "Unsupported macOS architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          echo "VCPKG_TRIPLET=$triplet" >> "$GITHUB_ENV"
+
+      - name: Install MuPDF 1.28.2 with vcpkg
+        shell: bash
+        run: |
+          "$VCPKG_ROOT/vcpkg" install \
+            --triplet "$VCPKG_TRIPLET" \
+            --overlay-ports="$GITHUB_WORKSPACE/vcpkg-ports"
 
       - name: Configure
-        run: cmake -S . -B build -DMUPDF_ROOT="$RUNNER_TEMP/mupdf" -DBUILD_SHARED_LIBS=OFF
+        shell: bash
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET="$VCPKG_TRIPLET" \
+            -DVCPKG_OVERLAY_PORTS="$GITHUB_WORKSPACE/vcpkg-ports" \
+            -DBUILD_SHARED_LIBS=OFF
 
       - name: Build
         run: cmake --build build --parallel 2
@@ -74,16 +123,29 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Bootstrap pinned vcpkg
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "vcpkg"
+          git init $root
+          git -C $root remote add origin https://github.com/microsoft/vcpkg.git
+          git -C $root fetch --depth 1 origin $env:VCPKG_COMMIT
+          git -C $root checkout --detach FETCH_HEAD
+          & "$root\bootstrap-vcpkg.bat" -disableMetrics
+          "VCPKG_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
       - name: Install static MuPDF 1.28.2 with vcpkg
         shell: pwsh
         run: |
-          vcpkg install libmupdf:x64-windows-static-md --overlay-ports="$env:GITHUB_WORKSPACE\vcpkg-ports"
+          & "$env:VCPKG_ROOT\vcpkg.exe" install `
+            --triplet x64-windows-static-md `
+            --overlay-ports="$env:GITHUB_WORKSPACE\vcpkg-ports"
 
       - name: Configure ExtractPDF DLL
         shell: pwsh
         run: |
           cmake -S . -B build -A x64 `
-            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=x64-windows-static-md `
             -DVCPKG_OVERLAY_PORTS="$env:GITHUB_WORKSPACE\vcpkg-ports" `
             -DBUILD_SHARED_LIBS=ON
