@@ -1,0 +1,28 @@
+name: ExtractPDF v2 foundation
+
+on:
+  push:
+    branches:
+      - refactor/v2-modern-mupdf
+  pull_request:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build MuPDF 1.28.2
+        shell: bash
+        run: |
+          git clone --branch 1.28.2 --depth 1 --recurse-submodules https://github.com/ArtifexSoftware/mupdf.git "$RUNNER_TEMP/mupdf"
+          make -C "$RUNNER_TEMP/mupdf" -j2 build=release HAVE_LIBCRYPTO=no libs
+
+      - name: Configure
+        run: cmake -S . -B build -DMUPDF_ROOT="$RUNNER_TEMP/mupdf" -DBUILD_SHARED_LIBS=OFF
+
+      - name: Build
+        run: cmake --build build --parallel 2
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure

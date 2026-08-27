@@ -3,12 +3,18 @@ project(ExtractPDF VERSION 2.0.0 LANGUAGES C)
 
 option(EXTRACTPDF_BUILD_TESTS "Build ExtractPDF tests" ON)
 
-add_library(extractpdf src/status.c)
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+find_package(MuPDF REQUIRED)
+
+add_library(extractpdf
+  src/status.c
+  src/document.c)
 add_library(ExtractPDF::ExtractPDF ALIAS extractpdf)
 target_compile_features(extractpdf PUBLIC c_std_11)
 target_include_directories(extractpdf PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
+target_link_libraries(extractpdf PRIVATE MuPDF::MuPDF)
 
 if(MSVC)
   target_compile_options(extractpdf PRIVATE /W4 /WX)
