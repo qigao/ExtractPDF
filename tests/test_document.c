@@ -201,6 +201,58 @@ static void test_page_box_bounds(void)
     extractpdf_close(doc);
 }
 
+static void test_page_render(void)
+{
+    int sentinel = 0;
+    extractpdf_document *doc = NULL;
+    extractpdf_page *page = NULL;
+    extractpdf_bitmap *bitmap = (extractpdf_bitmap *)&sentinel;
+    int width = -1;
+    int height = -1;
+    int stride = -1;
+    int components = -1;
+    const unsigned char *data = NULL;
+    size_t size = 0;
+    size_t i;
+
+    trace_step("page render 72 dpi rgb");
+    CHECK(extractpdf_render_page(NULL, &bitmap) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(bitmap == NULL);
+
+    CHECK(extractpdf_open(ONE_PAGE_PDF, NULL, &doc) == EXTRACTPDF_OK);
+    CHECK(extractpdf_load_page(doc, 0, &page) == EXTRACTPDF_OK);
+    CHECK(extractpdf_render_page(page, NULL) == EXTRACTPDF_ERROR_ARGUMENT);
+
+    bitmap = NULL;
+    CHECK(extractpdf_render_page(page, &bitmap) == EXTRACTPDF_OK);
+    CHECK(bitmap != NULL);
+
+    /* The rendered bitmap does not depend on the page handle after creation. */
+    extractpdf_drop_page(page);
+    page = NULL;
+
+    CHECK(extractpdf_bitmap_dimensions(NULL, &width, &height, &stride, &components) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(extractpdf_bitmap_dimensions(bitmap, NULL, &height, &stride, &components) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(extractpdf_bitmap_dimensions(bitmap, &width, &height, &stride, &components) == EXTRACTPDF_OK);
+    CHECK(width == 72);
+    CHECK(height == 72);
+    CHECK(stride == 72 * 3);
+    CHECK(components == 3);
+
+    CHECK(extractpdf_bitmap_data(NULL, &data, &size) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(extractpdf_bitmap_data(bitmap, NULL, &size) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(extractpdf_bitmap_data(bitmap, &data, NULL) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(extractpdf_bitmap_data(bitmap, &data, &size) == EXTRACTPDF_OK);
+    CHECK(data != NULL);
+    CHECK(size == (size_t)stride * (size_t)height);
+    for (i = 0; i < size; ++i)
+        CHECK(data[i] == 255);
+
+    extractpdf_drop_bitmap(bitmap);
+    extractpdf_drop_bitmap(NULL);
+    extractpdf_close(doc);
+}
+
 static void test_utf8_path(void)
 {
     extractpdf_document *doc = NULL;
@@ -221,6 +273,7 @@ int main(void)
     test_page_lifecycle();
     test_page_bounds();
     test_page_box_bounds();
+    test_page_render();
     test_utf8_path();
     trace_step("close null");
     extractpdf_close(NULL);
