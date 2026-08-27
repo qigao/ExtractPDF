@@ -103,8 +103,16 @@ EXTRACTPDF_API extractpdf_status extractpdf_bitmap_data(
     const unsigned char **out_data,
     size_t *out_size);
 
+EXTRACTPDF_API extractpdf_status extractpdf_extract_text(
+    extractpdf_page *page,
+    char **out_utf8,
+    size_t *out_size);
+
 EXTRACTPDF_API const char *extractpdf_status_string(
     extractpdf_status status);
+
+EXTRACTPDF_API void extractpdf_free(
+    void *memory);
 
 EXTRACTPDF_API void extractpdf_drop_bitmap(
     extractpdf_bitmap *bitmap);
