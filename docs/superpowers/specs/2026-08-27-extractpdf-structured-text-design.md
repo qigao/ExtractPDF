@@ -44,6 +44,10 @@ typedef struct extractpdf_text_span_info {
 
 `extractpdf.h` therefore adds `<stdint.h>` but no MuPDF header or type.
 
+### C identifier rule
+
+C typedef names and function names share the ordinary identifier namespace. Therefore the accessor functions deliberately use `get_*_info` names rather than colliding with the `extractpdf_text_*_info` typedefs.
+
 ### Versioned output structs
 
 Each `*_info` call treats `struct_size` as caller input. V1 requires at least the V1 size (`offsetof(last_field) + sizeof(last_field)`). On success the library fills only fields known to its version and preserves `struct_size`. Future fields may be appended; future libraries must continue accepting the V1 size and only write fields present in the caller-provided size.
@@ -61,7 +65,7 @@ EXTRACTPDF_API extractpdf_status extractpdf_text_block_count(
     const extractpdf_text_page *text,
     size_t *out_count);
 
-EXTRACTPDF_API extractpdf_status extractpdf_text_block_info(
+EXTRACTPDF_API extractpdf_status extractpdf_text_get_block_info(
     const extractpdf_text_page *text,
     size_t block_index,
     extractpdf_text_block_info *out_info);
@@ -71,7 +75,7 @@ EXTRACTPDF_API extractpdf_status extractpdf_text_line_count(
     size_t block_index,
     size_t *out_count);
 
-EXTRACTPDF_API extractpdf_status extractpdf_text_line_info(
+EXTRACTPDF_API extractpdf_status extractpdf_text_get_line_info(
     const extractpdf_text_page *text,
     size_t block_index,
     size_t line_index,
@@ -83,7 +87,7 @@ EXTRACTPDF_API extractpdf_status extractpdf_text_span_count(
     size_t line_index,
     size_t *out_count);
 
-EXTRACTPDF_API extractpdf_status extractpdf_text_span_info(
+EXTRACTPDF_API extractpdf_status extractpdf_text_get_span_info(
     const extractpdf_text_page *text,
     size_t block_index,
     size_t line_index,
