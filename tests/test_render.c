@@ -21,6 +21,9 @@ int main(void)
     extractpdf_page *page = NULL;
     extractpdf_bitmap *bitmap = (extractpdf_bitmap *)&sentinel;
     extractpdf_render_options options = { sizeof(options), 144.0f, 0.0f, 0, { 0 } };
+    const unsigned char *data = NULL;
+    size_t data_size = 0;
+    size_t i;
     int width = 0;
     int height = 0;
     int stride = 0;
@@ -54,8 +57,44 @@ int main(void)
     CHECK(height == 144);
     CHECK(stride == 144 * 3);
     CHECK(components == 3);
-
     extractpdf_drop_bitmap(bitmap);
+
+    /* An older caller-provided options size must ignore a newer alpha field. */
+    options.struct_size = offsetof(extractpdf_render_options, alpha);
+    options.dpi = 72.0f;
+    options.rotation_degrees = 0.0f;
+    options.clip_enabled = 0;
+    options.alpha = 1;
+    bitmap = NULL;
+    CHECK(extractpdf_render_page_with_options(page, &options, &bitmap) == EXTRACTPDF_OK);
+    CHECK(extractpdf_bitmap_dimensions(bitmap, &width, &height, &stride, &components) == EXTRACTPDF_OK);
+    CHECK(width == 72);
+    CHECK(height == 72);
+    CHECK(stride == 72 * 3);
+    CHECK(components == 3);
+    extractpdf_drop_bitmap(bitmap);
+
+    options.struct_size = sizeof(options);
+    options.alpha = 1;
+    bitmap = NULL;
+    CHECK(extractpdf_render_page_with_options(page, &options, &bitmap) == EXTRACTPDF_OK);
+    CHECK(extractpdf_bitmap_dimensions(bitmap, &width, &height, &stride, &components) == EXTRACTPDF_OK);
+    CHECK(width == 72);
+    CHECK(height == 72);
+    CHECK(stride == 72 * 4);
+    CHECK(components == 4);
+    CHECK(extractpdf_bitmap_data(bitmap, &data, &data_size) == EXTRACTPDF_OK);
+    CHECK(data_size == (size_t)72 * 72 * 4);
+    for (i = 0; i < data_size; ++i)
+        CHECK(data[i] == 0);
+    extractpdf_drop_bitmap(bitmap);
+
+    options.alpha = 2;
+    bitmap = (extractpdf_bitmap *)&sentinel;
+    CHECK(extractpdf_render_page_with_options(page, &options, &bitmap) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(bitmap == NULL);
+    options.alpha = 0;
+
     extractpdf_drop_page(page);
     extractpdf_close(doc);
 
@@ -88,6 +127,7 @@ int main(void)
     options.struct_size = sizeof(options);
     options.rotation_degrees = 90.0f;
     options.clip_enabled = 0;
+    options.alpha = 0;
     bitmap = NULL;
     CHECK(extractpdf_render_page_with_options(page, &options, &bitmap) == EXTRACTPDF_OK);
     CHECK(extractpdf_bitmap_dimensions(bitmap, &width, &height, &stride, &components) == EXTRACTPDF_OK);
@@ -116,6 +156,21 @@ int main(void)
     CHECK(stride == 60 * 3);
     CHECK(components == 3);
     extractpdf_drop_bitmap(bitmap);
+
+    options.alpha = 1;
+    bitmap = NULL;
+    CHECK(extractpdf_render_page_with_options(page, &options, &bitmap) == EXTRACTPDF_OK);
+    CHECK(extractpdf_bitmap_dimensions(bitmap, &width, &height, &stride, &components) == EXTRACTPDF_OK);
+    CHECK(width == 60);
+    CHECK(height == 30);
+    CHECK(stride == 60 * 4);
+    CHECK(components == 4);
+    CHECK(extractpdf_bitmap_data(bitmap, &data, &data_size) == EXTRACTPDF_OK);
+    CHECK(data_size == (size_t)60 * 30 * 4);
+    for (i = 0; i < data_size; ++i)
+        CHECK(data[i] == 0);
+    extractpdf_drop_bitmap(bitmap);
+    options.alpha = 0;
 
     options.rotation_degrees = 90.0f;
     bitmap = NULL;
