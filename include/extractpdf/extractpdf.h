@@ -85,6 +85,12 @@ EXTRACTPDF_API extractpdf_status extractpdf_render_page_with_options(
     const extractpdf_render_options *options,
     extractpdf_bitmap **out_bitmap);
 
+EXTRACTPDF_API extractpdf_status extractpdf_render_thumbnail(
+    extractpdf_page *page,
+    int max_width,
+    int max_height,
+    extractpdf_bitmap **out_bitmap);
+
 EXTRACTPDF_API extractpdf_status extractpdf_bitmap_dimensions(
     extractpdf_bitmap *bitmap,
     int *out_width,
