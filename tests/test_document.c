@@ -139,6 +139,31 @@ static void test_page_lifecycle(void)
     extractpdf_close(doc);
 }
 
+static void test_page_bounds(void)
+{
+    extractpdf_document *doc = NULL;
+    extractpdf_page *page = NULL;
+    extractpdf_rect bounds = { -1.0f, -2.0f, -3.0f, -4.0f };
+
+    trace_step("page bounds");
+    CHECK(extractpdf_page_bounds(NULL, &bounds) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(bounds.x0 == -1.0f);
+    CHECK(bounds.y0 == -2.0f);
+    CHECK(bounds.x1 == -3.0f);
+    CHECK(bounds.y1 == -4.0f);
+
+    CHECK(extractpdf_open(ONE_PAGE_PDF, NULL, &doc) == EXTRACTPDF_OK);
+    CHECK(extractpdf_load_page(doc, 0, &page) == EXTRACTPDF_OK);
+    CHECK(extractpdf_page_bounds(page, NULL) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(extractpdf_page_bounds(page, &bounds) == EXTRACTPDF_OK);
+    CHECK(bounds.x0 == 0.0f);
+    CHECK(bounds.y0 == 0.0f);
+    CHECK(bounds.x1 == 72.0f);
+    CHECK(bounds.y1 == 72.0f);
+    extractpdf_drop_page(page);
+    extractpdf_close(doc);
+}
+
 static void test_utf8_path(void)
 {
     extractpdf_document *doc = NULL;
@@ -157,6 +182,7 @@ int main(void)
     test_repeated_lifecycle();
     test_handle_isolation();
     test_page_lifecycle();
+    test_page_bounds();
     test_utf8_path();
     trace_step("close null");
     extractpdf_close(NULL);
