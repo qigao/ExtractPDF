@@ -28,7 +28,8 @@ set_tests_properties(extractpdf.document PROPERTIES TIMEOUT 60)
 add_executable(extractpdf_test_render test_render.c)
 target_link_libraries(extractpdf_test_render PRIVATE ExtractPDF::ExtractPDF)
 target_compile_definitions(extractpdf_test_render PRIVATE
-  ONE_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf")
+  ONE_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
+  PAGE_BOXES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/page-boxes.pdf")
 add_test(NAME extractpdf.render COMMAND extractpdf_test_render)
 set_tests_properties(extractpdf.render PROPERTIES TIMEOUT 30)
 
