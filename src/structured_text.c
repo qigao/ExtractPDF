@@ -526,10 +526,12 @@ extractpdf_status extractpdf_text_span_text(
 {
     const extractpdf_text_span_internal *span;
 
+    if (out_utf8 != NULL)
+        *out_utf8 = NULL;
+    if (out_size != NULL)
+        *out_size = 0;
     if (out_utf8 == NULL || out_size == NULL)
         return EXTRACTPDF_ERROR_ARGUMENT;
-    *out_utf8 = NULL;
-    *out_size = 0;
 
     span = extractpdf_lookup_span(text, block_index, line_index, span_index);
     if (span == NULL)
