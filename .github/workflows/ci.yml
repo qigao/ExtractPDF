@@ -74,31 +74,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up MSBuild
-        uses: microsoft/setup-msbuild@v2
-
-      - name: Checkout MuPDF 1.28.2
+      - name: Install static MuPDF 1.28.2 with vcpkg
         shell: pwsh
         run: |
-          git clone --branch 1.28.2 --depth 1 --recurse-submodules https://github.com/ArtifexSoftware/mupdf.git "$env:RUNNER_TEMP\mupdf"
+          vcpkg install libmupdf:x64-windows-static --overlay-ports="$env:GITHUB_WORKSPACE\vcpkg-ports"
 
-      - name: Build MuPDF DLL client library
+      - name: Configure ExtractPDF DLL
         shell: pwsh
         run: |
-          $win32 = "$env:RUNNER_TEMP\mupdf\platform\win32"
-          msbuild "$win32\mupdf.sln" /m /p:Configuration=Release /p:Platform=x64
-          msbuild "$win32\mupdfcpp.vcxproj" /m /p:Configuration=Release /p:Platform=x64 /p:BuildProjectReferences=false
-
-      - name: Configure shared build
-        shell: pwsh
-        run: |
-          cmake -S . -B build -A x64 -DMUPDF_ROOT="$env:RUNNER_TEMP\mupdf" -DBUILD_SHARED_LIBS=ON
+          cmake -S . -B build -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static `
+            -DVCPKG_OVERLAY_PORTS="$env:GITHUB_WORKSPACE\vcpkg-ports" `
+            -DBUILD_SHARED_LIBS=ON
 
       - name: Build
         run: cmake --build build --config Release
 
       - name: Test
-        shell: pwsh
-        run: |
-          $env:PATH = "$env:RUNNER_TEMP\mupdf\platform\win32\x64\Release;$env:PATH"
-          ctest --test-dir build -C Release --output-on-failure
+        run: ctest --test-dir build -C Release --output-on-failure
