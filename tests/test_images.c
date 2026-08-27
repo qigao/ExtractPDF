@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 static void check_impl(int condition, const char *expression, int line)
 {
@@ -48,6 +49,18 @@ static void quad_bounds(
     }
 }
 
+static void check_zero_quad(const extractpdf_quad *quad)
+{
+    CHECK(quad->ul.x == 0.0f);
+    CHECK(quad->ul.y == 0.0f);
+    CHECK(quad->ur.x == 0.0f);
+    CHECK(quad->ur.y == 0.0f);
+    CHECK(quad->ll.x == 0.0f);
+    CHECK(quad->ll.y == 0.0f);
+    CHECK(quad->lr.x == 0.0f);
+    CHECK(quad->lr.y == 0.0f);
+}
+
 static void check_info(
     const extractpdf_image_info *info,
     float expected_x0,
@@ -74,7 +87,7 @@ static void check_info(
     CHECK(close_float(y1, expected_y1));
 }
 
-int main(void)
+static void test_occurrences_and_lifetime(void)
 {
     extractpdf_document *document = NULL;
     extractpdf_page *page = NULL;
@@ -103,5 +116,107 @@ int main(void)
 
     extractpdf_drop_image_page(images);
     extractpdf_close(document);
+}
+
+static void test_argument_and_version_contract(void)
+{
+    int sentinel = 0;
+    extractpdf_document *document = NULL;
+    extractpdf_page *page = NULL;
+    extractpdf_image_page *images = (extractpdf_image_page *)&sentinel;
+    extractpdf_image_info invalid_info;
+    extractpdf_image_info undersized;
+    extractpdf_image_info minimum;
+    size_t minimum_size = offsetof(extractpdf_image_info, has_alpha) + sizeof(minimum.has_alpha);
+    size_t count = 99;
+    size_t i;
+    struct {
+        extractpdf_image_info info;
+        unsigned char tail[16];
+    } oversized;
+
+    CHECK(extractpdf_extract_images(NULL, &images) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(images == NULL);
+    CHECK(extractpdf_extract_images(NULL, NULL) == EXTRACTPDF_ERROR_ARGUMENT);
+
+    CHECK(extractpdf_image_count(NULL, &count) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(count == 0);
+    CHECK(extractpdf_image_count(NULL, NULL) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(extractpdf_image_get_info(NULL, 0, NULL) == EXTRACTPDF_ERROR_ARGUMENT);
+
+    CHECK(extractpdf_open(PAGE_IMAGES_PDF, NULL, &document) == EXTRACTPDF_OK);
+    CHECK(extractpdf_load_page(document, 0, &page) == EXTRACTPDF_OK);
+    CHECK(extractpdf_extract_images(page, &images) == EXTRACTPDF_OK);
+    extractpdf_drop_page(page);
+    page = NULL;
+
+    memset(&invalid_info, 0x5a, sizeof(invalid_info));
+    invalid_info.struct_size = sizeof(invalid_info);
+    CHECK(extractpdf_image_get_info(images, 99, &invalid_info) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(invalid_info.struct_size == sizeof(invalid_info));
+    check_zero_quad(&invalid_info.quad);
+    CHECK(invalid_info.pixel_width == 0);
+    CHECK(invalid_info.pixel_height == 0);
+    CHECK(invalid_info.components == 0);
+    CHECK(invalid_info.bits_per_component == 0);
+    CHECK(invalid_info.has_alpha == 0);
+
+    memset(&undersized, 0x5a, sizeof(undersized));
+    undersized.struct_size = minimum_size - 1;
+    undersized.pixel_width = 77;
+    undersized.quad.ul.x = 7.0f;
+    CHECK(extractpdf_image_get_info(images, 0, &undersized) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(undersized.struct_size == minimum_size - 1);
+    CHECK(undersized.pixel_width == 77);
+    CHECK(undersized.quad.ul.x == 7.0f);
+
+    memset(&minimum, 0, sizeof(minimum));
+    minimum.struct_size = minimum_size;
+    CHECK(extractpdf_image_get_info(images, 0, &minimum) == EXTRACTPDF_OK);
+    CHECK(minimum.struct_size == minimum_size);
+    CHECK(minimum.pixel_width == 2);
+    CHECK(minimum.pixel_height == 1);
+    CHECK(minimum.components == 3);
+    CHECK(minimum.bits_per_component == 8);
+    CHECK(minimum.has_alpha == 0);
+
+    memset(&oversized, 0xa5, sizeof(oversized));
+    oversized.info.struct_size = sizeof(oversized);
+    CHECK(extractpdf_image_get_info(images, 0, &oversized.info) == EXTRACTPDF_OK);
+    CHECK(oversized.info.struct_size == sizeof(oversized));
+    CHECK(oversized.info.pixel_width == 2);
+    for (i = 0; i < sizeof(oversized.tail); ++i)
+        CHECK(oversized.tail[i] == 0xa5);
+
+    extractpdf_drop_image_page(images);
+    extractpdf_close(document);
+    extractpdf_drop_image_page(NULL);
+}
+
+static void test_empty_page(void)
+{
+    extractpdf_document *document = NULL;
+    extractpdf_page *page = NULL;
+    extractpdf_image_page *images = NULL;
+    size_t count = 99;
+
+    CHECK(extractpdf_open(ONE_PAGE_PDF, NULL, &document) == EXTRACTPDF_OK);
+    CHECK(extractpdf_load_page(document, 0, &page) == EXTRACTPDF_OK);
+    CHECK(extractpdf_extract_images(page, &images) == EXTRACTPDF_OK);
+    CHECK(images != NULL);
+    extractpdf_drop_page(page);
+
+    CHECK(extractpdf_image_count(images, &count) == EXTRACTPDF_OK);
+    CHECK(count == 0);
+
+    extractpdf_drop_image_page(images);
+    extractpdf_close(document);
+}
+
+int main(void)
+{
+    test_occurrences_and_lifetime();
+    test_argument_and_version_contract();
+    test_empty_page();
     return EXIT_SUCCESS;
 }
