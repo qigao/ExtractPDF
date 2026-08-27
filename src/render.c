@@ -1,19 +1,23 @@
 #include "internal.h"
 
+#include <math.h>
+#include <stddef.h>
 #include <stdlib.h>
 
-extractpdf_status extractpdf_render_page(
+static extractpdf_status extractpdf_render_page_at_dpi(
     extractpdf_page *page,
+    float dpi,
     extractpdf_bitmap **out_bitmap)
 {
     extractpdf_bitmap *bitmap;
+    fz_matrix transform;
     int caught_code = FZ_ERROR_NONE;
 
     if (out_bitmap == NULL)
         return EXTRACTPDF_ERROR_ARGUMENT;
     *out_bitmap = NULL;
 
-    if (page == NULL)
+    if (page == NULL || !isfinite(dpi) || dpi <= 0.0f)
         return EXTRACTPDF_ERROR_ARGUMENT;
 
     bitmap = (extractpdf_bitmap *)calloc(1, sizeof(*bitmap));
@@ -21,6 +25,7 @@ extractpdf_status extractpdf_render_page(
         return EXTRACTPDF_ERROR_NOMEM;
 
     bitmap->document = page->document;
+    transform = fz_scale(dpi / 72.0f, dpi / 72.0f);
     fz_var(caught_code);
 
     fz_try(page->document->ctx)
@@ -28,7 +33,7 @@ extractpdf_status extractpdf_render_page(
         bitmap->pixmap = fz_new_pixmap_from_page(
             page->document->ctx,
             page->page,
-            fz_identity,
+            transform,
             fz_device_rgb(page->document->ctx),
             0);
     }
@@ -49,6 +54,34 @@ extractpdf_status extractpdf_render_page(
 
     *out_bitmap = bitmap;
     return EXTRACTPDF_OK;
+}
+
+extractpdf_status extractpdf_render_page(
+    extractpdf_page *page,
+    extractpdf_bitmap **out_bitmap)
+{
+    return extractpdf_render_page_at_dpi(page, 72.0f, out_bitmap);
+}
+
+extractpdf_status extractpdf_render_page_with_options(
+    extractpdf_page *page,
+    const extractpdf_render_options *options,
+    extractpdf_bitmap **out_bitmap)
+{
+    size_t minimum_size;
+
+    if (out_bitmap == NULL)
+        return EXTRACTPDF_ERROR_ARGUMENT;
+    *out_bitmap = NULL;
+
+    if (page == NULL || options == NULL)
+        return EXTRACTPDF_ERROR_ARGUMENT;
+
+    minimum_size = offsetof(extractpdf_render_options, dpi) + sizeof(options->dpi);
+    if (options->struct_size < minimum_size)
+        return EXTRACTPDF_ERROR_ARGUMENT;
+
+    return extractpdf_render_page_at_dpi(page, options->dpi, out_bitmap);
 }
 
 extractpdf_status extractpdf_bitmap_dimensions(
