@@ -18,6 +18,7 @@ extern "C" {
 #endif
 
 typedef struct extractpdf_document extractpdf_document;
+typedef struct extractpdf_page extractpdf_page;
 
 typedef enum extractpdf_status {
     EXTRACTPDF_OK = 0,
@@ -39,8 +40,16 @@ EXTRACTPDF_API extractpdf_status extractpdf_page_count(
     extractpdf_document *document,
     int *out_page_count);
 
+EXTRACTPDF_API extractpdf_status extractpdf_load_page(
+    extractpdf_document *document,
+    int page_index,
+    extractpdf_page **out_page);
+
 EXTRACTPDF_API const char *extractpdf_status_string(
     extractpdf_status status);
+
+EXTRACTPDF_API void extractpdf_drop_page(
+    extractpdf_page *page);
 
 EXTRACTPDF_API void extractpdf_close(
     extractpdf_document *document);

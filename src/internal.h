@@ -9,6 +9,11 @@ struct extractpdf_document {
     fz_document *doc;
 };
 
+struct extractpdf_page {
+    extractpdf_document *document;
+    fz_page *page;
+};
+
 extractpdf_status extractpdf_status_from_mupdf(int code);
 
 #endif
