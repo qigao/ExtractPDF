@@ -108,6 +108,37 @@ static void test_handle_isolation(void)
     extractpdf_close(b);
 }
 
+static void test_page_lifecycle(void)
+{
+    int sentinel = 0;
+    extractpdf_document *doc = NULL;
+    extractpdf_page *page = (extractpdf_page *)&sentinel;
+
+    trace_step("page lifecycle");
+    CHECK(extractpdf_load_page(NULL, 0, &page) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(page == NULL);
+
+    CHECK(extractpdf_open(ONE_PAGE_PDF, NULL, &doc) == EXTRACTPDF_OK);
+
+    page = (extractpdf_page *)&sentinel;
+    CHECK(extractpdf_load_page(doc, -1, &page) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(page == NULL);
+
+    page = (extractpdf_page *)&sentinel;
+    CHECK(extractpdf_load_page(doc, 1, &page) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(page == NULL);
+
+    CHECK(extractpdf_load_page(doc, 0, NULL) == EXTRACTPDF_ERROR_ARGUMENT);
+
+    page = NULL;
+    CHECK(extractpdf_load_page(doc, 0, &page) == EXTRACTPDF_OK);
+    CHECK(page != NULL);
+    extractpdf_drop_page(page);
+    extractpdf_drop_page(NULL);
+
+    extractpdf_close(doc);
+}
+
 static void test_utf8_path(void)
 {
     extractpdf_document *doc = NULL;
@@ -125,6 +156,7 @@ int main(void)
     test_arguments_and_errors();
     test_repeated_lifecycle();
     test_handle_isolation();
+    test_page_lifecycle();
     test_utf8_path();
     trace_step("close null");
     extractpdf_close(NULL);
