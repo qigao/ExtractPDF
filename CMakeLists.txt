@@ -3,6 +3,10 @@ project(ExtractPDF VERSION 2.0.0 LANGUAGES C)
 
 option(EXTRACTPDF_BUILD_TESTS "Build ExtractPDF tests" ON)
 
+if(POLICY CMP0144)
+  cmake_policy(SET CMP0144 NEW)
+endif()
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 find_package(MuPDF REQUIRED)
 
@@ -15,6 +19,12 @@ target_include_directories(extractpdf PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
 target_link_libraries(extractpdf PRIVATE MuPDF::MuPDF)
+
+if(BUILD_SHARED_LIBS)
+  target_compile_definitions(extractpdf
+    PRIVATE EXTRACTPDF_BUILDING_LIBRARY
+    PUBLIC EXTRACTPDF_SHARED)
+endif()
 
 if(MSVC)
   target_compile_options(extractpdf PRIVATE /W4 /WX)

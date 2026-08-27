@@ -80,11 +80,23 @@ static void test_handle_isolation(void)
     extractpdf_close(b);
 }
 
+static void test_utf8_path(void)
+{
+    extractpdf_document *doc = NULL;
+    int pages = -1;
+
+    assert(extractpdf_open(UTF8_PDF, NULL, &doc) == EXTRACTPDF_OK);
+    assert(extractpdf_page_count(doc, &pages) == EXTRACTPDF_OK);
+    assert(pages == 1);
+    extractpdf_close(doc);
+}
+
 int main(void)
 {
     test_arguments_and_errors();
     test_repeated_lifecycle();
     test_handle_isolation();
+    test_utf8_path();
     extractpdf_close(NULL);
     return 0;
 }
