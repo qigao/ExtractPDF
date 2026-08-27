@@ -31,11 +31,19 @@ target_compile_definitions(extractpdf_test_page PRIVATE
 add_test(NAME extractpdf.page COMMAND extractpdf_test_page)
 set_tests_properties(extractpdf.page PROPERTIES TIMEOUT 20)
 
+add_executable(extractpdf_test_render test_render.c)
+target_link_libraries(extractpdf_test_render PRIVATE ExtractPDF::ExtractPDF)
+target_compile_definitions(extractpdf_test_render PRIVATE
+  RENDER_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/render.pdf")
+add_test(NAME extractpdf.render COMMAND extractpdf_test_render)
+set_tests_properties(extractpdf.render PROPERTIES TIMEOUT 30)
+
 if(WIN32 AND BUILD_SHARED_LIBS)
   foreach(test_target IN ITEMS
       extractpdf_test_status
       extractpdf_test_document
-      extractpdf_test_page)
+      extractpdf_test_page
+      extractpdf_test_render)
     add_custom_command(TARGET ${test_target} POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E copy_if_different
         $<TARGET_FILE:extractpdf>
