@@ -33,8 +33,20 @@ target_compile_definitions(extractpdf_test_render PRIVATE
 add_test(NAME extractpdf.render COMMAND extractpdf_test_render)
 set_tests_properties(extractpdf.render PROPERTIES TIMEOUT 30)
 
+add_executable(extractpdf_test_text test_text.c)
+target_link_libraries(extractpdf_test_text PRIVATE ExtractPDF::ExtractPDF)
+target_compile_definitions(extractpdf_test_text PRIVATE
+  ONE_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
+  TEXT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/text-one-page.pdf")
+add_test(NAME extractpdf.text COMMAND extractpdf_test_text)
+set_tests_properties(extractpdf.text PROPERTIES TIMEOUT 30)
+
 if(WIN32 AND BUILD_SHARED_LIBS)
-  foreach(test_target IN ITEMS extractpdf_test_status extractpdf_test_document extractpdf_test_render)
+  foreach(test_target IN ITEMS
+      extractpdf_test_status
+      extractpdf_test_document
+      extractpdf_test_render
+      extractpdf_test_text)
     add_custom_command(TARGET ${test_target} POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E copy_if_different
         $<TARGET_FILE:extractpdf>
