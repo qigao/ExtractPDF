@@ -1,0 +1,242 @@
+name: ExtractPDF v2 foundation
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - labeled
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: extractpdf-v2-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+env:
+  VCPKG_COMMIT: f74a2eade17a628413746557d04db25ccf6e76f9
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore vcpkg binary cache
+        id: vcpkg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg-binary-cache
+          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json', 'vcpkg-ports/**') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-
+
+      - name: Configure vcpkg binary cache
+        shell: bash
+        run: |
+          mkdir -p "${{ runner.temp }}/vcpkg-binary-cache"
+          echo "VCPKG_DEFAULT_BINARY_CACHE=${{ runner.temp }}/vcpkg-binary-cache" >> "$GITHUB_ENV"
+
+      - name: Bootstrap pinned vcpkg
+        shell: bash
+        run: |
+          git init "$RUNNER_TEMP/vcpkg"
+          git -C "$RUNNER_TEMP/vcpkg" remote add origin https://github.com/microsoft/vcpkg.git
+          git -C "$RUNNER_TEMP/vcpkg" fetch --depth 1 origin "$VCPKG_COMMIT"
+          git -C "$RUNNER_TEMP/vcpkg" checkout --detach FETCH_HEAD
+          "$RUNNER_TEMP/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+          echo "VCPKG_ROOT=$RUNNER_TEMP/vcpkg" >> "$GITHUB_ENV"
+
+      - name: Install MuPDF 1.28.2 with vcpkg
+        shell: bash
+        run: |
+          "$VCPKG_ROOT/vcpkg" install \
+            --triplet x64-linux \
+            --overlay-ports="$GITHUB_WORKSPACE/vcpkg-ports"
+
+      - name: Save vcpkg binary cache
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg-binary-cache
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
+
+      - name: Configure static build
+        shell: bash
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET=x64-linux \
+            -DVCPKG_OVERLAY_PORTS="$GITHUB_WORKSPACE/vcpkg-ports" \
+            -DBUILD_SHARED_LIBS=OFF
+
+      - name: Build static library and tests
+        run: cmake --build build --parallel 2
+
+      - name: Test static build
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Configure sanitizer build
+        shell: bash
+        run: |
+          cmake -S . -B build-asan \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET=x64-linux \
+            -DVCPKG_OVERLAY_PORTS="$GITHUB_WORKSPACE/vcpkg-ports" \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+
+      - name: Build sanitizer configuration
+        run: cmake --build build-asan --parallel 2
+
+      - name: Test sanitizer configuration
+        run: ctest --test-dir build-asan --output-on-failure
+
+  macos:
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       github.event.action == 'labeled' &&
+       github.event.label.name == 'full-ci')
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore vcpkg binary cache
+        id: vcpkg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg-binary-cache
+          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json', 'vcpkg-ports/**') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-
+
+      - name: Configure vcpkg binary cache
+        shell: bash
+        run: |
+          mkdir -p "${{ runner.temp }}/vcpkg-binary-cache"
+          echo "VCPKG_DEFAULT_BINARY_CACHE=${{ runner.temp }}/vcpkg-binary-cache" >> "$GITHUB_ENV"
+
+      - name: Bootstrap pinned vcpkg
+        shell: bash
+        run: |
+          git init "$RUNNER_TEMP/vcpkg"
+          git -C "$RUNNER_TEMP/vcpkg" remote add origin https://github.com/microsoft/vcpkg.git
+          git -C "$RUNNER_TEMP/vcpkg" fetch --depth 1 origin "$VCPKG_COMMIT"
+          git -C "$RUNNER_TEMP/vcpkg" checkout --detach FETCH_HEAD
+          "$RUNNER_TEMP/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
+          echo "VCPKG_ROOT=$RUNNER_TEMP/vcpkg" >> "$GITHUB_ENV"
+
+      - name: Select vcpkg triplet
+        shell: bash
+        run: |
+          case "$(uname -m)" in
+            arm64) triplet=arm64-osx ;;
+            x86_64) triplet=x64-osx ;;
+            *) echo "Unsupported macOS architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          echo "VCPKG_TRIPLET=$triplet" >> "$GITHUB_ENV"
+
+      - name: Install MuPDF 1.28.2 with vcpkg
+        shell: bash
+        run: |
+          "$VCPKG_ROOT/vcpkg" install \
+            --triplet "$VCPKG_TRIPLET" \
+            --overlay-ports="$GITHUB_WORKSPACE/vcpkg-ports"
+
+      - name: Save vcpkg binary cache
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg-binary-cache
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
+
+      - name: Configure
+        shell: bash
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET="$VCPKG_TRIPLET" \
+            -DVCPKG_OVERLAY_PORTS="$GITHUB_WORKSPACE/vcpkg-ports" \
+            -DBUILD_SHARED_LIBS=OFF
+
+      - name: Build
+        run: cmake --build build --parallel 2
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  windows:
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       github.event.action == 'labeled' &&
+       github.event.label.name == 'full-ci')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore vcpkg binary cache
+        id: vcpkg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg-binary-cache
+          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json', 'vcpkg-ports/**') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-
+
+      - name: Configure vcpkg binary cache
+        shell: pwsh
+        run: |
+          $cache = Join-Path $env:RUNNER_TEMP "vcpkg-binary-cache"
+          New-Item -ItemType Directory -Force -Path $cache | Out-Null
+          "VCPKG_DEFAULT_BINARY_CACHE=$cache" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Bootstrap pinned vcpkg
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "vcpkg"
+          git init $root
+          git -C $root remote add origin https://github.com/microsoft/vcpkg.git
+          git -C $root fetch --depth 1 origin $env:VCPKG_COMMIT
+          git -C $root checkout --detach FETCH_HEAD
+          & "$root\bootstrap-vcpkg.bat" -disableMetrics
+          "VCPKG_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Install static MuPDF 1.28.2 with vcpkg
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_ROOT\vcpkg.exe" install `
+            --triplet x64-windows-static-md `
+            --overlay-ports="$env:GITHUB_WORKSPACE\vcpkg-ports"
+
+      - name: Save vcpkg binary cache
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/vcpkg-binary-cache
+          key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
+
+      - name: Configure ExtractPDF DLL
+        shell: pwsh
+        run: |
+          cmake -S . -B build -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static-md `
+            -DVCPKG_OVERLAY_PORTS="$env:GITHUB_WORKSPACE\vcpkg-ports" `
+            -DBUILD_SHARED_LIBS=ON
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
