@@ -71,6 +71,8 @@ This one primitive therefore covers:
 
 V1 does not sort, deduplicate, normalize, or reinterpret the index list.
 
+MuPDF 1.28.2's graft implementation creates a fresh destination page dictionary for every `pdf_graft_mapped_page` call while allowing the shared graft map to reuse copied dependent objects. Calling the primitive twice with the same source page therefore yields two distinct destination pages that may safely share grafted resources.
+
 ## Argument validation
 
 `extractpdf_export_pages` validates the complete request before creating a successful public output.
@@ -91,11 +93,13 @@ All indices are checked before any page is grafted. There is no partial-success 
 
 ## PDF-only composition boundary
 
-`extractpdf_open` is format-generic because MuPDF document handlers are registered globally on the document context. Phase 4 composition is intentionally PDF-specific.
+`extractpdf_open` is format-generic because MuPDF document handlers are registered on the document context. Phase 4 composition is intentionally PDF-specific.
 
-The implementation down-casts the source `fz_document *` with MuPDF's `pdf_specifics()` / equivalent non-owning PDF-specific check. If the opened document is not backed by a PDF document, `extractpdf_export_pages` returns `EXTRACTPDF_ERROR_UNSUPPORTED`.
+The implementation checks the source `fz_document *` with MuPDF's non-owning `pdf_specifics()`. If it returns `NULL`, `extractpdf_export_pages` returns `EXTRACTPDF_ERROR_UNSUPPORTED`.
 
 No `pdf_document *` appears in the public header.
+
+The project build includes MuPDF's text document handler, so the unsupported-format contract is exercised with a tiny deterministic plain-text fixture that must first open successfully through `extractpdf_open` and then fail composition with `EXTRACTPDF_ERROR_UNSUPPORTED`.
 
 ## Composition engine
 
@@ -131,11 +135,33 @@ One graft map is reused for the whole export call. This preserves sharing of sou
 
 The destination is a new PDF document. The source document is never structurally modified.
 
+## Exact page-graft preservation surface
+
+The MuPDF 1.28.2 implementation of `pdf_graft_mapped_page` creates a new destination page dictionary and copies only the following inheritable page keys:
+
+```text
+Contents
+Resources
+MediaBox
+CropBox
+BleedBox
+TrimBox
+ArtBox
+Rotate
+UserUnit
+```
+
+That list is the exact V1 structural preservation basis for this primitive.
+
+Notably, `Annots` is not in the graft copy list. Therefore links, annotations, widgets, and other annotation-array content are **not preserved by V1 page export**. This is an explicit contract boundary, not an accidental omission.
+
+Document-root structures such as metadata, outlines, names, page labels, AcroForm, JavaScript, optional-content configuration, encryption, and signatures are also not copied into the newly created destination document by this primitive.
+
 ## Why native page grafting
 
 Rendering a source page to pixels and creating a new PDF page would destroy vector text, fonts, searchable text, image resources, and original page content structure.
 
-`pdf_graft_mapped_page` copies the PDF page and the resource/object graph needed by that page into a destination PDF. It is therefore the correct Phase 4 primitive for structural page composition.
+`pdf_graft_mapped_page` copies the page content/resource graph and page geometry keys above into a destination PDF. It is therefore the correct Phase 4 primitive for structural page composition.
 
 MuPDF 1.28.2's own `pdfmerge` tool uses a destination `pdf_document`, one `pdf_graft_map` for a copied range, and repeated `pdf_graft_mapped_page` calls. ExtractPDF adopts that underlying primitive but keeps MuPDF types private.
 
@@ -210,25 +236,24 @@ The deterministic contract is intentionally scoped to repeated exports under the
 
 ## Preservation boundary
 
-V1 guarantees that each selected page is represented by a native grafted PDF page in the requested order, with the content/resources and page geometry needed to reopen and use that page through ExtractPDF's existing page/render/text APIs.
+V1 guarantees that each selected output page contains the source page's grafted `Contents`, `Resources`, supported page boxes, `Rotate`, and `UserUnit` in the requested order. Those are sufficient for the current ExtractPDF page/render/text surfaces to reopen and consume the composed result while preserving native PDF text/vector/resource structure.
 
-V1 does not promise document-level or interactive semantic preservation/remapping for:
+V1 explicitly drops or does not propagate:
 
+- page `Annots`, therefore links, annotations, and widgets;
 - document metadata / Info dictionary;
 - outlines/bookmarks;
 - page labels;
 - named destinations;
-- internal link destination renumbering;
-- forms/widgets and form-level state;
-- annotation semantics beyond whatever MuPDF page grafting carries as an implementation detail;
+- AcroForm/form-level state;
 - signatures;
-- source encryption or permissions;
+- source encryption and permissions;
 - JavaScript;
-- optional-content configuration at the document level.
+- document-level optional-content configuration.
 
-Callers must not rely on any of those features surviving this V1 primitive unless a later public contract explicitly adds them.
+Internal link remapping is consequently not performed because link annotations themselves are outside this V1 graft surface.
 
-This boundary is supported by MuPDF's own `pdfmerge` implementation: after grafting a page it performs separate link handling, and its source explicitly leaves internal-link renumbering as additional work. ExtractPDF therefore does not conflate Phase 4 page composition with Phase 5 interactive-document semantics.
+A later Phase 5 interactive-document feature may deliberately layer link/annotation/form preservation and destination remapping on top of this composition engine without changing the page selection contract.
 
 ## Encryption and signatures
 
@@ -254,17 +279,17 @@ Normal C allocation failure while copying final bytes returns `EXTRACTPDF_ERROR_
 
 No partially filled public `extractpdf_output` escapes on failure.
 
-## Deterministic fixture
+## Deterministic fixtures
 
-Add `tests/fixtures/composition-three-page.pdf` with three pages and no interactive/document-level features. Each page has distinct searchable text and distinct geometry:
+Add `tests/fixtures/composition-three-page.pdf` with three pages and no interactive/document-level features. Each page has distinct searchable text and exact MediaBox/CropBox geometry:
 
 ```text
-page 0: PAGE-A
-page 1: PAGE-B
-page 2: PAGE-C
+page 0: PAGE-A, 200 x 200 pt
+page 1: PAGE-B, 240 x 180 pt
+page 2: PAGE-C, 300 x 150 pt
 ```
 
-The page dimensions are deliberately different so an accidental content-only copy, order error, or duplicate-page aliasing bug cannot pass by checking text alone.
+Each CropBox equals its MediaBox and each page uses rotation 0. The differing dimensions ensure an accidental content-only copy, order error, or duplicate-page bug cannot pass by checking text alone.
 
 The primary export sequence is:
 
@@ -276,12 +301,14 @@ Expected output:
 
 ```text
 page_count = 3
-page 0 text/geometry == source page 2
-page 1 text/geometry == source page 0
-page 2 text/geometry == source page 2
+page 0: PAGE-C, 300 x 150 pt
+page 1: PAGE-A, 200 x 200 pt
+page 2: PAGE-C, 300 x 150 pt
 ```
 
-The fixture contains no outlines, annotations, forms, encryption, or signatures because those are outside the V1 guarantee and must not blur the first composition RED boundary.
+Also add `tests/fixtures/composition-non-pdf.txt` containing a short ASCII line. The test first requires `extractpdf_open` to succeed on that fixture and then requires `extractpdf_export_pages` to return `EXTRACTPDF_ERROR_UNSUPPORTED`.
+
+The PDF fixture contains no outlines, annotations, forms, encryption, or signatures because those are outside the V1 guarantee and must not blur the first composition RED boundary.
 
 ## Reopen verification
 
@@ -302,7 +329,7 @@ The temporary filename is test infrastructure only and does not become part of t
 
 ## TDD boundary
 
-The first RED commit contains only the wished-for public contract test, CTest wiring, and deterministic fixture. It does not add production declarations or implementation.
+The first RED commit contains only the wished-for public contract test, CTest wiring, and deterministic fixtures. It does not add production declarations or implementation.
 
 The RED must prove the new surface is genuinely absent at the current master boundary. Expected failure is compilation/link failure on the new opaque output type/functions, while all pre-existing library/test targets continue to build.
 
@@ -310,7 +337,7 @@ The minimal GREEN then adds:
 
 - public opaque type + three functions;
 - private byte-buffer output representation;
-- focused `src/pdf_export.c` implementation;
+- focused `src/pdf_export.c` implementation with private `<mupdf/pdf.h>` use;
 - root CMake source wiring.
 
 No unrelated Page/Render/Text/Image/Link implementation changes are allowed.
@@ -324,7 +351,7 @@ The slice must cover at least:
 3. repeated identical exports are byte-for-byte equal in the same test build;
 4. reopened output has exactly three pages;
 5. reopened page text is `PAGE-C`, `PAGE-A`, `PAGE-C` in order;
-6. reopened page geometry matches the corresponding source pages;
+6. reopened page geometry is `300x150`, `200x200`, `300x150` points in order;
 7. `document == NULL` -> argument error and NULL output;
 8. `out_output == NULL` -> argument error;
 9. `page_indices == NULL` -> argument error and NULL output;
@@ -332,7 +359,7 @@ The slice must cover at least:
 11. negative index -> argument error and NULL output;
 12. out-of-range index -> argument error and NULL output;
 13. mixed-validity list validates atomically and returns no partial output;
-14. non-PDF source -> `EXTRACTPDF_ERROR_UNSUPPORTED`;
+14. successfully opened plain-text source -> `EXTRACTPDF_ERROR_UNSUPPORTED`;
 15. `extractpdf_output_data` success and argument-output reset behavior;
 16. `extractpdf_drop_output(NULL)` is safe.
 
@@ -361,14 +388,14 @@ src/internal.h
     private immutable output representation only
 
 src/pdf_export.c
-    PDF-only validation, page grafting, memory serialization,
-    output accessor/drop implementation
+    PDF-only validation, private MuPDF PDF API use, page grafting,
+    memory serialization, output accessor/drop implementation
 
 CMakeLists.txt
     source registration only
 ```
 
-Tests remain focused in a new composition test target and fixture. Existing feature implementations must not be refactored as part of this slice.
+Tests remain focused in a new composition test target and fixtures. Existing feature implementations must not be refactored as part of this slice.
 
 ## Non-goals
 
@@ -380,9 +407,10 @@ This slice does not add:
 - multi-document merge;
 - metadata copying;
 - outline/bookmark copying;
+- link/annotation/widget preservation;
 - internal-link remapping;
 - page-label remapping;
-- forms/widgets preservation guarantees;
+- forms preservation guarantees;
 - annotation editing;
 - encryption options;
 - signature preservation;
