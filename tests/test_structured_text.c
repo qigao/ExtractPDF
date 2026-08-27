@@ -60,13 +60,13 @@ int main(void)
 
     CHECK(extractpdf_text_block_count(text, &count) == EXTRACTPDF_OK);
     CHECK(count == 1);
-    CHECK(extractpdf_text_block_info(text, 0, &block) == EXTRACTPDF_OK);
+    CHECK(extractpdf_text_get_block_info(text, 0, &block) == EXTRACTPDF_OK);
     CHECK(block.struct_size == sizeof(block));
     check_rect(&block.bounds);
 
     CHECK(extractpdf_text_line_count(text, 0, &count) == EXTRACTPDF_OK);
     CHECK(count == 1);
-    CHECK(extractpdf_text_line_info(text, 0, 0, &line) == EXTRACTPDF_OK);
+    CHECK(extractpdf_text_get_line_info(text, 0, 0, &line) == EXTRACTPDF_OK);
     CHECK(line.struct_size == sizeof(line));
     check_rect(&line.bounds);
     CHECK(close_float(line.direction_x, 1.0f));
@@ -76,8 +76,8 @@ int main(void)
     CHECK(extractpdf_text_span_count(text, 0, 0, &count) == EXTRACTPDF_OK);
     CHECK(count == 2);
 
-    CHECK(extractpdf_text_span_info(text, 0, 0, 0, &span0) == EXTRACTPDF_OK);
-    CHECK(extractpdf_text_span_info(text, 0, 0, 1, &span1) == EXTRACTPDF_OK);
+    CHECK(extractpdf_text_get_span_info(text, 0, 0, 0, &span0) == EXTRACTPDF_OK);
+    CHECK(extractpdf_text_get_span_info(text, 0, 0, 1, &span1) == EXTRACTPDF_OK);
     check_rect(&span0.bounds);
     check_rect(&span1.bounds);
     CHECK(close_float(span0.font_size, 18.0f));
