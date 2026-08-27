@@ -108,6 +108,151 @@ static void test_handle_isolation(void)
     extractpdf_close(b);
 }
 
+static void test_page_lifecycle(void)
+{
+    int sentinel = 0;
+    extractpdf_document *doc = NULL;
+    extractpdf_page *page = (extractpdf_page *)&sentinel;
+
+    trace_step("page lifecycle");
+    CHECK(extractpdf_load_page(NULL, 0, &page) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(page == NULL);
+
+    CHECK(extractpdf_open(ONE_PAGE_PDF, NULL, &doc) == EXTRACTPDF_OK);
+
+    page = (extractpdf_page *)&sentinel;
+    CHECK(extractpdf_load_page(doc, -1, &page) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(page == NULL);
+
+    page = (extractpdf_page *)&sentinel;
+    CHECK(extractpdf_load_page(doc, 1, &page) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(page == NULL);
+
+    CHECK(extractpdf_load_page(doc, 0, NULL) == EXTRACTPDF_ERROR_ARGUMENT);
+
+    page = NULL;
+    CHECK(extractpdf_load_page(doc, 0, &page) == EXTRACTPDF_OK);
+    CHECK(page != NULL);
+    extractpdf_drop_page(page);
+    extractpdf_drop_page(NULL);
+
+    extractpdf_close(doc);
+}
+
+static void test_page_bounds(void)
+{
+    extractpdf_document *doc = NULL;
+    extractpdf_page *page = NULL;
+    extractpdf_rect bounds = { -1.0f, -2.0f, -3.0f, -4.0f };
+
+    trace_step("page bounds");
+    CHECK(extractpdf_page_bounds(NULL, &bounds) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(bounds.x0 == -1.0f);
+    CHECK(bounds.y0 == -2.0f);
+    CHECK(bounds.x1 == -3.0f);
+    CHECK(bounds.y1 == -4.0f);
+
+    CHECK(extractpdf_open(ONE_PAGE_PDF, NULL, &doc) == EXTRACTPDF_OK);
+    CHECK(extractpdf_load_page(doc, 0, &page) == EXTRACTPDF_OK);
+    CHECK(extractpdf_page_bounds(page, NULL) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(extractpdf_page_bounds(page, &bounds) == EXTRACTPDF_OK);
+    CHECK(bounds.x0 == 0.0f);
+    CHECK(bounds.y0 == 0.0f);
+    CHECK(bounds.x1 == 72.0f);
+    CHECK(bounds.y1 == 72.0f);
+    extractpdf_drop_page(page);
+    extractpdf_close(doc);
+}
+
+static void test_page_box_bounds(void)
+{
+    extractpdf_document *doc = NULL;
+    extractpdf_page *page = NULL;
+    extractpdf_rect media = { 0 };
+    extractpdf_rect crop = { 0 };
+    extractpdf_rect sentinel = { -1.0f, -2.0f, -3.0f, -4.0f };
+
+    trace_step("page box bounds");
+    CHECK(extractpdf_page_box_bounds(NULL, EXTRACTPDF_PAGE_BOX_MEDIA, &sentinel) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(sentinel.x0 == -1.0f);
+    CHECK(sentinel.y0 == -2.0f);
+    CHECK(sentinel.x1 == -3.0f);
+    CHECK(sentinel.y1 == -4.0f);
+
+    CHECK(extractpdf_open(PAGE_BOXES_PDF, NULL, &doc) == EXTRACTPDF_OK);
+    CHECK(extractpdf_load_page(doc, 0, &page) == EXTRACTPDF_OK);
+    CHECK(extractpdf_page_box_bounds(page, EXTRACTPDF_PAGE_BOX_MEDIA, NULL) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(extractpdf_page_box_bounds(page, (extractpdf_page_box)99, &sentinel) == EXTRACTPDF_ERROR_ARGUMENT);
+
+    /* Box bounds use MuPDF/Fitz page space: CropBox top-left is (0,0), y increases down. */
+    CHECK(extractpdf_page_box_bounds(page, EXTRACTPDF_PAGE_BOX_MEDIA, &media) == EXTRACTPDF_OK);
+    CHECK(media.x0 == -10.0f);
+    CHECK(media.y0 == -20.0f);
+    CHECK(media.x1 == 190.0f);
+    CHECK(media.y1 == 80.0f);
+
+    CHECK(extractpdf_page_box_bounds(page, EXTRACTPDF_PAGE_BOX_CROP, &crop) == EXTRACTPDF_OK);
+    CHECK(crop.x0 == 0.0f);
+    CHECK(crop.y0 == 0.0f);
+    CHECK(crop.x1 == 180.0f);
+    CHECK(crop.y1 == 60.0f);
+
+    extractpdf_drop_page(page);
+    extractpdf_close(doc);
+}
+
+static void test_page_render(void)
+{
+    int sentinel = 0;
+    extractpdf_document *doc = NULL;
+    extractpdf_page *page = NULL;
+    extractpdf_bitmap *bitmap = (extractpdf_bitmap *)&sentinel;
+    int width = -1;
+    int height = -1;
+    int stride = -1;
+    int components = -1;
+    const unsigned char *data = NULL;
+    size_t size = 0;
+    size_t i;
+
+    trace_step("page render 72 dpi rgb");
+    CHECK(extractpdf_render_page(NULL, &bitmap) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(bitmap == NULL);
+
+    CHECK(extractpdf_open(ONE_PAGE_PDF, NULL, &doc) == EXTRACTPDF_OK);
+    CHECK(extractpdf_load_page(doc, 0, &page) == EXTRACTPDF_OK);
+    CHECK(extractpdf_render_page(page, NULL) == EXTRACTPDF_ERROR_ARGUMENT);
+
+    bitmap = NULL;
+    CHECK(extractpdf_render_page(page, &bitmap) == EXTRACTPDF_OK);
+    CHECK(bitmap != NULL);
+
+    /* The rendered bitmap does not depend on the page handle after creation. */
+    extractpdf_drop_page(page);
+    page = NULL;
+
+    CHECK(extractpdf_bitmap_dimensions(NULL, &width, &height, &stride, &components) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(extractpdf_bitmap_dimensions(bitmap, NULL, &height, &stride, &components) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(extractpdf_bitmap_dimensions(bitmap, &width, &height, &stride, &components) == EXTRACTPDF_OK);
+    CHECK(width == 72);
+    CHECK(height == 72);
+    CHECK(stride == 72 * 3);
+    CHECK(components == 3);
+
+    CHECK(extractpdf_bitmap_data(NULL, &data, &size) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(extractpdf_bitmap_data(bitmap, NULL, &size) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(extractpdf_bitmap_data(bitmap, &data, NULL) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(extractpdf_bitmap_data(bitmap, &data, &size) == EXTRACTPDF_OK);
+    CHECK(data != NULL);
+    CHECK(size == (size_t)stride * (size_t)height);
+    for (i = 0; i < size; ++i)
+        CHECK(data[i] == 255);
+
+    extractpdf_drop_bitmap(bitmap);
+    extractpdf_drop_bitmap(NULL);
+    extractpdf_close(doc);
+}
+
 static void test_utf8_path(void)
 {
     extractpdf_document *doc = NULL;
@@ -125,6 +270,10 @@ int main(void)
     test_arguments_and_errors();
     test_repeated_lifecycle();
     test_handle_isolation();
+    test_page_lifecycle();
+    test_page_bounds();
+    test_page_box_bounds();
+    test_page_render();
     test_utf8_path();
     trace_step("close null");
     extractpdf_close(NULL);
