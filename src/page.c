@@ -95,6 +95,7 @@ extractpdf_status extractpdf_page_bounds(
     extractpdf_page_box box,
     extractpdf_rect *out_bounds)
 {
+    pdf_page *pdf = NULL;
     fz_box_type mupdf_box;
     fz_rect bounds = fz_empty_rect;
     int caught_code = FZ_ERROR_NONE;
@@ -104,12 +105,15 @@ extractpdf_status extractpdf_page_bounds(
     if (!extractpdf_box_to_mupdf(box, &mupdf_box))
         return EXTRACTPDF_ERROR_ARGUMENT;
 
+    fz_var(pdf);
     fz_var(bounds);
     fz_var(caught_code);
 
     fz_try(page->document->ctx)
     {
-        bounds = fz_bound_page(page->document->ctx, page->page, mupdf_box);
+        pdf = pdf_page_from_fz_page(page->document->ctx, page->page);
+        if (pdf != NULL)
+            bounds = pdf_bound_page(page->document->ctx, pdf, mupdf_box);
     }
     fz_catch(page->document->ctx)
     {
@@ -119,6 +123,8 @@ extractpdf_status extractpdf_page_bounds(
 
     if (caught_code != FZ_ERROR_NONE)
         return extractpdf_status_from_mupdf(caught_code);
+    if (pdf == NULL)
+        return EXTRACTPDF_ERROR_UNSUPPORTED;
 
     out_bounds->x0 = bounds.x0;
     out_bounds->y0 = bounds.y0;
