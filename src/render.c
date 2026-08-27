@@ -8,9 +8,12 @@ static extractpdf_status extractpdf_render_page_transformed(
     extractpdf_page *page,
     float dpi,
     float rotation_degrees,
+    const extractpdf_rect *clip,
     extractpdf_bitmap **out_bitmap)
 {
     extractpdf_bitmap *bitmap;
+    fz_context *ctx;
+    fz_device *device = NULL;
     fz_matrix transform;
     int caught_code = FZ_ERROR_NONE;
 
@@ -27,26 +30,57 @@ static extractpdf_status extractpdf_render_page_transformed(
         return EXTRACTPDF_ERROR_NOMEM;
 
     bitmap->document = page->document;
+    ctx = page->document->ctx;
     transform = fz_scale(dpi / 72.0f, dpi / 72.0f);
     transform = fz_pre_rotate(transform, rotation_degrees);
+    fz_var(device);
     fz_var(caught_code);
 
-    fz_try(page->document->ctx)
+    fz_try(ctx)
     {
-        bitmap->pixmap = fz_new_pixmap_from_page(
-            page->document->ctx,
-            page->page,
-            transform,
-            fz_device_rgb(page->document->ctx),
-            0);
+        if (clip != NULL) {
+            fz_rect clip_rect = fz_make_rect(
+                clip->x0,
+                clip->y0,
+                clip->x1,
+                clip->y1);
+            fz_irect bbox;
+
+            clip_rect = fz_transform_rect(clip_rect, transform);
+            bbox = fz_round_rect(clip_rect);
+            bitmap->pixmap = fz_new_pixmap_with_bbox(
+                ctx,
+                fz_device_rgb(ctx),
+                bbox,
+                NULL,
+                0);
+            fz_clear_pixmap_with_value(ctx, bitmap->pixmap, 0xFF);
+            device = fz_new_draw_device(ctx, transform, bitmap->pixmap);
+            fz_run_page(ctx, page->page, device, fz_identity, NULL);
+            fz_close_device(ctx, device);
+        }
+        else {
+            bitmap->pixmap = fz_new_pixmap_from_page(
+                ctx,
+                page->page,
+                transform,
+                fz_device_rgb(ctx),
+                0);
+        }
     }
-    fz_catch(page->document->ctx)
+    fz_always(ctx)
     {
-        caught_code = fz_caught(page->document->ctx);
-        fz_report_error(page->document->ctx);
+        fz_drop_device(ctx, device);
+    }
+    fz_catch(ctx)
+    {
+        caught_code = fz_caught(ctx);
+        fz_report_error(ctx);
     }
 
     if (caught_code != FZ_ERROR_NONE) {
+        if (bitmap->pixmap != NULL)
+            fz_drop_pixmap(ctx, bitmap->pixmap);
         free(bitmap);
         return extractpdf_status_from_mupdf(caught_code);
     }
@@ -63,7 +97,12 @@ extractpdf_status extractpdf_render_page(
     extractpdf_page *page,
     extractpdf_bitmap **out_bitmap)
 {
-    return extractpdf_render_page_transformed(page, 72.0f, 0.0f, out_bitmap);
+    return extractpdf_render_page_transformed(
+        page,
+        72.0f,
+        0.0f,
+        NULL,
+        out_bitmap);
 }
 
 extractpdf_status extractpdf_render_page_with_options(
@@ -73,7 +112,12 @@ extractpdf_status extractpdf_render_page_with_options(
 {
     size_t minimum_size;
     size_t rotation_size;
+    size_t clip_enabled_size;
+    size_t clip_size;
     float rotation_degrees = 0.0f;
+    int clip_enabled = 0;
+    extractpdf_rect clip = { 0 };
+    const extractpdf_rect *clip_ptr = NULL;
 
     if (out_bitmap == NULL)
         return EXTRACTPDF_ERROR_ARGUMENT;
@@ -91,10 +135,29 @@ extractpdf_status extractpdf_render_page_with_options(
     if (options->struct_size >= rotation_size)
         rotation_degrees = options->rotation_degrees;
 
+    clip_enabled_size = offsetof(extractpdf_render_options, clip_enabled) +
+        sizeof(options->clip_enabled);
+    if (options->struct_size >= clip_enabled_size)
+        clip_enabled = options->clip_enabled != 0;
+
+    if (clip_enabled) {
+        clip_size = offsetof(extractpdf_render_options, clip) + sizeof(options->clip);
+        if (options->struct_size < clip_size)
+            return EXTRACTPDF_ERROR_ARGUMENT;
+
+        clip = options->clip;
+        if (!isfinite(clip.x0) || !isfinite(clip.y0) ||
+            !isfinite(clip.x1) || !isfinite(clip.y1) ||
+            clip.x1 <= clip.x0 || clip.y1 <= clip.y0)
+            return EXTRACTPDF_ERROR_ARGUMENT;
+        clip_ptr = &clip;
+    }
+
     return extractpdf_render_page_transformed(
         page,
         options->dpi,
         rotation_degrees,
+        clip_ptr,
         out_bitmap);
 }
 
