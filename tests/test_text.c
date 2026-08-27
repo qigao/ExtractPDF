@@ -7,7 +7,6 @@
 static void check_impl(int condition, const char *expression, int line)
 {
     if (!condition) {
-    {
         fprintf(stderr, "%s:%d: check failed: %s\n", __FILE__, line, expression);
         exit(EXIT_FAILURE);
     }
