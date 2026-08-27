@@ -1,6 +1,34 @@
 #include "internal.h"
 
+#include <mupdf/pdf.h>
 #include <stdlib.h>
+
+static int extractpdf_box_to_mupdf(
+    extractpdf_page_box box,
+    fz_box_type *out_box)
+{
+    switch (box) {
+    case EXTRACTPDF_PAGE_BOX_MEDIA:
+        *out_box = FZ_MEDIA_BOX;
+        return 1;
+    case EXTRACTPDF_PAGE_BOX_CROP:
+        *out_box = FZ_CROP_BOX;
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+static int extractpdf_normalize_rotation(int rotation)
+{
+    rotation %= 360;
+    if (rotation < 0)
+        rotation += 360;
+    rotation = 90 * ((rotation + 45) / 90);
+    if (rotation >= 360)
+        rotation = 0;
+    return rotation;
+}
 
 extractpdf_status extractpdf_load_page(
     extractpdf_document *document,
@@ -59,6 +87,82 @@ extractpdf_status extractpdf_load_page(
     }
 
     *out_page = page;
+    return EXTRACTPDF_OK;
+}
+
+extractpdf_status extractpdf_page_bounds(
+    extractpdf_page *page,
+    extractpdf_page_box box,
+    extractpdf_rect *out_bounds)
+{
+    fz_box_type mupdf_box;
+    fz_rect bounds = fz_empty_rect;
+    int caught_code = FZ_ERROR_NONE;
+
+    if (page == NULL || out_bounds == NULL)
+        return EXTRACTPDF_ERROR_ARGUMENT;
+    if (!extractpdf_box_to_mupdf(box, &mupdf_box))
+        return EXTRACTPDF_ERROR_ARGUMENT;
+
+    fz_var(bounds);
+    fz_var(caught_code);
+
+    fz_try(page->document->ctx)
+    {
+        bounds = fz_bound_page(page->document->ctx, page->page, mupdf_box);
+    }
+    fz_catch(page->document->ctx)
+    {
+        caught_code = fz_caught(page->document->ctx);
+        fz_report_error(page->document->ctx);
+    }
+
+    if (caught_code != FZ_ERROR_NONE)
+        return extractpdf_status_from_mupdf(caught_code);
+
+    out_bounds->x0 = bounds.x0;
+    out_bounds->y0 = bounds.y0;
+    out_bounds->x1 = bounds.x1;
+    out_bounds->y1 = bounds.y1;
+    return EXTRACTPDF_OK;
+}
+
+extractpdf_status extractpdf_page_rotation(
+    extractpdf_page *page,
+    int *out_rotation_degrees)
+{
+    pdf_page *pdf_page = NULL;
+    int rotation = 0;
+    int caught_code = FZ_ERROR_NONE;
+
+    if (page == NULL || out_rotation_degrees == NULL)
+        return EXTRACTPDF_ERROR_ARGUMENT;
+
+    fz_var(pdf_page);
+    fz_var(rotation);
+    fz_var(caught_code);
+
+    fz_try(page->document->ctx)
+    {
+        pdf_page = pdf_page_from_fz_page(page->document->ctx, page->page);
+        if (pdf_page != NULL)
+            rotation = pdf_dict_get_inheritable_int(
+                page->document->ctx,
+                pdf_page->obj,
+                PDF_NAME(Rotate));
+    }
+    fz_catch(page->document->ctx)
+    {
+        caught_code = fz_caught(page->document->ctx);
+        fz_report_error(page->document->ctx);
+    }
+
+    if (caught_code != FZ_ERROR_NONE)
+        return extractpdf_status_from_mupdf(caught_code);
+    if (pdf_page == NULL)
+        return EXTRACTPDF_ERROR_UNSUPPORTED;
+
+    *out_rotation_degrees = extractpdf_normalize_rotation(rotation);
     return EXTRACTPDF_OK;
 }
 

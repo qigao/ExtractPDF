@@ -20,6 +20,18 @@ extern "C" {
 typedef struct extractpdf_document extractpdf_document;
 typedef struct extractpdf_page extractpdf_page;
 
+typedef struct extractpdf_rect {
+    float x0;
+    float y0;
+    float x1;
+    float y1;
+} extractpdf_rect;
+
+typedef enum extractpdf_page_box {
+    EXTRACTPDF_PAGE_BOX_MEDIA = 0,
+    EXTRACTPDF_PAGE_BOX_CROP = 1
+} extractpdf_page_box;
+
 typedef enum extractpdf_status {
     EXTRACTPDF_OK = 0,
     EXTRACTPDF_ERROR_ARGUMENT = 1,
@@ -44,6 +56,23 @@ EXTRACTPDF_API extractpdf_status extractpdf_load_page(
     extractpdf_document *document,
     int page_index,
     extractpdf_page **out_page);
+
+/*
+ * Return a page box in ExtractPDF page space. The transformed CropBox
+ * top-left is (0, 0), +x points right, +y points down, and PDF /Rotate
+ * and /UserUnit are already reflected in the returned coordinates.
+ * MediaBox coordinates may therefore extend outside the CropBox and be
+ * negative.
+ */
+EXTRACTPDF_API extractpdf_status extractpdf_page_bounds(
+    extractpdf_page *page,
+    extractpdf_page_box box,
+    extractpdf_rect *out_bounds);
+
+/* Return the PDF page rotation normalized to 0, 90, 180, or 270 degrees. */
+EXTRACTPDF_API extractpdf_status extractpdf_page_rotation(
+    extractpdf_page *page,
+    int *out_rotation_degrees);
 
 EXTRACTPDF_API const char *extractpdf_status_string(
     extractpdf_status status);
