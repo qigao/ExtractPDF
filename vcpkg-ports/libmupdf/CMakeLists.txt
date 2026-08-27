@@ -97,6 +97,7 @@ target_compile_definitions(libmupdf
     FZ_ENABLE_DOCX_OUTPUT=0
     FZ_ENABLE_ICC=0
     FZ_ENABLE_JS=0
+    FZ_ENABLE_MD=0
     FZ_ENABLE_ODT_OUTPUT=0
     MEMENTO_MUPDF_HACKS
     SHARE_JPEG
