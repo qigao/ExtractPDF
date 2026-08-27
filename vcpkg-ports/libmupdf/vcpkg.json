@@ -13,8 +13,7 @@
     "libjpeg-turbo",
     {
       "name": "libmupdf",
-      "host": true,
-      "platform": "windows & !x64"
+      "host": true
     },
     "openjpeg",
     {
