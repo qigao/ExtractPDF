@@ -62,6 +62,39 @@ extractpdf_status extractpdf_load_page(
     return EXTRACTPDF_OK;
 }
 
+extractpdf_status extractpdf_page_bounds(
+    extractpdf_page *page,
+    extractpdf_rect *out_bounds)
+{
+    fz_rect bounds;
+    int caught_code = FZ_ERROR_NONE;
+
+    if (page == NULL || out_bounds == NULL)
+        return EXTRACTPDF_ERROR_ARGUMENT;
+
+    fz_var(bounds);
+    fz_var(caught_code);
+
+    fz_try(page->document->ctx)
+    {
+        bounds = fz_bound_page(page->document->ctx, page->page);
+    }
+    fz_catch(page->document->ctx)
+    {
+        caught_code = fz_caught(page->document->ctx);
+        fz_report_error(page->document->ctx);
+    }
+
+    if (caught_code != FZ_ERROR_NONE)
+        return extractpdf_status_from_mupdf(caught_code);
+
+    out_bounds->x0 = bounds.x0;
+    out_bounds->y0 = bounds.y0;
+    out_bounds->x1 = bounds.x1;
+    out_bounds->y1 = bounds.y1;
+    return EXTRACTPDF_OK;
+}
+
 void extractpdf_drop_page(extractpdf_page *page)
 {
     if (page == NULL)
