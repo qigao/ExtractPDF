@@ -67,6 +67,24 @@ struct extractpdf_text_page {
     size_t string_size;
 };
 
+typedef struct extractpdf_image_occurrence_internal {
+    fz_image *image;
+    extractpdf_quad quad;
+    int pixel_width;
+    int pixel_height;
+    int components;
+    int bits_per_component;
+    int has_alpha;
+} extractpdf_image_occurrence_internal;
+
+struct extractpdf_image_page {
+    extractpdf_document *document;
+    extractpdf_image_occurrence_internal *items;
+    size_t count;
+    size_t capacity;
+    int oom;
+};
+
 extractpdf_status extractpdf_status_from_mupdf(int code);
 
 #endif

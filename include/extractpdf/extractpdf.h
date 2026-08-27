@@ -22,6 +22,7 @@ typedef struct extractpdf_document extractpdf_document;
 typedef struct extractpdf_page extractpdf_page;
 typedef struct extractpdf_bitmap extractpdf_bitmap;
 typedef struct extractpdf_text_page extractpdf_text_page;
+typedef struct extractpdf_image_page extractpdf_image_page;
 
 typedef struct extractpdf_point {
     float x;
@@ -81,6 +82,16 @@ typedef struct extractpdf_search_result {
     size_t struct_size;
     extractpdf_quad quad;
 } extractpdf_search_result;
+
+typedef struct extractpdf_image_info {
+    size_t struct_size;
+    extractpdf_quad quad;
+    int pixel_width;
+    int pixel_height;
+    int components;
+    int bits_per_component;
+    int has_alpha;
+} extractpdf_image_info;
 
 typedef enum extractpdf_status {
     EXTRACTPDF_OK = 0,
@@ -200,6 +211,19 @@ EXTRACTPDF_API extractpdf_status extractpdf_text_search(
     size_t capacity,
     size_t *out_count);
 
+EXTRACTPDF_API extractpdf_status extractpdf_extract_images(
+    extractpdf_page *page,
+    extractpdf_image_page **out_images);
+
+EXTRACTPDF_API extractpdf_status extractpdf_image_count(
+    const extractpdf_image_page *images,
+    size_t *out_count);
+
+EXTRACTPDF_API extractpdf_status extractpdf_image_get_info(
+    const extractpdf_image_page *images,
+    size_t index,
+    extractpdf_image_info *out_info);
+
 EXTRACTPDF_API const char *extractpdf_status_string(
     extractpdf_status status);
 
@@ -208,6 +232,9 @@ EXTRACTPDF_API void extractpdf_free(
 
 EXTRACTPDF_API void extractpdf_drop_text_page(
     extractpdf_text_page *text);
+
+EXTRACTPDF_API void extractpdf_drop_image_page(
+    extractpdf_image_page *images);
 
 EXTRACTPDF_API void extractpdf_drop_bitmap(
     extractpdf_bitmap *bitmap);
