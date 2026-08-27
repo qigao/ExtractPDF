@@ -20,7 +20,7 @@ int main(void)
     extractpdf_document *doc = NULL;
     extractpdf_page *page = NULL;
     extractpdf_bitmap *bitmap = (extractpdf_bitmap *)&sentinel;
-    extractpdf_render_options options = { sizeof(options), 144.0f, 0.0f };
+    extractpdf_render_options options = { sizeof(options), 144.0f, 0.0f, 0, { 0 } };
     int width = 0;
     int height = 0;
     int stride = 0;
@@ -75,8 +75,19 @@ int main(void)
     CHECK(height == 60);
     extractpdf_drop_bitmap(bitmap);
 
+    options.struct_size = offsetof(extractpdf_render_options, clip_enabled);
+    options.rotation_degrees = 90.0f;
+    options.clip_enabled = 1;
+    bitmap = NULL;
+    CHECK(extractpdf_render_page_with_options(page, &options, &bitmap) == EXTRACTPDF_OK);
+    CHECK(extractpdf_bitmap_dimensions(bitmap, &width, &height, &stride, &components) == EXTRACTPDF_OK);
+    CHECK(width == 60);
+    CHECK(height == 180);
+    extractpdf_drop_bitmap(bitmap);
+
     options.struct_size = sizeof(options);
     options.rotation_degrees = 90.0f;
+    options.clip_enabled = 0;
     bitmap = NULL;
     CHECK(extractpdf_render_page_with_options(page, &options, &bitmap) == EXTRACTPDF_OK);
     CHECK(extractpdf_bitmap_dimensions(bitmap, &width, &height, &stride, &components) == EXTRACTPDF_OK);
@@ -87,6 +98,41 @@ int main(void)
     extractpdf_drop_bitmap(bitmap);
 
     options.rotation_degrees = NAN;
+    bitmap = (extractpdf_bitmap *)&sentinel;
+    CHECK(extractpdf_render_page_with_options(page, &options, &bitmap) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(bitmap == NULL);
+
+    options.rotation_degrees = 0.0f;
+    options.clip_enabled = 1;
+    options.clip.x0 = 20.0f;
+    options.clip.y0 = 10.0f;
+    options.clip.x1 = 80.0f;
+    options.clip.y1 = 40.0f;
+    bitmap = NULL;
+    CHECK(extractpdf_render_page_with_options(page, &options, &bitmap) == EXTRACTPDF_OK);
+    CHECK(extractpdf_bitmap_dimensions(bitmap, &width, &height, &stride, &components) == EXTRACTPDF_OK);
+    CHECK(width == 60);
+    CHECK(height == 30);
+    CHECK(stride == 60 * 3);
+    CHECK(components == 3);
+    extractpdf_drop_bitmap(bitmap);
+
+    options.rotation_degrees = 90.0f;
+    bitmap = NULL;
+    CHECK(extractpdf_render_page_with_options(page, &options, &bitmap) == EXTRACTPDF_OK);
+    CHECK(extractpdf_bitmap_dimensions(bitmap, &width, &height, &stride, &components) == EXTRACTPDF_OK);
+    CHECK(width == 30);
+    CHECK(height == 60);
+    extractpdf_drop_bitmap(bitmap);
+
+    options.rotation_degrees = 0.0f;
+    options.clip.x1 = options.clip.x0;
+    bitmap = (extractpdf_bitmap *)&sentinel;
+    CHECK(extractpdf_render_page_with_options(page, &options, &bitmap) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(bitmap == NULL);
+
+    options.clip.x1 = 80.0f;
+    options.clip.y0 = NAN;
     bitmap = (extractpdf_bitmap *)&sentinel;
     CHECK(extractpdf_render_page_with_options(page, &options, &bitmap) == EXTRACTPDF_ERROR_ARGUMENT);
     CHECK(bitmap == NULL);
