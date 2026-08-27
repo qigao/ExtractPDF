@@ -18,3 +18,4 @@ target_compile_definitions(extractpdf_test_document PRIVATE
   MISSING_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/does-not-exist.pdf"
   UTF8_PDF="${UTF8_PDF}")
 add_test(NAME extractpdf.document COMMAND extractpdf_test_document)
+set_tests_properties(extractpdf.document PROPERTIES TIMEOUT 60)
