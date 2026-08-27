@@ -85,7 +85,7 @@ jobs:
       - name: Build MuPDF DLL client library
         shell: pwsh
         run: |
-          msbuild "$env:RUNNER_TEMP\mupdf\platform\win32\mupdfcpp.vcxproj" /m /p:Configuration=Release /p:Platform=x64
+          msbuild "$env:RUNNER_TEMP\mupdf\platform\win32\mupdf.sln" /m /t:mupdfcpp /p:Configuration=Release /p:Platform=x64
 
       - name: Configure shared build
         shell: pwsh
