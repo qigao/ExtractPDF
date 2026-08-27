@@ -5,6 +5,12 @@ on:
     branches:
       - master
   pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - labeled
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -72,6 +78,12 @@ jobs:
         run: ctest --test-dir build-asan --output-on-failure
 
   macos:
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       github.event.action == 'labeled' &&
+       github.event.label.name == 'full-ci')
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -119,6 +131,12 @@ jobs:
         run: ctest --test-dir build --output-on-failure
 
   windows:
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       github.event.action == 'labeled' &&
+       github.event.label.name == 'full-ci')
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
