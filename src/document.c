@@ -2,6 +2,12 @@
 
 #include <stdlib.h>
 
+static void extractpdf_discard_log(void *user, const char *message)
+{
+    (void)user;
+    (void)message;
+}
+
 static void extractpdf_dispose_document(extractpdf_document *document)
 {
     if (document == NULL)
@@ -16,8 +22,19 @@ static void extractpdf_dispose_document(extractpdf_document *document)
 
 extractpdf_status extractpdf_status_from_mupdf(int code)
 {
-    (void)code;
-    return EXTRACTPDF_ERROR_MUPDF;
+    switch (code) {
+    case FZ_ERROR_ARGUMENT:
+        return EXTRACTPDF_ERROR_ARGUMENT;
+    case FZ_ERROR_UNSUPPORTED:
+        return EXTRACTPDF_ERROR_UNSUPPORTED;
+    case FZ_ERROR_FORMAT:
+    case FZ_ERROR_SYNTAX:
+        return EXTRACTPDF_ERROR_FORMAT;
+    case FZ_ERROR_SYSTEM:
+        return EXTRACTPDF_ERROR_IO;
+    default:
+        return EXTRACTPDF_ERROR_MUPDF;
+    }
 }
 
 extractpdf_status extractpdf_open(
@@ -46,6 +63,9 @@ extractpdf_status extractpdf_open(
         return EXTRACTPDF_ERROR_NOMEM;
     }
 
+    fz_set_error_callback(document->ctx, extractpdf_discard_log, NULL);
+    fz_set_warning_callback(document->ctx, extractpdf_discard_log, NULL);
+
     fz_var(password_ok);
     fz_var(caught_code);
 
@@ -62,6 +82,7 @@ extractpdf_status extractpdf_open(
     fz_catch(document->ctx)
     {
         caught_code = fz_caught(document->ctx);
+        fz_report_error(document->ctx);
     }
 
     if (caught_code != FZ_ERROR_NONE) {
@@ -99,6 +120,7 @@ extractpdf_status extractpdf_page_count(
     fz_catch(document->ctx)
     {
         caught_code = fz_caught(document->ctx);
+        fz_report_error(document->ctx);
     }
 
     if (caught_code != FZ_ERROR_NONE)

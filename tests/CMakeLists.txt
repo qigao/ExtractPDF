@@ -6,5 +6,8 @@ add_executable(extractpdf_test_document test_document.c)
 target_link_libraries(extractpdf_test_document PRIVATE ExtractPDF::ExtractPDF)
 target_compile_definitions(extractpdf_test_document PRIVATE
   ONE_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
-  TWO_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/two-page.pdf")
+  TWO_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/two-page.pdf"
+  ENCRYPTED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/encrypted-one-page.pdf"
+  TRUNCATED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/truncated.pdf"
+  MISSING_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/does-not-exist.pdf")
 add_test(NAME extractpdf.document COMMAND extractpdf_test_document)
