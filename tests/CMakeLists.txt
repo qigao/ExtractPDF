@@ -18,6 +18,9 @@ target_compile_definitions(extractpdf_test_document PRIVATE
   TRUNCATED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/truncated.pdf"
   MISSING_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/does-not-exist.pdf"
   UTF8_PDF="${UTF8_PDF}")
+if(MSVC)
+  target_compile_options(extractpdf_test_document PRIVATE /utf-8)
+endif()
 add_test(NAME extractpdf.document COMMAND extractpdf_test_document)
 set_tests_properties(extractpdf.document PROPERTIES TIMEOUT 60)
 
