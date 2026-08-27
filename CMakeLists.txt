@@ -1,0 +1,22 @@
+cmake_minimum_required(VERSION 3.20)
+project(ExtractPDF VERSION 2.0.0 LANGUAGES C)
+
+option(EXTRACTPDF_BUILD_TESTS "Build ExtractPDF tests" ON)
+
+add_library(extractpdf src/status.c)
+add_library(ExtractPDF::ExtractPDF ALIAS extractpdf)
+target_compile_features(extractpdf PUBLIC c_std_11)
+target_include_directories(extractpdf PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
+
+if(MSVC)
+  target_compile_options(extractpdf PRIVATE /W4 /WX)
+else()
+  target_compile_options(extractpdf PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
+if(EXTRACTPDF_BUILD_TESTS)
+  include(CTest)
+  add_subdirectory(tests)
+endif()

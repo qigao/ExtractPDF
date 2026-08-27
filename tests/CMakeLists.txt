@@ -1,0 +1,3 @@
+add_executable(extractpdf_test_status test_status.c)
+target_link_libraries(extractpdf_test_status PRIVATE ExtractPDF::ExtractPDF)
+add_test(NAME extractpdf.status COMMAND extractpdf_test_status)
