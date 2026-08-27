@@ -37,6 +37,8 @@ typedef struct extractpdf_render_options {
     size_t struct_size;
     float dpi;
     float rotation_degrees;
+    int clip_enabled;
+    extractpdf_rect clip;
 } extractpdf_render_options;
 
 typedef enum extractpdf_status {
