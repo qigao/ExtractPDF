@@ -1,5 +1,7 @@
 #include "pdf_edit_internal.h"
 
+#include <limits.h>
+#include <math.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -16,6 +18,118 @@ static void extractpdf_pdf_edit_zero_rect(extractpdf_rect *rect)
     rect->y0 = 0.0f;
     rect->x1 = 0.0f;
     rect->y1 = 0.0f;
+}
+
+static int extractpdf_pdf_edit_bounds_valid(extractpdf_rect bounds)
+{
+    return isfinite(bounds.x0) && isfinite(bounds.y0) &&
+        isfinite(bounds.x1) && isfinite(bounds.y1) &&
+        bounds.x0 <= bounds.x1 && bounds.y0 <= bounds.y1;
+}
+
+static int extractpdf_pdf_edit_utf8_valid(
+    const unsigned char *text,
+    size_t size)
+{
+    size_t i = 0;
+
+    while (i < size) {
+        unsigned char a = text[i];
+
+        if (a == 0)
+            return 0;
+        if (a <= 0x7f) {
+            ++i;
+            continue;
+        }
+        if (a >= 0xc2 && a <= 0xdf) {
+            if (i + 1 >= size || text[i + 1] < 0x80 || text[i + 1] > 0xbf)
+                return 0;
+            i += 2;
+            continue;
+        }
+        if (a == 0xe0) {
+            if (i + 2 >= size || text[i + 1] < 0xa0 || text[i + 1] > 0xbf ||
+                text[i + 2] < 0x80 || text[i + 2] > 0xbf)
+                return 0;
+            i += 3;
+            continue;
+        }
+        if ((a >= 0xe1 && a <= 0xec) || (a >= 0xee && a <= 0xef)) {
+            if (i + 2 >= size || text[i + 1] < 0x80 || text[i + 1] > 0xbf ||
+                text[i + 2] < 0x80 || text[i + 2] > 0xbf)
+                return 0;
+            i += 3;
+            continue;
+        }
+        if (a == 0xed) {
+            if (i + 2 >= size || text[i + 1] < 0x80 || text[i + 1] > 0x9f ||
+                text[i + 2] < 0x80 || text[i + 2] > 0xbf)
+                return 0;
+            i += 3;
+            continue;
+        }
+        if (a == 0xf0) {
+            if (i + 3 >= size || text[i + 1] < 0x90 || text[i + 1] > 0xbf ||
+                text[i + 2] < 0x80 || text[i + 2] > 0xbf ||
+                text[i + 3] < 0x80 || text[i + 3] > 0xbf)
+                return 0;
+            i += 4;
+            continue;
+        }
+        if (a >= 0xf1 && a <= 0xf3) {
+            if (i + 3 >= size || text[i + 1] < 0x80 || text[i + 1] > 0xbf ||
+                text[i + 2] < 0x80 || text[i + 2] > 0xbf ||
+                text[i + 3] < 0x80 || text[i + 3] > 0xbf)
+                return 0;
+            i += 4;
+            continue;
+        }
+        if (a == 0xf4) {
+            if (i + 3 >= size || text[i + 1] < 0x80 || text[i + 1] > 0x8f ||
+                text[i + 2] < 0x80 || text[i + 2] > 0xbf ||
+                text[i + 3] < 0x80 || text[i + 3] > 0xbf)
+                return 0;
+            i += 4;
+            continue;
+        }
+        return 0;
+    }
+    return 1;
+}
+
+static extractpdf_status extractpdf_pdf_edit_prepare_contents(
+    const char *contents_utf8,
+    size_t contents_size,
+    int *out_present,
+    char **out_copy)
+{
+    char *copy;
+
+    *out_present = 0;
+    *out_copy = NULL;
+
+    if (contents_utf8 == NULL) {
+        if (contents_size != 0)
+            return EXTRACTPDF_ERROR_ARGUMENT;
+        return EXTRACTPDF_OK;
+    }
+
+    *out_present = 1;
+    if (!extractpdf_pdf_edit_utf8_valid(
+            (const unsigned char *)contents_utf8, contents_size))
+        return EXTRACTPDF_ERROR_ARGUMENT;
+    if (contents_size == SIZE_MAX)
+        return EXTRACTPDF_ERROR_NOMEM;
+
+    copy = (char *)malloc(contents_size + 1);
+    if (copy == NULL)
+        return EXTRACTPDF_ERROR_NOMEM;
+    if (contents_size != 0)
+        memcpy(copy, contents_utf8, contents_size);
+    copy[contents_size] = '\0';
+    *out_copy = copy;
+    return EXTRACTPDF_OK;
 }
 
 static uint64_t extractpdf_pdf_edit_mix_token(uint64_t x)
@@ -42,7 +156,6 @@ static extractpdf_status extractpdf_pdf_edit_validate_page(
 
     fz_var(page_count);
     fz_var(caught_code);
-
     fz_try(edit->ctx)
     {
         page_count = pdf_count_pages(edit->ctx, edit->document);
@@ -86,8 +199,7 @@ static extractpdf_status extractpdf_pdf_edit_reserve_entries(
 
     if (needed <= edit->entry_capacity)
         return EXTRACTPDF_OK;
-    if (needed > maximum ||
-        needed > SIZE_MAX / sizeof(*edit->entries))
+    if (needed > maximum || needed > SIZE_MAX / sizeof(*edit->entries))
         return EXTRACTPDF_ERROR_NOMEM;
 
     capacity = edit->entry_capacity != 0 ? edit->entry_capacity : 8;
@@ -108,8 +220,7 @@ static extractpdf_status extractpdf_pdf_edit_reserve_entries(
         }
         capacity = next;
     }
-    if (capacity < needed ||
-        capacity > SIZE_MAX / sizeof(*edit->entries))
+    if (capacity < needed || capacity > SIZE_MAX / sizeof(*edit->entries))
         return EXTRACTPDF_ERROR_NOMEM;
 
     grown = (extractpdf_pdf_edit_annotation_entry *)realloc(
@@ -164,8 +275,7 @@ static extractpdf_status extractpdf_pdf_edit_resolve_ref(
 
     if (out_entry != NULL)
         *out_entry = NULL;
-    if (edit == NULL || edit->ctx == NULL || edit->document == NULL ||
-        ref == NULL)
+    if (edit == NULL || edit->ctx == NULL || edit->document == NULL || ref == NULL)
         return EXTRACTPDF_ERROR_ARGUMENT;
     if (ref->opaque[0] != edit->session_cookie)
         return EXTRACTPDF_ERROR_ARGUMENT;
@@ -205,8 +315,7 @@ static extractpdf_status extractpdf_pdf_edit_register_object(
 
         if (!entry->live || entry->object == NULL)
             continue;
-        if (extractpdf_pdf_edit_same_identity(
-                edit->ctx, entry->object, object)) {
+        if (extractpdf_pdf_edit_same_identity(edit->ctx, entry->object, object)) {
             pdf_drop_obj(edit->ctx, object);
             extractpdf_pdf_edit_make_token(edit, slot, out_ref);
             return EXTRACTPDF_OK;
@@ -217,9 +326,7 @@ static extractpdf_status extractpdf_pdf_edit_register_object(
         pdf_drop_obj(edit->ctx, object);
         return EXTRACTPDF_ERROR_NOMEM;
     }
-
-    status = extractpdf_pdf_edit_reserve_entries(
-        edit, edit->entry_count + 1);
+    status = extractpdf_pdf_edit_reserve_entries(edit, edit->entry_count + 1);
     if (status != EXTRACTPDF_OK) {
         pdf_drop_obj(edit->ctx, object);
         return status;
@@ -231,7 +338,6 @@ static extractpdf_status extractpdf_pdf_edit_register_object(
     edit->entries[slot].tag = extractpdf_pdf_edit_tag_for_slot(edit, slot);
     edit->entries[slot].live = 1;
     ++edit->entry_count;
-
     extractpdf_pdf_edit_make_token(edit, slot, out_ref);
     return EXTRACTPDF_OK;
 }
@@ -247,7 +353,7 @@ static extractpdf_status extractpdf_pdf_edit_scan_page(
     pdf_page *page = NULL;
     pdf_obj *kept = NULL;
     size_t count = 0;
-    extractpdf_status status;
+    extractpdf_status status = EXTRACTPDF_OK;
     int caught_code = FZ_ERROR_NONE;
 
     if (out_count != NULL)
@@ -264,8 +370,6 @@ static extractpdf_status extractpdf_pdf_edit_scan_page(
     fz_var(count);
     fz_var(status);
     fz_var(caught_code);
-
-    status = EXTRACTPDF_OK;
     fz_try(edit->ctx)
     {
         pdf_obj *annots;
@@ -286,8 +390,7 @@ static extractpdf_status extractpdf_pdf_edit_scan_page(
 
             if (!pdf_is_dict(edit->ctx, annotation))
                 continue;
-            if (!extractpdf_pdf_annotation_classify(
-                    edit->ctx, annotation, &type))
+            if (!extractpdf_pdf_annotation_classify(edit->ctx, annotation, &type))
                 continue;
 
             status = extractpdf_pdf_annotation_read_view(
@@ -353,11 +456,9 @@ static extractpdf_status extractpdf_pdf_edit_resolve_live_annot(
 
     *out_page = NULL;
     *out_annot = NULL;
-
     fz_var(page);
     fz_var(found);
     fz_var(caught_code);
-
     fz_try(edit->ctx)
     {
         pdf_annot *annotation;
@@ -367,9 +468,7 @@ static extractpdf_status extractpdf_pdf_edit_resolve_live_annot(
              annotation != NULL;
              annotation = pdf_next_annot(edit->ctx, annotation)) {
             if (extractpdf_pdf_edit_same_identity(
-                    edit->ctx,
-                    pdf_annot_obj(edit->ctx, annotation),
-                    entry->object)) {
+                    edit->ctx, pdf_annot_obj(edit->ctx, annotation), entry->object)) {
                 found = annotation;
                 break;
             }
@@ -420,12 +519,11 @@ static extractpdf_status extractpdf_pdf_edit_resolve_live_view(
     status = extractpdf_pdf_edit_resolve_ref(edit, ref, &entry);
     if (status != EXTRACTPDF_OK)
         return status;
-
-    status = extractpdf_pdf_edit_resolve_live_annot(
-        edit, entry, &page, &annotation);
+    status = extractpdf_pdf_edit_resolve_live_annot(edit, entry, &page, &annotation);
     if (status != EXTRACTPDF_OK)
         return status;
 
+    fz_var(status);
     fz_var(caught_code);
     fz_try(edit->ctx)
     {
@@ -433,8 +531,7 @@ static extractpdf_status extractpdf_pdf_edit_resolve_live_view(
         fz_matrix page_ctm;
         pdf_obj *object = pdf_annot_obj(edit->ctx, annotation);
 
-        if (!extractpdf_pdf_annotation_classify(
-                edit->ctx, object, &type)) {
+        if (!extractpdf_pdf_annotation_classify(edit->ctx, object, &type)) {
             status = EXTRACTPDF_ERROR_STATE;
         } else {
             pdf_page_transform(edit->ctx, page, NULL, &page_ctm);
@@ -464,6 +561,45 @@ static extractpdf_status extractpdf_pdf_edit_resolve_live_view(
     return EXTRACTPDF_OK;
 }
 
+static int extractpdf_pdf_edit_map_create_type(
+    extractpdf_annotation_type type,
+    enum pdf_annot_type *out_type)
+{
+    switch (type) {
+    case EXTRACTPDF_ANNOTATION_TEXT:
+        *out_type = PDF_ANNOT_TEXT;
+        return 1;
+    case EXTRACTPDF_ANNOTATION_FREE_TEXT:
+        *out_type = PDF_ANNOT_FREE_TEXT;
+        return 1;
+    case EXTRACTPDF_ANNOTATION_SQUARE:
+        *out_type = PDF_ANNOT_SQUARE;
+        return 1;
+    case EXTRACTPDF_ANNOTATION_CIRCLE:
+        *out_type = PDF_ANNOT_CIRCLE;
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+static void extractpdf_pdf_edit_set_flags_u32(
+    fz_context *ctx,
+    pdf_annot *annotation,
+    uint32_t flags)
+{
+    if (flags <= (uint32_t)INT_MAX) {
+        pdf_set_annot_flags(ctx, annotation, (int)flags);
+    } else {
+        pdf_dict_put_int(
+            ctx,
+            pdf_annot_obj(ctx, annotation),
+            PDF_NAME(F),
+            (int64_t)(uint64_t)flags);
+        pdf_annot_request_resynthesis(ctx, annotation);
+    }
+}
+
 extractpdf_status extractpdf_pdf_edit_annotation_count(
     extractpdf_pdf_edit *edit,
     int page_index,
@@ -477,11 +613,9 @@ extractpdf_status extractpdf_pdf_edit_annotation_count(
     if (out_count == NULL)
         return EXTRACTPDF_ERROR_ARGUMENT;
 
-    status = extractpdf_pdf_edit_scan_page(
-        edit, page_index, 0, 0, &count, NULL);
+    status = extractpdf_pdf_edit_scan_page(edit, page_index, 0, 0, &count, NULL);
     if (status != EXTRACTPDF_OK)
         return status;
-
     *out_count = count;
     return EXTRACTPDF_OK;
 }
@@ -505,9 +639,7 @@ extractpdf_status extractpdf_pdf_edit_annotation_ref_at(
         edit, page_index, index, 1, &count, &object);
     if (status != EXTRACTPDF_OK)
         return status;
-
-    return extractpdf_pdf_edit_register_object(
-        edit, object, page_index, out_ref);
+    return extractpdf_pdf_edit_register_object(edit, object, page_index, out_ref);
 }
 
 extractpdf_status extractpdf_pdf_edit_annotation_get_info(
@@ -524,9 +656,7 @@ extractpdf_status extractpdf_pdf_edit_annotation_get_info(
 
     if (out_info == NULL)
         return EXTRACTPDF_ERROR_ARGUMENT;
-
-    minimum_size = offsetof(extractpdf_annotation_info, flags) +
-        sizeof(out_info->flags);
+    minimum_size = offsetof(extractpdf_annotation_info, flags) + sizeof(out_info->flags);
     if (out_info->struct_size < minimum_size)
         return EXTRACTPDF_ERROR_ARGUMENT;
 
@@ -592,7 +722,6 @@ extractpdf_status extractpdf_pdf_edit_annotation_contents(
     memcpy(copy, view.contents_utf8, view.contents_size);
     copy[view.contents_size] = '\0';
     fz_drop_page(edit->ctx, &page->super);
-
     *out_utf8 = copy;
     *out_size = view.contents_size;
     return EXTRACTPDF_OK;
@@ -604,8 +733,16 @@ extractpdf_status extractpdf_pdf_edit_annotation_create(
     const extractpdf_annotation_create_options *options,
     extractpdf_annotation_ref *out_ref)
 {
-    size_t minimum_size;
+    enum pdf_annot_type pdf_type = PDF_ANNOT_UNKNOWN;
+    pdf_page *page = NULL;
+    pdf_annot *annotation = NULL;
+    pdf_obj *object = NULL;
+    char *contents_copy = NULL;
+    int contents_present = 0;
+    int operation_open = 0;
+    int caught_code = FZ_ERROR_NONE;
     extractpdf_status status;
+    size_t minimum_size;
 
     if (out_ref != NULL)
         extractpdf_pdf_edit_zero_ref(out_ref);
@@ -620,7 +757,97 @@ extractpdf_status extractpdf_pdf_edit_annotation_create(
     status = extractpdf_pdf_edit_validate_page(edit, page_index);
     if (status != EXTRACTPDF_OK)
         return status;
-    return EXTRACTPDF_ERROR_UNSUPPORTED;
+    if (!extractpdf_pdf_edit_map_create_type(options->type, &pdf_type))
+        return EXTRACTPDF_ERROR_UNSUPPORTED;
+    if (!extractpdf_pdf_edit_bounds_valid(options->bounds))
+        return EXTRACTPDF_ERROR_ARGUMENT;
+
+    status = extractpdf_pdf_edit_prepare_contents(
+        options->contents_utf8,
+        options->contents_size,
+        &contents_present,
+        &contents_copy);
+    if (status != EXTRACTPDF_OK)
+        return status;
+
+    status = extractpdf_pdf_edit_reserve_entries(edit, edit->entry_count + 1);
+    if (status != EXTRACTPDF_OK) {
+        free(contents_copy);
+        return status;
+    }
+
+    fz_var(page);
+    fz_var(annotation);
+    fz_var(object);
+    fz_var(operation_open);
+    fz_var(caught_code);
+    fz_try(edit->ctx)
+    {
+        fz_rect bounds = fz_make_rect(
+            options->bounds.x0,
+            options->bounds.y0,
+            options->bounds.x1,
+            options->bounds.y1);
+
+        page = pdf_load_page(edit->ctx, edit->document, page_index);
+        pdf_begin_operation(
+            edit->ctx, edit->document, "ExtractPDF create annotation");
+        operation_open = 1;
+
+        annotation = pdf_create_annot(edit->ctx, page, pdf_type);
+        pdf_set_annot_rect(edit->ctx, annotation, bounds);
+        extractpdf_pdf_edit_set_flags_u32(
+            edit->ctx, annotation, options->flags);
+        if (contents_present)
+            pdf_set_annot_contents(edit->ctx, annotation, contents_copy);
+        (void)pdf_update_annot(edit->ctx, annotation);
+
+#if defined(EXTRACTPDF_TESTING)
+        if (edit->test_fault ==
+            EXTRACTPDF_PDF_EDIT_TEST_FAULT_AFTER_CREATE_MUTATION) {
+            edit->test_fault = EXTRACTPDF_PDF_EDIT_TEST_FAULT_NONE;
+            fz_throw(
+                edit->ctx,
+                FZ_ERROR_GENERIC,
+                "injected ExtractPDF create failure");
+        }
+#endif
+
+        pdf_end_operation(edit->ctx, edit->document);
+        operation_open = 0;
+        object = pdf_keep_obj(
+            edit->ctx, pdf_annot_obj(edit->ctx, annotation));
+    }
+    fz_always(edit->ctx)
+    {
+        if (annotation != NULL)
+            pdf_drop_annot(edit->ctx, annotation);
+        annotation = NULL;
+        if (page != NULL)
+            fz_drop_page(edit->ctx, &page->super);
+        page = NULL;
+    }
+    fz_catch(edit->ctx)
+    {
+        caught_code = fz_caught(edit->ctx);
+        if (operation_open) {
+            pdf_abandon_operation(edit->ctx, edit->document);
+            operation_open = 0;
+        }
+        fz_report_error(edit->ctx);
+    }
+
+    free(contents_copy);
+    if (caught_code != FZ_ERROR_NONE) {
+        pdf_drop_obj(edit->ctx, object);
+        return extractpdf_status_from_mupdf(caught_code);
+    }
+    if (object == NULL)
+        return EXTRACTPDF_ERROR_MUPDF;
+
+    status = extractpdf_pdf_edit_register_object(
+        edit, object, page_index, out_ref);
+    return status;
 }
 
 extractpdf_status extractpdf_pdf_edit_annotation_update(
@@ -638,7 +865,6 @@ extractpdf_status extractpdf_pdf_edit_annotation_update(
 
     if (update == NULL)
         return EXTRACTPDF_ERROR_ARGUMENT;
-
     minimum_size = offsetof(extractpdf_annotation_update, contents_size) +
         sizeof(update->contents_size);
     if (update->struct_size < minimum_size)
@@ -650,7 +876,6 @@ extractpdf_status extractpdf_pdf_edit_annotation_update(
     if (status != EXTRACTPDF_OK)
         return status;
     (void)entry;
-
     if (update->fields == 0)
         return EXTRACTPDF_OK;
     return EXTRACTPDF_ERROR_UNSUPPORTED;
@@ -661,8 +886,7 @@ extractpdf_status extractpdf_pdf_edit_annotation_delete(
     const extractpdf_annotation_ref *ref)
 {
     extractpdf_pdf_edit_annotation_entry *entry = NULL;
-    extractpdf_status status = extractpdf_pdf_edit_resolve_ref(
-        edit, ref, &entry);
+    extractpdf_status status = extractpdf_pdf_edit_resolve_ref(edit, ref, &entry);
 
     (void)entry;
     if (status != EXTRACTPDF_OK)
