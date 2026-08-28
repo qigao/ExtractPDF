@@ -173,16 +173,28 @@ EXTRACTPDF_API void extractpdf_drop_pdf_edit(
 
 No MuPDF type, PDF object identity, filename, or mutable source handle is added to the public mutation ABI.
 
-## Editor Begin Contract
+## Struct-size and Output-reset Convention
 
-`extractpdf_pdf_edit_begin()` starts with:
+New option/update structs follow the existing ExtractPDF forward-compatible `struct_size` convention: a caller-provided struct must be at least large enough through the last field currently required by V1; larger structs are accepted and unknown trailing bytes are ignored. A too-small `struct_size` is `ARGUMENT`.
+
+`extractpdf_annotation_info` keeps its existing minimum-size behavior in the live editor getter.
+
+Every required output pointer follows reset-before-later-validation behavior wherever a non-NULL pointer can be reset safely:
 
 ```text
-out_edit == NULL -> ARGUMENT
-otherwise        -> *out_edit = NULL before later validation/work
+edit_begin:       out_edit == NULL -> ARGUMENT; otherwise *out_edit = NULL first
+count:            if out_count != NULL, *out_count = 0 first; NULL out_count -> ARGUMENT
+ref_at/create:    if out_ref != NULL, zero the whole token first; NULL out_ref -> ARGUMENT
+get_info:         NULL out_info -> ARGUMENT; validate minimum struct_size, then reset known fields
+contents:         reset each non-NULL output independently, then require both out_utf8 and out_size
+snapshot:         out_output == NULL -> ARGUMENT; otherwise *out_output = NULL first
 ```
 
-Then it validates and materializes the private editor.
+No later validation failure may leave stale caller-visible output values.
+
+## Editor Begin Contract
+
+`extractpdf_pdf_edit_begin()` validates and materializes the private editor after resetting `*out_edit`.
 
 Required behavior:
 
@@ -196,7 +208,7 @@ Required behavior:
 
 An unsigned signature field does not by itself make the document unsupported. V1 rejects an already-signed signature value because full-rewrite mutation has no signature-preservation contract.
 
-The private PDF must have JavaScript disabled before any editing operation is exposed to the caller.
+The private PDF must have JavaScript disabled before any editing operation is exposed to the caller. Editor begin itself must not execute document JavaScript or action code.
 
 ## Annotation Discovery Contract
 
@@ -215,11 +227,11 @@ For a requested page, ordinary annotation discovery uses the same rules:
 
 This prevents the editor from creating a second incompatible definition of "ordinary annotation".
 
-`extractpdf_pdf_edit_annotation_count()` returns the count of current surviving ordinary annotations on the current edit state.
+`extractpdf_pdf_edit_annotation_count()` returns the count of current surviving ordinary annotations on the current edit state. Invalid page index is `ARGUMENT`.
 
-`extractpdf_pdf_edit_annotation_ref_at(edit, page, index, &ref)` uses the current discovery index only to acquire a session-local ref. After a ref is issued, later update/delete/get operations use the ref, not the index.
+`extractpdf_pdf_edit_annotation_ref_at(edit, page, index, &ref)` uses the current discovery index only to acquire a session-local ref. Out-of-range index is `ARGUMENT`. After a ref is issued, later update/delete/get operations use the ref, not the index.
 
-If discovery of a page encounters a malformed surviving annotation, the discovery call fails atomically with `FORMAT`; it does not publish new refs for an earlier valid prefix.
+If discovery of a page encounters a malformed surviving annotation, the discovery call fails atomically with `FORMAT`; it does not publish/register new refs for an earlier valid prefix. Existing refs already issued by successful operations remain unchanged.
 
 `UNKNOWN` entries may receive refs and may be inspected with the common getters, but all mutation through such refs is `UNSUPPORTED`.
 
@@ -244,18 +256,18 @@ Required identity properties:
 
 ```text
 same edit + live ref              valid
-additional create/reorder         existing live ref remains valid
+create/delete shifts indices      unrelated existing live refs remain valid
 new create                         returns a new live ref
-delete success                     ref becomes tombstone
+delete success                     deleted ref becomes tombstone
 same-session tombstone use         STATE
 wrong-session token                ARGUMENT
-malformed/forged token              ARGUMENT
-snapshot()                          refs remain valid
-drop edit                           entire ref namespace ends
-save/reopen output                  no ref continuity promise
+malformed/forged token             ARGUMENT
+snapshot()                         refs remain valid
+drop edit                          entire ref namespace ends
+save/reopen output                 no ref continuity promise
 ```
 
-Registry slots should not be recycled in a way that can make a deleted ref accidentally target a new annotation during the same edit session.
+Registry slots must not be recycled in a way that can make a deleted ref accidentally target a new annotation during the same edit session.
 
 PDF object number/generation or kept PDF objects may be used privately to resolve a registry entry, but none of that becomes public identity.
 
@@ -267,7 +279,7 @@ Classification:
 
 ```text
 null required pointer                 ARGUMENT
-bad page index                        ARGUMENT
+bad page/index                        ARGUMENT
 wrong-session ref                     ARGUMENT
 malformed/forged ref                  ARGUMENT
 tombstoned same-session ref           STATE
@@ -300,11 +312,13 @@ Public mutation bounds are Fitz page-space rectangles, matching existing page/li
 
 Inputs must contain finite floats with `x0 <= x1` and `y0 <= y1`. Zero-width or zero-height rectangles are allowed unless MuPDF rejects the specific annotation type. Non-finite or reversed rectangles are `ARGUMENT`; V1 does not silently normalize mutation inputs.
 
-MuPDF's annotation setter performs the private inverse page transform required to store PDF-space geometry. The public caller never supplies PDF-space coordinates.
+MuPDF's annotation geometry path performs the private inverse page transform required to store PDF-space geometry. The public caller never supplies PDF-space coordinates.
 
 ### Flags
 
-Flags use the existing raw uint32 PDF `/F` bitmask representation. V1 does not define a second flag enum.
+Flags keep the existing raw `uint32_t` PDF `/F` bitmask contract. V1 accepts the full `uint32_t` range so a caller can round-trip an existing raw flag value without signed narrowing.
+
+Pinned MuPDF's convenience flag setter accepts `int`; implementation must therefore not cast a value greater than `INT_MAX` through that setter and emit a negative PDF integer. If the convenience setter cannot preserve the full public value, the implementation must perform an equivalent journalled PDF `/F` write using a non-narrowing integer representation and request the same dirty/resynthesis behavior. This is a private implementation detail; the public `uint32_t` contract does not narrow.
 
 ### Contents
 
@@ -327,7 +341,7 @@ bit present + non-NULL/nonzero                  set UTF-8 contents
 bit present + NULL/nonzero                      ARGUMENT
 ```
 
-Present input must be valid UTF-8. Embedded NUL within the counted range is rejected as `ARGUMENT`, because the pinned MuPDF setter accepts a C string and V1 must not silently truncate caller data.
+Present input is a counted byte range. It does not need a terminating NUL after `contents_size`; ExtractPDF copies the range into temporary storage and appends its own terminator before calling a C-string MuPDF API. The counted range must be valid UTF-8 and must not contain embedded NUL. Invalid UTF-8 or embedded NUL is `ARGUMENT`. Size arithmetic overflow is `NOMEM`.
 
 Live-editor contents access returns an allocated ExtractPDF-owned copy:
 
@@ -369,10 +383,12 @@ A future geometry slice may extend existing refs with type-specific APIs without
 
 ## Create Contract
 
-`extractpdf_pdf_edit_annotation_create()`:
+`extractpdf_pdf_edit_annotation_create()` requires non-NULL edit/options/out_ref, a valid page index, and a sufficiently large options `struct_size`.
 
-- resets `out_ref` to all-zero before later validation/work when `out_ref` is supplied;
-- validates editor/page/options/struct_size/type/bounds/flags/contents before mutation;
+It then:
+
+- zeroes `out_ref` before later validation/work;
+- validates type/bounds/flags/Contents before mutation;
 - only permits TEXT/FREE_TEXT/SQUARE/CIRCLE;
 - creates the annotation inside one outer journal operation;
 - applies bounds, flags, and optional Contents;
@@ -385,11 +401,13 @@ No partially created annotation or registry entry may survive a failed create.
 
 ## Update Contract
 
-`extractpdf_pdf_edit_annotation_update()` validates the entire request before starting observable mutation wherever possible.
+`extractpdf_pdf_edit_annotation_update()` requires non-NULL edit/ref/update and a sufficiently large update `struct_size`.
 
-Unknown field bits are `ARGUMENT`. A zero field mask is a successful no-op.
+It validates the editor and ref before treating a zero field mask as a successful no-op. Therefore a wrong-session ref still returns `ARGUMENT` and a tombstoned ref still returns `STATE` even when `fields == 0`.
 
-Within one outer journal operation it applies requested fields in a fixed private order. Public semantics do not depend on that order because failure at any point abandons the whole operation.
+Unknown field bits are `ARGUMENT`. For requested fields, all input validation that does not require mutation is completed before the outer operation begins.
+
+Within one outer journal operation the implementation applies requested fields in a fixed private order. Public semantics do not depend on that order because failure at any point abandons the whole operation.
 
 Bounds update is allowed only for TEXT/FREE_TEXT/SQUARE/CIRCLE. Generic flags/Contents update is allowed for recognized ordinary types. UNKNOWN mutation is `UNSUPPORTED`.
 
@@ -403,7 +421,7 @@ Deletion occurs in one outer journal operation using MuPDF annotation deletion s
 
 Only after successful operation completion is the registry entry marked tombstoned. If deletion fails, the ref remains live and the annotation remains observable.
 
-Calling get/update/delete on a same-session tombstoned ref returns `EXTRACTPDF_ERROR_STATE`.
+Calling get/update/delete/contents on a same-session tombstoned ref returns `EXTRACTPDF_ERROR_STATE`.
 
 ## Atomic Mutation Operations
 
@@ -420,14 +438,14 @@ perform one or more MuPDF annotation mutations
         |
 perform required appearance update/resynthesis
         |
-update private registry only when appropriate
-        |
-        +-- success -> pdf_end_operation -> publish outputs/ref state
+        +-- success -> pdf_end_operation -> update registry/publish ref state
         |
         +-- failure -> pdf_abandon_operation -> restore pre-call PDF state
 ```
 
 Pinned MuPDF annotation setters may start nested annotation operations. Those are intentionally enclosed by the ExtractPDF outer operation so one public API call remains the atomic unit.
+
+Registry changes that would expose a new ref or tombstone an existing ref occur only after the corresponding PDF operation has completed successfully. A failure to allocate registry state needed for create must be handled before publication and must not leave the new PDF annotation behind.
 
 No public undo/redo surface is introduced. Journalling is an implementation mechanism for per-call atomicity only.
 
@@ -443,14 +461,7 @@ If pinned MuPDF requires a broader page update for a supported annotation subtyp
 
 `extractpdf_pdf_edit_snapshot()` is deliberately not named commit. It is a non-consuming immutable snapshot operation.
 
-It starts with:
-
-```text
-out_output == NULL -> ARGUMENT
-otherwise          -> *out_output = NULL before later validation/work
-```
-
-Then it serializes the complete current private PDF using the deterministic full-document writer policy and deep-copies bytes into the existing `extractpdf_output` abstraction. Only complete success publishes the output.
+After resetting `*out_output`, it serializes the complete current private PDF using the deterministic full-document writer policy and deep-copies bytes into the existing `extractpdf_output` abstraction. Only complete success publishes the output.
 
 Required properties:
 
@@ -493,7 +504,7 @@ Signed-PDF mutation therefore belongs to a separate incremental/signature archit
 
 The private PDF editor disables JavaScript before callers can perform mutations.
 
-Annotation CRUD must not execute document OpenAction JavaScript, annotation actions, form validation/calculation scripts, or other PDF JavaScript as an implicit side effect.
+Annotation CRUD must not execute document OpenAction JavaScript, annotation actions, form validation/calculation scripts, or other PDF JavaScript as an implicit side effect. Editor begin and snapshot likewise must not execute document JavaScript.
 
 JavaScript execution remains out of scope for roadmap #2. A deterministic fixture must prove that a script capable of changing observable document state is not executed by editor begin, mutation, appearance update, or snapshot.
 
@@ -517,43 +528,15 @@ Allocated strings returned by live-editor getters use `extractpdf_free()`.
 
 `extractpdf_drop_pdf_edit(NULL)` is a no-op.
 
-## Error Atomicity and Output Reset
-
-All new functions follow the existing reset-before-later-validation convention wherever an output pointer exists.
-
-Examples:
-
-```text
-edit_begin:        *out_edit = NULL
-create:            *out_ref = zero token
-ref_at:            *out_ref = zero token
-count:             *out_count = 0
-get_info:          known fields reset after struct_size validation
-contents:          *out_utf8 = NULL; *out_size = 0
-snapshot:          *out_output = NULL
-```
-
-No API may publish a partially initialized editor, annotation ref, allocated string, or output after a later failure.
-
 ## Deterministic RED Fixtures
 
 The implementation plan must define checked-in deterministic PDFs sufficient to prove the contracts below without depending on network resources or system fonts beyond the pinned MuPDF test environment.
 
-At minimum the RED suite must cover:
-
 ### Editable ordinary annotations
 
-A PDF with multiple pages and an `/Annots` sequence that includes:
+A PDF with multiple pages and an `/Annots` sequence that includes supported Rect-based ordinary annotations, at least one QuadPoints annotation, at least one Ink/vertex-style unsupported-geometry annotation, Link, Popup, Widget, and UNKNOWN subtype.
 
-- supported Rect-based ordinary annotations,
-- at least one QuadPoints annotation,
-- at least one Ink/vertex-style unsupported-geometry annotation,
-- Link,
-- Popup,
-- Widget,
-- UNKNOWN subtype.
-
-This fixture locks discovery filtering/order, supported-type matrix, and ref/index separation.
+This fixture locks discovery filtering/order, strict survivor validation, supported-type matrix, and ref/index separation.
 
 ### Source immutability and lifetime
 
@@ -561,7 +544,7 @@ Begin an editor, close the source, continue discovery/mutation/snapshot successf
 
 ### Ref identity
 
-Acquire refs, create another annotation that changes discovery count/order, and prove existing refs still address the same logical annotations. A ref from edit A used in edit B must be rejected. Delete must tombstone the ref.
+Acquire refs to at least two annotations, delete an earlier annotation so later discovery indices shift, and prove the surviving later ref still addresses the same logical annotation. Also create a new annotation and prove existing refs remain stable. A ref from edit A used in edit B must be rejected. Delete must tombstone the deleted ref.
 
 ### Atomic update failure
 
@@ -569,23 +552,25 @@ Use one multi-field update where an earlier field can succeed but a later reques
 
 ### Create failure
 
-Trigger a deterministic failure after MuPDF annotation creation has started but before publication. The page count/order and ref registry must remain unchanged and no ref may be published.
+Trigger a deterministic failure after PDF annotation creation has started but before publication. The page count/order and ref registry must remain unchanged and no ref may be published.
+
+### Full uint32 flags
+
+A deterministic case must exercise a raw `/F` value above `INT_MAX`, prove immutable/editor getters preserve the same `uint32_t`, and prove an explicit flags update can round-trip that value without producing a negative PDF integer or failing subsequent strict enumeration.
+
+### Contents ownership and presence
+
+Prove absent, present-empty, and non-empty Contents remain distinct; counted input need not be NUL-terminated outside its declared size; invalid UTF-8 and embedded NUL are rejected; live getter strings survive subsequent editor mutation until caller frees them.
 
 ### Snapshot isolation
 
-Generate snapshot A, mutate, generate snapshot B, and prove:
-
-- A bytes do not change;
-- B differs where expected;
-- reparse of A exposes the earlier annotation state;
-- reparse of B exposes the later state;
-- two snapshots without mutation are byte-identical.
+Generate snapshot A, mutate, generate snapshot B, and prove A bytes do not change, B differs where expected, reparse of A exposes the earlier annotation state, reparse of B exposes the later state, and two snapshots without mutation are byte-identical.
 
 Reparsed public verification should reuse immutable annotation enumeration wherever possible rather than inspect raw PDF objects only.
 
 ### Fail-closed inputs
 
-Checked-in encrypted and already-signed PDFs must make edit begin return `UNSUPPORTED + NULL`.
+Checked-in encrypted and already-signed PDFs must make edit begin return `UNSUPPORTED + NULL`. An unsigned signature field remains acceptable.
 
 ### JavaScript disabled
 
@@ -616,13 +601,7 @@ The exact production file split is chosen in the implementation plan, but scope 
 
 ## Cross-platform Acceptance
 
-Before integration, the final exact feature head must pass:
-
-- Linux strict static build + all CTests;
-- Linux ASan/UBSan build + all CTests;
-- macOS configure/build/test;
-- Windows DLL configure/build/test;
-- the new mutation CTest executed through the Windows DLL build.
+Before integration, the final exact feature head must pass Linux strict static build + all CTests, Linux ASan/UBSan + all CTests, macOS configure/build/test, and Windows DLL configure/build/test with the new mutation CTest executed through the Windows DLL build.
 
 After merge, the integrated master merge SHA must pass the same push workflow before issue #37 is closed completed and roadmap #2 marks Annotation Mutation V1 integrated.
 
