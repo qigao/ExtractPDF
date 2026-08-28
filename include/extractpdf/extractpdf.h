@@ -150,6 +150,10 @@ EXTRACTPDF_API extractpdf_status extractpdf_output_data(
     const unsigned char **out_data,
     size_t *out_size);
 
+EXTRACTPDF_API extractpdf_status extractpdf_output_save_file(
+    const extractpdf_output *output,
+    const char *filename);
+
 EXTRACTPDF_API extractpdf_status extractpdf_load_page(
     extractpdf_document *document,
     int page_index,
