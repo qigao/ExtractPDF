@@ -122,6 +122,27 @@ target_compile_definitions(extractpdf_test_pdf_merge PRIVATE
 add_test(NAME extractpdf.pdf_merge COMMAND extractpdf_test_pdf_merge)
 set_tests_properties(extractpdf.pdf_merge PROPERTIES TIMEOUT 30)
 
+set(OUTPUT_FILE_ASCII "${CMAKE_CURRENT_BINARY_DIR}/composition-save-output.pdf")
+set(OUTPUT_FILE_UTF8 "${CMAKE_CURRENT_BINARY_DIR}/composition-save-测试.pdf")
+set(OUTPUT_FILE_MISSING_PARENT_DIR
+  "${CMAKE_CURRENT_BINARY_DIR}/extractpdf-save-missing-parent")
+set(OUTPUT_FILE_MISSING_PARENT
+  "${OUTPUT_FILE_MISSING_PARENT_DIR}/output.pdf")
+
+add_executable(extractpdf_test_output_file test_output_file.c)
+target_link_libraries(extractpdf_test_output_file PRIVATE ExtractPDF::ExtractPDF)
+target_compile_definitions(extractpdf_test_output_file PRIVATE
+  COMPOSITION_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-three-page.pdf"
+  ASCII_OUTPUT_PDF="${OUTPUT_FILE_ASCII}"
+  UTF8_OUTPUT_PDF="${OUTPUT_FILE_UTF8}"
+  MISSING_PARENT_DIR="${OUTPUT_FILE_MISSING_PARENT_DIR}"
+  MISSING_PARENT_PDF="${OUTPUT_FILE_MISSING_PARENT}")
+if(MSVC)
+  target_compile_options(extractpdf_test_output_file PRIVATE /utf-8)
+endif()
+add_test(NAME extractpdf.output_file COMMAND extractpdf_test_output_file)
+set_tests_properties(extractpdf.output_file PROPERTIES TIMEOUT 30)
+
 if(WIN32 AND BUILD_SHARED_LIBS)
   foreach(test_target IN ITEMS
       extractpdf_test_status
@@ -137,7 +158,8 @@ if(WIN32 AND BUILD_SHARED_LIBS)
       extractpdf_test_pdf_range
       extractpdf_test_pdf_order
       extractpdf_test_pdf_delete
-      extractpdf_test_pdf_merge)
+      extractpdf_test_pdf_merge
+      extractpdf_test_output_file)
     add_custom_command(TARGET ${test_target} POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E copy_if_different
         $<TARGET_FILE:extractpdf>
