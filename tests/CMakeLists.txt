@@ -174,6 +174,28 @@ target_compile_definitions(extractpdf_test_pdf_annotations PRIVATE
 add_test(NAME extractpdf.pdf_annotations COMMAND extractpdf_test_pdf_annotations)
 set_tests_properties(extractpdf.pdf_annotations PROPERTIES TIMEOUT 30)
 
+set(MUTATION_OUTPUT_A "${CMAKE_CURRENT_BINARY_DIR}/annotation-mutation-a.pdf")
+set(MUTATION_OUTPUT_B "${CMAKE_CURRENT_BINARY_DIR}/annotation-mutation-b.pdf")
+set(MUTATION_OUTPUT_JS "${CMAKE_CURRENT_BINARY_DIR}/annotation-mutation-js-output.pdf")
+
+add_executable(extractpdf_test_pdf_annotation_mutation
+  test_pdf_annotation_mutation.c)
+target_link_libraries(extractpdf_test_pdf_annotation_mutation PRIVATE ExtractPDF::ExtractPDF)
+target_compile_definitions(extractpdf_test_pdf_annotation_mutation PRIVATE
+  MUTATION_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotation-mutation.pdf"
+  SIGNED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotation-mutation-signed.pdf"
+  UNSIGNED_SIGNATURE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotation-mutation-unsigned-signature.pdf"
+  JS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotation-mutation-js.pdf"
+  LATE_MALFORMED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotations-late-malformed.pdf"
+  ENCRYPTED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/encrypted-one-page.pdf"
+  NON_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-non-pdf.txt"
+  OUTPUT_A_PDF="${MUTATION_OUTPUT_A}"
+  OUTPUT_B_PDF="${MUTATION_OUTPUT_B}"
+  OUTPUT_JS_PDF="${MUTATION_OUTPUT_JS}")
+add_test(NAME extractpdf.pdf_annotation_mutation
+  COMMAND extractpdf_test_pdf_annotation_mutation)
+set_tests_properties(extractpdf.pdf_annotation_mutation PROPERTIES TIMEOUT 60)
+
 if(WIN32 AND BUILD_SHARED_LIBS)
   foreach(test_target IN ITEMS
       extractpdf_test_status
@@ -193,7 +215,8 @@ if(WIN32 AND BUILD_SHARED_LIBS)
       extractpdf_test_output_file
       extractpdf_test_pdf_metadata
       extractpdf_test_pdf_outline
-      extractpdf_test_pdf_annotations)
+      extractpdf_test_pdf_annotations
+      extractpdf_test_pdf_annotation_mutation)
     add_custom_command(TARGET ${test_target} POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E copy_if_different
         $<TARGET_FILE:extractpdf>
