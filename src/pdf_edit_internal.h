@@ -1,0 +1,35 @@
+#ifndef EXTRACTPDF_PDF_EDIT_INTERNAL_H
+#define EXTRACTPDF_PDF_EDIT_INTERNAL_H
+
+#include "pdf_annotation_common.h"
+
+typedef struct extractpdf_pdf_edit_annotation_entry {
+    pdf_obj *object;
+    int page_index;
+    uint32_t tag;
+    int live;
+} extractpdf_pdf_edit_annotation_entry;
+
+#if defined(EXTRACTPDF_TESTING)
+enum {
+    EXTRACTPDF_PDF_EDIT_TEST_FAULT_NONE = 0,
+    EXTRACTPDF_PDF_EDIT_TEST_FAULT_AFTER_FIRST_UPDATE_FIELD = 1,
+    EXTRACTPDF_PDF_EDIT_TEST_FAULT_AFTER_CREATE_MUTATION = 2,
+    EXTRACTPDF_PDF_EDIT_TEST_FAULT_SNAPSHOT_BEFORE_PUBLISH = 3
+};
+#endif
+
+struct extractpdf_pdf_edit {
+    fz_context *ctx;
+    pdf_document *document;
+    extractpdf_output *seed_output;
+    uint64_t session_cookie;
+    extractpdf_pdf_edit_annotation_entry *entries;
+    size_t entry_count;
+    size_t entry_capacity;
+#if defined(EXTRACTPDF_TESTING)
+    int test_fault;
+#endif
+};
+
+#endif

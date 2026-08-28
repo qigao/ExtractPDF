@@ -27,6 +27,7 @@ typedef struct extractpdf_link_page extractpdf_link_page;
 typedef struct extractpdf_output extractpdf_output;
 typedef struct extractpdf_outline extractpdf_outline;
 typedef struct extractpdf_annotation_page extractpdf_annotation_page;
+typedef struct extractpdf_pdf_edit extractpdf_pdf_edit;
 
 typedef struct extractpdf_point {
     float x;
@@ -163,6 +164,34 @@ typedef struct extractpdf_annotation_info {
     uint32_t flags;
 } extractpdf_annotation_info;
 
+typedef struct extractpdf_annotation_ref {
+    uint64_t opaque[2];
+} extractpdf_annotation_ref;
+
+typedef enum extractpdf_annotation_update_field {
+    EXTRACTPDF_ANNOTATION_UPDATE_BOUNDS = 1u << 0,
+    EXTRACTPDF_ANNOTATION_UPDATE_FLAGS = 1u << 1,
+    EXTRACTPDF_ANNOTATION_UPDATE_CONTENTS = 1u << 2
+} extractpdf_annotation_update_field;
+
+typedef struct extractpdf_annotation_create_options {
+    size_t struct_size;
+    extractpdf_annotation_type type;
+    extractpdf_rect bounds;
+    uint32_t flags;
+    const char *contents_utf8;
+    size_t contents_size;
+} extractpdf_annotation_create_options;
+
+typedef struct extractpdf_annotation_update {
+    size_t struct_size;
+    uint32_t fields;
+    extractpdf_rect bounds;
+    uint32_t flags;
+    const char *contents_utf8;
+    size_t contents_size;
+} extractpdf_annotation_update;
+
 typedef enum extractpdf_metadata_field {
     EXTRACTPDF_METADATA_TITLE = 1,
     EXTRACTPDF_METADATA_AUTHOR = 2,
@@ -182,7 +211,8 @@ typedef enum extractpdf_status {
     EXTRACTPDF_ERROR_FORMAT = 4,
     EXTRACTPDF_ERROR_UNSUPPORTED = 5,
     EXTRACTPDF_ERROR_NOMEM = 6,
-    EXTRACTPDF_ERROR_MUPDF = 7
+    EXTRACTPDF_ERROR_MUPDF = 7,
+    EXTRACTPDF_ERROR_STATE = 8
 } extractpdf_status;
 
 EXTRACTPDF_API extractpdf_status extractpdf_open(
@@ -250,6 +280,51 @@ EXTRACTPDF_API extractpdf_status extractpdf_output_data(
 EXTRACTPDF_API extractpdf_status extractpdf_output_save_file(
     const extractpdf_output *output,
     const char *filename);
+
+EXTRACTPDF_API extractpdf_status extractpdf_pdf_edit_begin(
+    extractpdf_document *document,
+    extractpdf_pdf_edit **out_edit);
+
+EXTRACTPDF_API extractpdf_status extractpdf_pdf_edit_annotation_count(
+    extractpdf_pdf_edit *edit,
+    int page_index,
+    size_t *out_count);
+
+EXTRACTPDF_API extractpdf_status extractpdf_pdf_edit_annotation_ref_at(
+    extractpdf_pdf_edit *edit,
+    int page_index,
+    size_t index,
+    extractpdf_annotation_ref *out_ref);
+
+EXTRACTPDF_API extractpdf_status extractpdf_pdf_edit_annotation_get_info(
+    extractpdf_pdf_edit *edit,
+    const extractpdf_annotation_ref *ref,
+    extractpdf_annotation_info *out_info);
+
+EXTRACTPDF_API extractpdf_status extractpdf_pdf_edit_annotation_contents(
+    extractpdf_pdf_edit *edit,
+    const extractpdf_annotation_ref *ref,
+    char **out_utf8,
+    size_t *out_size);
+
+EXTRACTPDF_API extractpdf_status extractpdf_pdf_edit_annotation_create(
+    extractpdf_pdf_edit *edit,
+    int page_index,
+    const extractpdf_annotation_create_options *options,
+    extractpdf_annotation_ref *out_ref);
+
+EXTRACTPDF_API extractpdf_status extractpdf_pdf_edit_annotation_update(
+    extractpdf_pdf_edit *edit,
+    const extractpdf_annotation_ref *ref,
+    const extractpdf_annotation_update *update);
+
+EXTRACTPDF_API extractpdf_status extractpdf_pdf_edit_annotation_delete(
+    extractpdf_pdf_edit *edit,
+    const extractpdf_annotation_ref *ref);
+
+EXTRACTPDF_API extractpdf_status extractpdf_pdf_edit_snapshot(
+    extractpdf_pdf_edit *edit,
+    extractpdf_output **out_output);
 
 EXTRACTPDF_API extractpdf_status extractpdf_load_page(
     extractpdf_document *document,
@@ -413,6 +488,9 @@ EXTRACTPDF_API void extractpdf_free(
 
 EXTRACTPDF_API void extractpdf_drop_output(
     extractpdf_output *output);
+
+EXTRACTPDF_API void extractpdf_drop_pdf_edit(
+    extractpdf_pdf_edit *edit);
 
 EXTRACTPDF_API void extractpdf_drop_text_page(
     extractpdf_text_page *text);

@@ -27,7 +27,9 @@ add_library(extractpdf
   src/pdf_metadata.c
   src/pdf_outline.c
   src/pdf_annotation_common.c
-  src/pdf_annotations.c)
+  src/pdf_annotations.c
+  src/pdf_edit.c
+  src/pdf_edit_annotations.c)
 add_library(ExtractPDF::ExtractPDF ALIAS extractpdf)
 target_compile_features(extractpdf PUBLIC c_std_11)
 target_include_directories(extractpdf PUBLIC
@@ -48,6 +50,9 @@ else()
 endif()
 
 if(EXTRACTPDF_BUILD_TESTS)
+  target_sources(extractpdf PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/pdf_edit_fault_hook.c")
+  target_compile_definitions(extractpdf PRIVATE EXTRACTPDF_TESTING=1)
   include(CTest)
   add_subdirectory(tests)
 endif()
