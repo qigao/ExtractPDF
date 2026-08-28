@@ -193,7 +193,7 @@ target_compile_definitions(extractpdf_test_pdf_annotation_mutation PRIVATE
   OUTPUT_B_PDF="${MUTATION_OUTPUT_B}"
   OUTPUT_JS_PDF="${MUTATION_OUTPUT_JS}")
 add_test(NAME extractpdf.pdf_annotation_mutation
-  COMMAND extractpdf_test_pdf_annotation_mutation)
+  COMMAND extractpdf_test_pdf_annotation_mutation discovery)
 set_tests_properties(extractpdf.pdf_annotation_mutation PROPERTIES TIMEOUT 60)
 
 if(WIN32 AND BUILD_SHARED_LIBS)
