@@ -151,6 +151,18 @@ target_compile_definitions(extractpdf_test_pdf_metadata PRIVATE
 add_test(NAME extractpdf.pdf_metadata COMMAND extractpdf_test_pdf_metadata)
 set_tests_properties(extractpdf.pdf_metadata PROPERTIES TIMEOUT 30)
 
+add_executable(extractpdf_test_pdf_outline test_pdf_outline.c)
+target_link_libraries(extractpdf_test_pdf_outline PRIVATE ExtractPDF::ExtractPDF)
+target_compile_definitions(extractpdf_test_pdf_outline PRIVATE
+  OUTLINE_TREE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/outline-tree.pdf"
+  OUTLINE_REPAIRABLE_BAD_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/outline-repairable-bad.pdf"
+  OUTLINE_CYCLE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/outline-cycle.pdf"
+  OUTLINE_DEPTH_257_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/outline-depth-257.pdf"
+  EMPTY_OUTLINE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-three-page.pdf"
+  COMPOSITION_NON_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-non-pdf.txt")
+add_test(NAME extractpdf.pdf_outline COMMAND extractpdf_test_pdf_outline)
+set_tests_properties(extractpdf.pdf_outline PROPERTIES TIMEOUT 30)
+
 if(WIN32 AND BUILD_SHARED_LIBS)
   foreach(test_target IN ITEMS
       extractpdf_test_status
@@ -168,7 +180,8 @@ if(WIN32 AND BUILD_SHARED_LIBS)
       extractpdf_test_pdf_delete
       extractpdf_test_pdf_merge
       extractpdf_test_output_file
-      extractpdf_test_pdf_metadata)
+      extractpdf_test_pdf_metadata
+      extractpdf_test_pdf_outline)
     add_custom_command(TARGET ${test_target} POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E copy_if_different
         $<TARGET_FILE:extractpdf>
