@@ -163,6 +163,17 @@ target_compile_definitions(extractpdf_test_pdf_outline PRIVATE
 add_test(NAME extractpdf.pdf_outline COMMAND extractpdf_test_pdf_outline)
 set_tests_properties(extractpdf.pdf_outline PROPERTIES TIMEOUT 30)
 
+add_executable(extractpdf_test_pdf_annotations test_pdf_annotations.c)
+target_link_libraries(extractpdf_test_pdf_annotations PRIVATE ExtractPDF::ExtractPDF)
+target_compile_definitions(extractpdf_test_pdf_annotations PRIVATE
+  ANNOTATIONS_MIXED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotations-mixed.pdf"
+  ANNOTATIONS_NONARRAY_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotations-nonarray.pdf"
+  ANNOTATIONS_FILTERED_ONLY_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotations-filtered-only.pdf"
+  ANNOTATIONS_LATE_MALFORMED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotations-late-malformed.pdf"
+  EMPTY_ANNOTATIONS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf")
+add_test(NAME extractpdf.pdf_annotations COMMAND extractpdf_test_pdf_annotations)
+set_tests_properties(extractpdf.pdf_annotations PROPERTIES TIMEOUT 30)
+
 if(WIN32 AND BUILD_SHARED_LIBS)
   foreach(test_target IN ITEMS
       extractpdf_test_status
@@ -181,7 +192,8 @@ if(WIN32 AND BUILD_SHARED_LIBS)
       extractpdf_test_pdf_merge
       extractpdf_test_output_file
       extractpdf_test_pdf_metadata
-      extractpdf_test_pdf_outline)
+      extractpdf_test_pdf_outline
+      extractpdf_test_pdf_annotations)
     add_custom_command(TARGET ${test_target} POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E copy_if_different
         $<TARGET_FILE:extractpdf>
