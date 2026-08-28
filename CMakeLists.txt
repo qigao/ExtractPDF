@@ -18,7 +18,8 @@ add_library(extractpdf
   src/search.c
   src/images.c
   src/image_bitmap.c
-  src/links.c)
+  src/links.c
+  src/pdf_export.c)
 add_library(ExtractPDF::ExtractPDF ALIAS extractpdf)
 target_compile_features(extractpdf PUBLIC c_std_11)
 target_include_directories(extractpdf PUBLIC

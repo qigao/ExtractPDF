@@ -1,0 +1,1 @@
+ExtractPDF composition non-PDF fixture.

@@ -99,6 +99,11 @@ struct extractpdf_link_page {
     size_t count;
 };
 
+struct extractpdf_output {
+    unsigned char *data;
+    size_t size;
+};
+
 extractpdf_status extractpdf_status_from_mupdf(int code);
 
 #endif

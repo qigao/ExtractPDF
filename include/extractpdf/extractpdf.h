@@ -24,6 +24,7 @@ typedef struct extractpdf_bitmap extractpdf_bitmap;
 typedef struct extractpdf_text_page extractpdf_text_page;
 typedef struct extractpdf_image_page extractpdf_image_page;
 typedef struct extractpdf_link_page extractpdf_link_page;
+typedef struct extractpdf_output extractpdf_output;
 
 typedef struct extractpdf_point {
     float x;
@@ -126,6 +127,17 @@ EXTRACTPDF_API extractpdf_status extractpdf_open(
 EXTRACTPDF_API extractpdf_status extractpdf_page_count(
     extractpdf_document *document,
     int *out_page_count);
+
+EXTRACTPDF_API extractpdf_status extractpdf_export_pages(
+    extractpdf_document *document,
+    const int *page_indices,
+    size_t page_count,
+    extractpdf_output **out_output);
+
+EXTRACTPDF_API extractpdf_status extractpdf_output_data(
+    const extractpdf_output *output,
+    const unsigned char **out_data,
+    size_t *out_size);
 
 EXTRACTPDF_API extractpdf_status extractpdf_load_page(
     extractpdf_document *document,
@@ -267,6 +279,9 @@ EXTRACTPDF_API const char *extractpdf_status_string(
 
 EXTRACTPDF_API void extractpdf_free(
     void *memory);
+
+EXTRACTPDF_API void extractpdf_drop_output(
+    extractpdf_output *output);
 
 EXTRACTPDF_API void extractpdf_drop_text_page(
     extractpdf_text_page *text);
