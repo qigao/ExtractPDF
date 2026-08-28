@@ -6,31 +6,22 @@ Approved Phase 5 Interactive PDF design for issue #35 under roadmap #2.
 
 Base: integrated outline master exact SHA `a83639752e629225b34b052d537a5d2e61220711`, verified by push workflow #175 (`33176336925`) across Linux static + ASan/UBSan, macOS, and Windows DLL.
 
-This slice is read-only annotation enumeration only. Annotation mutation and forms/widgets remain separate architectures.
+This slice is read-only ordinary-annotation enumeration. Annotation mutation and forms/widgets remain separate architectures.
 
 ## Goals
 
 - Reuse the existing opaque `extractpdf_page`.
-- Expose an ExtractPDF-owned immutable page annotation snapshot with no MuPDF pointer or PDF object crossing the C ABI.
-- Preserve page annotation array order after deterministic filtering.
-- Use the existing Fitz page-space geometry contract for annotation bounds.
-- Keep snapshot data valid after the source page is dropped and the source document is closed.
-- Define tolerant collection semantics separately from strict per-item materialization semantics.
-- Make error publication atomic: success publishes one complete snapshot; failure publishes nothing.
-- Keep enumeration indices snapshot-local and explicitly non-persistent.
+- Return an ExtractPDF-owned immutable annotation snapshot with no MuPDF/PDF pointer in the public ABI.
+- Preserve `/Annots` relative order after deterministic filtering.
+- Expose annotation bounds in the existing Fitz page-space coordinate model.
+- Keep snapshot data valid after the source page is dropped and document is closed.
+- Separate tolerant collection handling from strict materialization of annotations that survive filtering.
+- Publish atomically: complete snapshot on success, no snapshot on failure.
+- Keep public indices snapshot-local and non-persistent.
 
 ## Non-goals
 
-V1 does not mutate annotations, expose PDF object numbers/generations, provide persistent annotation IDs, enumerate links, enumerate popup objects, enumerate widgets/forms, render annotation appearance streams, expose annotation-specific vertex/quad/ink geometry, model reply threads, flatten annotations, save mutations, execute JavaScript, or define cross-snapshot identity.
-
-## PDF-only Boundary
-
-```text
-PDF page      -> annotation snapshot API
-non-PDF page  -> EXTRACTPDF_ERROR_UNSUPPORTED
-```
-
-The public surface remains rooted in the existing `extractpdf_page`; no second public PDF page handle is introduced.
+V1 does not mutate annotations, expose PDF object numbers/generations or persistent IDs, enumerate links/popups/widgets as ordinary annotations, render appearance streams, expose subtype-specific geometry, model replies, flatten annotations, save mutations, or define cross-snapshot identity.
 
 ## Public ABI
 
@@ -96,87 +87,59 @@ EXTRACTPDF_API void extractpdf_drop_annotation_page(
     extractpdf_annotation_page *annotations);
 ```
 
-`extractpdf_annotation_type` is an ExtractPDF enum, not a cast of MuPDF's `pdf_annot_type`. Public numeric values are stable even if MuPDF changes its enum.
+`extractpdf_annotation_type` is an ExtractPDF enum, not a cast of MuPDF's enum. Its numeric values belong to the public ABI.
 
-## Minimal V1 Data Model
+## Minimal V1 Item
 
-Each surviving ordinary annotation contributes:
-
-```text
-type      stable ExtractPDF annotation type, UNKNOWN when absent/unrecognized
-bounds    annotation /Rect mapped into Fitz page space
-flags     raw PDF annotation /F bitmask as uint32_t
-contents  optional decoded PDF text string copied into snapshot storage
-```
-
-V1 intentionally stops here. Author, name, modification date, color, opacity, intent, reply/thread relations, appearance state, and subtype-specific geometry are deferred until there is a concrete consumer.
-
-## `struct_size` Compatibility
-
-Callers initialize:
-
-```c
-extractpdf_annotation_info info = {0};
-info.struct_size = sizeof(info);
-```
-
-V1 requires the supplied struct to cover through `flags`. Larger structs are accepted; V1 writes only known fields.
-
-After `struct_size` validation and before later handle/index validation, known output fields reset to:
+Each surviving annotation exposes only:
 
 ```text
-type   = UNKNOWN
-bounds = {0,0,0,0}
-flags  = 0
+type      stable ExtractPDF type; UNKNOWN for missing/non-name/unrecognized subtype
+bounds    /Rect converted into Fitz page space
+flags     raw PDF /F bitmask as uint32_t
+contents  optional decoded PDF text copied into snapshot-owned UTF-8 storage
 ```
 
-## Collection Tolerance Contract
+Author/name/date/color/opacity/intent/reply relations/appearance state and subtype-specific geometry remain deferred.
 
-Annotation enumeration deliberately does **not** copy the outline slice's strict structural preflight model.
+## Malformed vs Tolerance
 
-Pinned MuPDF 1.28.2 semantics establish the compatibility direction: `pdf_array_len()` returns zero for a non-array, and `pdf_sync_annots()` scans `/Annots` in array order, ignores non-dictionary members, excludes `Link` and `Popup`, and routes `Widget` separately. ExtractPDF locks the same collection behavior while implementing it through a read-only raw `/Annots` walk so enumeration itself does not invoke annotation synchronization, appearance resynthesis, or document mutation.
+The `/Annots` collection is intentionally tolerant, following the compatibility direction of pinned MuPDF 1.28.2:
 
-Collection rules:
-
-- no `/Annots` -> empty;
+- missing `/Annots` -> empty;
 - non-array `/Annots` -> empty;
 - empty array -> empty;
-- non-dictionary array entry -> ignore;
-- `/Subtype /Link` -> ignore; links remain in the Phase 3 link API;
+- non-dictionary member -> ignore;
+- `/Subtype /Link` -> ignore; links already have the Phase 3 link API;
 - `/Subtype /Popup` -> ignore;
-- `/Subtype /Widget` -> ignore; widgets/forms remain a separate Phase 5 slice;
-- every other dictionary entry survives in its original relative array order;
-- missing, non-name, or unrecognized `/Subtype` -> public `UNKNOWN`, not a collection error.
+- `/Subtype /Widget` -> ignore; forms/widgets are a later Phase 5 slice;
+- any other dictionary survives in original relative order;
+- missing, non-name, or unrecognized `/Subtype` -> `UNKNOWN`.
 
-This is a tolerant enumerator, not a general PDF validator.
+There is no outline-style structural preflight. This is an enumerator, not a general PDF validator.
 
-## Strict Surviving-item Materialization
+Once a dictionary survives filtering, materialization is strict:
 
-Tolerance of the collection container does not mean silently inventing required public item data.
+- `/Rect` must exist and be an array of exactly four finite numeric values;
+- missing `/F` -> `0`; present `/F` must be an integer in `[0, UINT32_MAX]`;
+- missing `/Contents` -> absent contents;
+- present `/Contents` must be a PDF string;
+- present-empty contents remains distinct from absent contents;
+- malformed surviving data -> `EXTRACTPDF_ERROR_FORMAT` for the whole extraction.
 
-For each surviving ordinary annotation:
-
-- `/Rect` must be an array of exactly four numeric values; otherwise extraction returns `EXTRACTPDF_ERROR_FORMAT`;
-- all four rectangle values must be finite; otherwise `FORMAT`;
-- rectangle endpoints are normalized after mapping to Fitz page space so `x0 <= x1` and `y0 <= y1`;
-- missing `/F` means flags `0`;
-- present `/F` must be an integer representable as `uint32_t`; otherwise `FORMAT`;
-- missing `/Contents` means absent contents (`OK + NULL + 0` from the accessor);
-- present `/Contents` must be a PDF string; otherwise `FORMAT`;
-- present empty contents remains distinct from absent contents;
-- PDF text strings are decoded through MuPDF's PDF text-string decoding, then copied into snapshot-owned UTF-8 storage.
-
-A malformed surviving item fails the **whole extraction**. ExtractPDF never returns a snapshot containing a guessed/defaulted rectangle or a partial prefix of earlier valid items.
+The implementation must never publish a guessed rectangle/default for malformed surviving data or a prefix containing only earlier valid annotations.
 
 ## Geometry
 
-The PDF annotation `/Rect` is defined in PDF page user space. ExtractPDF converts it to the same Fitz page-space coordinate model already used by page bounds, text/search, images, and links.
+PDF annotation `/Rect` is in PDF page user space. ExtractPDF maps it to the same Fitz page-space model used by links/text/images/page bounds.
 
-Implementation uses the loaded `pdf_page`'s page object plus MuPDF's page transform and inverse transform. No raw PDF coordinate system appears in the public ABI.
+Use MuPDF's `pdf_page_transform()` CTM **directly** on the normalized PDF rectangle. This matches MuPDF 1.28.2's own `pdf_bound_annot()` and link-loading paths: the returned page CTM maps PDF page user-space coordinates to Fitz page space. Do not invert that CTM.
+
+After transformation, normalize the output endpoints so `x0 <= x1` and `y0 <= y1`.
 
 ## Empty Snapshot
 
-All valid zero-result cases return:
+Every valid zero-result case is successful:
 
 ```text
 extractpdf_extract_annotations() -> EXTRACTPDF_OK
@@ -184,18 +147,11 @@ extractpdf_extract_annotations() -> EXTRACTPDF_OK
 extractpdf_annotation_count()    -> 0
 ```
 
-This includes:
-
-- no `/Annots`;
-- non-array `/Annots`;
-- empty array;
-- array containing only non-dictionaries, Link, Popup, and Widget entries.
-
-Success always returns a valid snapshot handle, including count zero.
+This includes no `/Annots`, non-array `/Annots`, an empty array, or an array containing only filtered entries.
 
 ## Order
 
-Public indices preserve original `/Annots` array order among surviving ordinary annotations.
+Public indices are exactly the original `/Annots` relative order among surviving ordinary annotations.
 
 ```text
 /Annots = [ Text-A, 17, Link, Unknown-X, Widget, Popup, Highlight-B ]
@@ -203,188 +159,87 @@ public   = [ Text-A, Unknown-X, Highlight-B ]
 index    = [   0,        1,           2     ]
 ```
 
-No sorting by type, bounds, object number, appearance, or any other property is permitted.
+No sorting by subtype, rectangle, PDF object number, appearance, or any other property is allowed.
 
 ## Identity
 
-Annotation indices are snapshot-local coordinates only.
+Annotation indices are snapshot-local coordinates only. They are not PDF object identities, object-number/generation pairs, `/NM` values, persistent IDs, cross-snapshot identities, mutation selectors, or future update/delete handles.
 
-They are not:
+Two snapshots of the same unchanged page may contain equal values/order, but callers get no identity guarantee between them. Mutation requires a separate design for stable selectors, transactions/rollback, save/rewrite behavior, and interaction with pre-existing snapshots.
 
-- PDF object numbers;
-- PDF object-number/generation pairs;
-- NM/name values;
-- persistent annotation IDs;
-- cross-snapshot identities;
-- mutation selectors;
-- future update/delete handles.
+## Lifetime and Ownership
 
-V1 exposes no PDF object identity in the public ABI. Two snapshots of the same unchanged page may happen to contain the same values in the same order, but the API makes no identity promise across those snapshots.
+The published snapshot contains only ExtractPDF-owned item records and copied strings. It retains no `pdf_annot *`, `pdf_obj *`, `pdf_page *`, `fz_page *`, `fz_document *`, `extractpdf_page *`, or `extractpdf_document *`.
 
-Future create/update/delete gets a separate design covering stable selectors, transactions/rollback, mutation ordering, save/rewrite integration, and interaction with pre-existing snapshots.
-
-## Snapshot Lifetime and Ownership
-
-Conceptually:
-
-```text
-extractpdf_annotation_page
-  ├── items[]
-  └── strings[]
-```
-
-The published snapshot retains no `pdf_annot *`, `pdf_obj *`, `pdf_page *`, `fz_page *`, `fz_document *`, `extractpdf_page *`, or `extractpdf_document *`.
-
-After successful extraction, callers may immediately drop the source page and close the source document; annotation info and contents remain valid until `extractpdf_drop_annotation_page()`.
-
-`extractpdf_drop_annotation_page(NULL)` is a safe no-op.
+After successful extraction callers may immediately drop the source page and close the document. Snapshot accessors remain valid until `extractpdf_drop_annotation_page()`; dropping NULL is a no-op.
 
 ## Error Atomicity
 
-`extractpdf_extract_annotations()` follows an atomic publication contract:
+Extraction begins with:
 
 ```text
 out_annotations == NULL -> ARGUMENT
-otherwise first action  -> *out_annotations = NULL
+otherwise                -> *out_annotations = NULL before later validation/work
 ```
 
-All PDF traversal, filtering, validation, geometry conversion, allocation, and text copying occur into private temporary state. `*out_annotations` is assigned only after the complete snapshot succeeds.
+Traversal, filtering, validation, geometry conversion, allocation, and string copies are private until all survivors are materialized. Only then is the snapshot published.
 
-On any failure:
+On failure:
 
-- `*out_annotations == NULL`;
-- all temporary item/string storage is released;
-- no partial count or item prefix is observable;
-- no MuPDF/PDF pointer escapes;
-- allocation or size overflow -> `EXTRACTPDF_ERROR_NOMEM`;
-- malformed surviving item -> `EXTRACTPDF_ERROR_FORMAT`;
-- non-PDF page -> `EXTRACTPDF_ERROR_UNSUPPORTED`;
-- MuPDF exceptions -> existing `extractpdf_status_from_mupdf()` mapping.
+- output remains NULL;
+- all temporary item/string storage is freed;
+- no partial count/item prefix is observable;
+- allocation/size overflow -> `NOMEM`;
+- malformed surviving item -> `FORMAT`;
+- non-PDF page -> `UNSUPPORTED`;
+- MuPDF exceptions -> existing status mapper.
 
-Accessors reset caller-visible outputs to neutral values before later handle/index/type validation wherever an output pointer is available.
+Accessors reset caller-visible outputs to neutral values before later handle/index validation wherever possible. `extractpdf_annotation_get_info()` validates `struct_size` first, then resets known fields before handle/index validation.
 
-## Read-only MuPDF Integration Boundary
+## Read-only Integration Boundary
 
-The implementation must not call `pdf_sync_annots()`, `pdf_load_annots()`, annotation update/resynthesis APIs, or mutation APIs merely to enumerate annotations.
-
-Preferred internal flow:
+Enumeration uses the already-loaded page and performs a raw read-only `/Annots` walk. It does not itself call `pdf_sync_annots()`, `pdf_load_annots()`, annotation update/resynthesis APIs, or mutation APIs. The existing page-loading behavior is unchanged by this slice.
 
 ```text
 extractpdf_page
-    ↓
-pdf_page_from_fz_page()
-    ↓
-loaded pdf_page->obj
-    ↓
-read-only /Annots array walk
-    ↓
-filter non-dict / Link / Popup / Widget
-    ↓
-strictly materialize survivor Rect/F/Contents
-    ↓
-PDF-space Rect -> Fitz page-space bounds
-    ↓
-copy immutable item/string snapshot
-    ↓
-publish atomically
+    -> pdf_page_from_fz_page()
+    -> raw page /Annots array
+    -> tolerant filter
+    -> strict survivor Rect/F/Contents materialization
+    -> pdf_page_transform() CTM -> Fitz bounds
+    -> deep-copy snapshot
+    -> atomic publication
 ```
 
-## Deterministic Test Fixtures
+## Deterministic Fixtures
 
-### `annotations-mixed.pdf`
+`annotations-mixed.pdf` interleaves Text, scalar `17`, Link, unknown subtype, Widget, Popup, Highlight. Expected public order is Text / UNKNOWN / Highlight with distinct bounds, flags, and contents.
 
-One page with this logical `/Annots` order:
+`annotations-nonarray.pdf` uses `/Annots 17` and must return a non-NULL count-0 snapshot.
 
-```text
-Text-A
-integer scalar 17
-Link
-Unknown-X
-Widget
-Popup
-Highlight-B
-```
+`annotations-filtered-only.pdf` contains only scalar/Link/Widget/Popup and must return a non-NULL count-0 snapshot.
 
-Expected public snapshot:
+`annotations-late-malformed.pdf` has one valid survivor followed by a survivor with `/Contents 123`; extraction must return `FORMAT + NULL` on every call, proving late failure atomicity.
 
-```text
-0 TEXT       contents="alpha"
-1 UNKNOWN    contents="unknown"
-2 HIGHLIGHT  contents="bravo"
-```
+An existing PDF with no annotations proves the missing-key empty case.
 
-The fixture uses intentionally distinct rectangles/flags/contents so exact order can be asserted without object identity.
+## TDD / Acceptance Boundary
 
-### `annotations-nonarray.pdf`
-
-`/Annots 17`. Expected: `OK + non-NULL count-0 snapshot`.
-
-### `annotations-filtered-only.pdf`
-
-Contains only a scalar, Link, Popup, and Widget. Expected: `OK + non-NULL count-0 snapshot`.
-
-### Existing no-annotation PDF
-
-Reuse an existing valid PDF with no `/Annots` to prove the missing-key empty case.
-
-### `annotations-late-malformed.pdf`
-
-First survivor is valid. Second survivor has present non-string `/Contents 123`.
-
-Expected: `EXTRACTPDF_ERROR_FORMAT`, output snapshot NULL. Repeat the call on the same page to prove deterministic failure and no hidden partial publication.
-
-## Strict TDD Boundary
-
-Branch starts from integrated master exact SHA:
+Branch base:
 
 ```text
 a83639752e629225b34b052d537a5d2e61220711
-  ↓
-feat/pdf-annotations
+  -> feat/pdf-annotations
 ```
 
-RED contains only deterministic fixtures, `tests/test_pdf_annotations.c`, and `tests/CMakeLists.txt` changes. No production annotation type/function declaration or implementation may exist in the RED commit.
+RED contains deterministic fixtures/test/CMake registration and no annotation production declarations or implementation. Valid RED means all old targets build and only the new annotation target fails on absent ABI.
 
-Acceptable RED: existing library and all pre-existing targets build; only the new annotation test target fails to compile because the new opaque snapshot/type/info/API are absent. Fixture parse errors, unrelated regressions, crashes, timeouts, or a RED that reaches runtime are invalid.
-
-GREEN production scope:
+GREEN production scope is limited to:
 
 ```text
-Modify: include/extractpdf/extractpdf.h
-Create: src/pdf_annotations.c
-Modify: CMakeLists.txt
+include/extractpdf/extractpdf.h
+src/pdf_annotations.c
+CMakeLists.txt
 ```
 
-Avoid unrelated changes to existing page, links, outline, metadata, composition, rendering, text, image, or output implementation.
-
-Exact GREEN head must pass:
-
-```text
-Linux strict static + all CTests       ✅
-Linux ASan/UBSan + all CTests          ✅
-same-head macOS configure/build/test   ✅
-same-head Windows DLL build/test       ✅
-```
-
-Windows must run the new annotation CTest through the shared-library build so the new ABI is proven exported, linkable, and runnable.
-
-## Architecture Summary
-
-```text
-PDF-only page annotation enumeration
-+ existing extractpdf_page
-+ immutable page snapshot
-+ tolerant /Annots collection filtering
-+ strict surviving-item materialization
-+ original relative order
-+ UNKNOWN for absent/unrecognized subtype
-+ Link/Popup/Widget excluded
-+ Fitz page-space bounds
-+ uint32 flags
-+ snapshot-owned optional UTF-8 contents
-+ valid empty snapshot
-+ document-independent lifetime
-+ snapshot-local indices only
-+ atomic publication on success
-+ mutation/forms kept separate
-```
+Final exact head must pass Linux strict static/all CTests, Linux ASan/UBSan/all CTests, macOS configure/build/test, and Windows DLL configure/build/test with `extractpdf.pdf_annotations` executed on Windows.

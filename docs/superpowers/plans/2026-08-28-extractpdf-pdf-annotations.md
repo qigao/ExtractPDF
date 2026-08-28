@@ -1,204 +1,133 @@
 # ExtractPDF PDF Page Annotation Enumeration V1 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> Use strict RED -> GREEN -> exact-head verification. Do not add production behavior before the RED failure is captured.
 
-**Goal:** Add a PDF-only immutable page annotation snapshot with tolerant `/Annots` collection semantics, strict surviving-item materialization, deterministic order, snapshot-local identity, independent lifetime, and atomic failure publication.
+**Goal:** Add a PDF-only immutable ordinary-annotation snapshot with tolerant `/Annots` collection handling, strict surviving-item materialization, stable relative order, snapshot-local indices, independent lifetime, and atomic failure publication.
 
-**Architecture:** Down-cast the existing loaded `fz_page` to `pdf_page` and walk the page object's `/Annots` array read-only. Filter non-dictionaries and Link/Popup/Widget entries without invoking MuPDF annotation synchronization/resynthesis; strictly validate and copy the surviving annotation's Rect/F/Contents into an ExtractPDF-owned array/string arena, then publish only after the complete snapshot succeeds.
-
-**Tech Stack:** C11, MuPDF 1.28.2 pinned through existing vcpkg overlay, CMake/CTest, Linux ASan/UBSan, macOS CI, Windows DLL CI, GitHub Actions.
+**Base:** integrated master `a83639752e629225b34b052d537a5d2e61220711`; branch `feat/pdf-annotations`; issue #35; roadmap #2.
 
 **Spec:** `docs/superpowers/specs/2026-08-28-extractpdf-pdf-annotations-design.md`
 
-## Global Constraints
+## Locked constraints
 
-- Base is integrated outline master exact SHA `a83639752e629225b34b052d537a5d2e61220711`, verified by push workflow #175 (`33176336925`).
-- Work on `feat/pdf-annotations`; child issue is #35; umbrella is #2.
-- PDF-only V1; non-PDF page -> `EXTRACTPDF_ERROR_UNSUPPORTED`.
-- Reuse existing `extractpdf_page`; no second public PDF page handle.
-- Immutable `extractpdf_annotation_page` snapshot owns all public item/string data and retains no MuPDF/PDF/page/document pointer.
-- Collection tolerance: missing/non-array `/Annots` -> empty; non-dictionary entries ignored; Link/Popup/Widget ignored; absent/non-name/unrecognized subtype -> UNKNOWN.
-- Surviving item strictness: Rect exactly four finite numbers; present F is uint32-representable integer; present Contents is string; malformed survivor -> FORMAT.
-- Preserve original `/Annots` relative order among survivors exactly.
-- Snapshot indices are local coordinates only, never persistent annotation identity or mutation selectors.
-- Empty result -> `OK + non-NULL count-0 snapshot`.
-- Extraction resets `*out_annotations = NULL` before validation/fallible work and publishes only after complete success.
-- Do not call `pdf_sync_annots`, `pdf_load_annots`, update/resynthesis, or mutation APIs for enumeration.
-- RED must contain no production annotation ABI or implementation.
-- Exact GREEN head requires Linux static/all CTests, Linux ASan/UBSan/all CTests, macOS build/test, and Windows DLL build/test.
+- Reuse `extractpdf_page`; no second PDF page handle.
+- PDF-only V1; non-PDF page -> `UNSUPPORTED`.
+- Missing/non-array `/Annots` -> successful empty snapshot.
+- Non-dictionary members ignored.
+- Link/Popup/Widget filtered out.
+- Missing/non-name/unrecognized subtype -> `UNKNOWN`.
+- Surviving `/Rect` must be exactly four finite numbers.
+- Missing `/F` -> 0; present `/F` must be uint32-representable integer.
+- Missing `/Contents` -> absent; present `/Contents` must be a PDF string.
+- Preserve original `/Annots` relative order among survivors.
+- Snapshot indices are never persistent identities or mutation handles.
+- Snapshot retains no MuPDF/PDF/page/document pointer.
+- `*out_annotations` is reset to NULL before later validation/work and published only after complete success.
+- Enumeration itself does not call annotation synchronization/resynthesis/update/mutation APIs.
+- Use `pdf_page_transform()` CTM **directly** to map PDF rectangle coordinates to Fitz page space; do not invert it.
 
----
+## File scope
 
-## File Structure
-
-**Create during RED**
-- `tests/fixtures/annotations-mixed.pdf`
-- `tests/fixtures/annotations-nonarray.pdf`
-- `tests/fixtures/annotations-filtered-only.pdf`
-- `tests/fixtures/annotations-late-malformed.pdf`
-- `tests/test_pdf_annotations.c`
-
-**Modify during RED**
-- `tests/CMakeLists.txt`
-
-**Create during GREEN**
-- `src/pdf_annotations.c`
-
-**Modify during GREEN**
-- `include/extractpdf/extractpdf.h`
-- `CMakeLists.txt`
-
-**Reuse unchanged**
-- `src/internal.h`
-- `src/page.c`
-- existing valid no-annotation PDF fixture
-- `.github/workflows/ci.yml`
-
----
-
-### Task 1: Strict RED for annotation snapshot contract
-
-**Files:**
-- Create four deterministic annotation fixtures listed above.
-- Create `tests/test_pdf_annotations.c`.
-- Modify `tests/CMakeLists.txt`.
-
-**Interfaces:**
-- Consumes existing `extractpdf_open`, `extractpdf_load_page`, `extractpdf_drop_page`, `extractpdf_close`, status enum, `extractpdf_rect`.
-- Produces compile-time references to the not-yet-existing `extractpdf_annotation_page`, `extractpdf_annotation_type`, `extractpdf_annotation_info`, `extractpdf_extract_annotations`, `extractpdf_annotation_count`, `extractpdf_annotation_get_info`, `extractpdf_annotation_contents`, `extractpdf_drop_annotation_page`.
-
-- [ ] **Step 1: Check in deterministic fixtures**
-
-Use a one-page `%PDF-1.4` direct-object fixture writer with explicit xref offsets. Keep annotation objects indirect except for the deliberate scalar entries. All pages use `/MediaBox [0 0 200 200]`.
-
-`annotations-mixed.pdf` page `/Annots`:
-
-```pdf
-[5 0 R 17 6 0 R 7 0 R 8 0 R 9 0 R 10 0 R]
-```
-
-Objects:
-
-```pdf
-5 0 obj << /Type /Annot /Subtype /Text /Rect [10 20 30 40] /F 4 /Contents (alpha) >> endobj
-6 0 obj << /Type /Annot /Subtype /Link /Rect [1 1 2 2] /A << /S /URI /URI (https://example.com) >> >> endobj
-7 0 obj << /Type /Annot /Subtype /FutureThing /Rect [50 60 70 80] /F 64 /Contents (unknown) >> endobj
-8 0 obj << /Type /Annot /Subtype /Widget /Rect [2 2 3 3] /FT /Tx >> endobj
-9 0 obj << /Type /Annot /Subtype /Popup /Rect [3 3 4 4] >> endobj
-10 0 obj << /Type /Annot /Subtype /Highlight /Rect [90 100 120 130] /Contents (bravo) >> endobj
-```
-
-`annotations-nonarray.pdf`: page has `/Annots 17`.
-
-`annotations-filtered-only.pdf`: page `/Annots [17 5 0 R 6 0 R 7 0 R]`, where objects 5/6/7 are Link/Widget/Popup.
-
-`annotations-late-malformed.pdf`: page `/Annots [5 0 R 6 0 R]`; object 5 is valid Text with `/Contents (first)`, object 6 is Highlight with valid Rect but `/Contents 123`.
-
-- [ ] **Step 2: Write the failing C test**
-
-The test must assert:
-
-```c
-/* mixed tolerance + exact surviving order */
-CHECK(extractpdf_extract_annotations(page, &annotations) == EXTRACTPDF_OK);
-CHECK(extractpdf_annotation_count(annotations, &count) == EXTRACTPDF_OK);
-CHECK(count == 3);
-expect_info(annotations, 0, EXTRACTPDF_ANNOTATION_TEXT, 10, 160, 30, 180, 4);
-expect_contents(annotations, 0, "alpha");
-expect_info(annotations, 1, EXTRACTPDF_ANNOTATION_UNKNOWN, 50, 120, 70, 140, 64);
-expect_contents(annotations, 1, "unknown");
-expect_info(annotations, 2, EXTRACTPDF_ANNOTATION_HIGHLIGHT, 90, 70, 120, 100, 0);
-expect_contents(annotations, 2, "bravo");
-```
-
-The y values above prove PDF user-space -> Fitz page-space conversion for a 200-point unrotated page: `[x0 y0 x1 y1]` maps to `[x0 200-y1 x1 200-y0]`.
-
-Also assert:
-
-```c
-/* lifetime */
-extractpdf_drop_page(page);
-extractpdf_close(document);
-/* all count/info/contents accessors still work */
-
-/* empty variants */
-/* no /Annots, non-array /Annots, filtered-only -> OK + non-NULL + count 0 */
-
-/* atomicity */
-annotations = sentinel;
-CHECK(extractpdf_extract_annotations(late_malformed_page, &annotations) == EXTRACTPDF_ERROR_FORMAT);
-CHECK(annotations == NULL);
-annotations = sentinel;
-CHECK(extractpdf_extract_annotations(late_malformed_page, &annotations) == EXTRACTPDF_ERROR_FORMAT);
-CHECK(annotations == NULL);
-
-/* argument/reset */
-/* NULL extraction args; count reset; get_info neutral reset; contents NULL/0 reset; invalid index; drop(NULL) */
-```
-
-Create two independent snapshots of `annotations-mixed.pdf` and assert equal values/order only; do not expose or compare any public object identity.
-
-- [ ] **Step 3: Register only the new RED test target**
-
-Append to `tests/CMakeLists.txt` following the existing PDF test pattern:
-
-```cmake
-add_executable(extractpdf_test_pdf_annotations test_pdf_annotations.c)
-target_link_libraries(extractpdf_test_pdf_annotations PRIVATE ExtractPDF::ExtractPDF)
-target_compile_definitions(extractpdf_test_pdf_annotations PRIVATE
-  ANNOTATIONS_MIXED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotations-mixed.pdf"
-  ANNOTATIONS_NONARRAY_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotations-nonarray.pdf"
-  ANNOTATIONS_FILTERED_ONLY_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotations-filtered-only.pdf"
-  ANNOTATIONS_LATE_MALFORMED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotations-late-malformed.pdf")
-add_test(NAME extractpdf.pdf_annotations COMMAND extractpdf_test_pdf_annotations)
-```
-
-Reuse the exact existing no-annotation fixture macro/pattern already present in the test CMake file rather than introducing a duplicate PDF.
-
-- [ ] **Step 4: Verify RED**
-
-Run the repository's normal Linux configure/build path.
-
-Expected boundary:
+RED:
 
 ```text
-ExtractPDF library builds                             PASS
-all pre-existing test targets through pdf_outline    PASS build/link
-extractpdf_test_pdf_annotations                      FAIL compile
+tests/fixtures/annotations-mixed.pdf
+tests/fixtures/annotations-nonarray.pdf
+tests/fixtures/annotations-filtered-only.pdf
+tests/fixtures/annotations-late-malformed.pdf
+tests/test_pdf_annotations.c
+tests/CMakeLists.txt
 ```
 
-The new target must fail specifically on absent annotation type/struct/API declarations. If a fixture parse error, unrelated target, runtime test, crash, or timeout is reached, RED is invalid and must be fixed before continuing.
+GREEN production:
 
-- [ ] **Step 5: Commit RED**
-
-```bash
-git add tests/fixtures/annotations-*.pdf tests/test_pdf_annotations.c tests/CMakeLists.txt
-git commit -m "test: lock PDF annotation snapshot contract"
+```text
+include/extractpdf/extractpdf.h
+src/pdf_annotations.c
+CMakeLists.txt
 ```
 
-Record exact RED SHA and workflow/run evidence in issue #35 / later PR body.
+No changes are expected in page, links, outline, metadata, render, text, image, composition, or output implementation.
 
 ---
 
-### Task 2: Minimal public ABI and immutable implementation
+## Task 1 — Strict RED
 
-**Files:**
-- Modify `include/extractpdf/extractpdf.h`.
-- Create `src/pdf_annotations.c`.
-- Modify `CMakeLists.txt`.
-- Test unchanged: `tests/test_pdf_annotations.c`.
+- [x] Create deterministic fixtures.
+- [x] Add `tests/test_pdf_annotations.c` referencing the wished-for annotation ABI.
+- [x] Register `extractpdf.pdf_annotations` in CMake, including Windows DLL-copy target list.
+- [x] Verify exact RED failure before production code.
 
-**Interfaces:**
-- Produces exactly the public API in the design spec.
-- Uses `pdf_page_from_fz_page`, raw `pdf_page->obj`, `pdf_dict_get`, `pdf_array_len/get`, PDF object type predicates/converters, `pdf_page_obj_transform`, Fitz matrix inversion/rectangle transform, existing `extractpdf_status_from_mupdf`.
+### Required RED fixture behavior
 
-- [ ] **Step 1: Add the public declarations only**
+`annotations-mixed.pdf` logical order:
 
-Add the opaque handle, stable enum, info struct, extraction/count/info/contents/drop declarations from the spec. Do not expose MuPDF enums or PDF object identity.
+```text
+Text-A
+scalar 17
+Link
+FutureThing
+Widget
+Popup
+Highlight-B
+```
 
-- [ ] **Step 2: Add private snapshot records**
+Expected survivors after GREEN:
 
-`src/pdf_annotations.c` owns:
+```text
+0 TEXT       Rect [10 20 30 40]       -> Fitz [10 160 30 180], flags=4,  contents="alpha"
+1 UNKNOWN    Rect [50 60 70 80]       -> Fitz [50 120 70 140], flags=64, contents="unknown"
+2 HIGHLIGHT  Rect [90 100 120 130]    -> Fitz [90 70 120 100], flags=0,  contents="bravo"
+```
+
+`annotations-nonarray.pdf`: `/Annots 17` -> `OK + non-NULL count 0`.
+
+`annotations-filtered-only.pdf`: scalar + Link + Widget + Popup -> `OK + non-NULL count 0`.
+
+`annotations-late-malformed.pdf`: valid Text followed by Highlight `/Contents 123` -> whole extraction `FORMAT + NULL`, repeatably.
+
+Reuse existing `one-page.pdf` for missing `/Annots` empty case.
+
+### RED acceptance
+
+The library and every pre-existing target must build. Only the new annotation test target may fail, and it must fail because `extractpdf_annotation_page`, enum/info types, constants, and annotation APIs do not yet exist. Runtime/fixture errors are not valid RED.
+
+Record exact RED SHA/run in PR #36 and issue #35.
+
+---
+
+## Task 2 — Minimal GREEN
+
+### Public ABI
+
+Add exactly:
+
+```c
+typedef struct extractpdf_annotation_page extractpdf_annotation_page;
+typedef enum extractpdf_annotation_type { ... } extractpdf_annotation_type;
+typedef struct extractpdf_annotation_info {
+    size_t struct_size;
+    extractpdf_annotation_type type;
+    extractpdf_rect bounds;
+    uint32_t flags;
+} extractpdf_annotation_info;
+
+extractpdf_status extractpdf_extract_annotations(
+    extractpdf_page *, extractpdf_annotation_page **);
+extractpdf_status extractpdf_annotation_count(
+    const extractpdf_annotation_page *, size_t *);
+extractpdf_status extractpdf_annotation_get_info(
+    const extractpdf_annotation_page *, size_t, extractpdf_annotation_info *);
+extractpdf_status extractpdf_annotation_contents(
+    const extractpdf_annotation_page *, size_t, const char **, size_t *);
+void extractpdf_drop_annotation_page(extractpdf_annotation_page *);
+```
+
+Do not expose MuPDF enum values, PDF object numbers, `/NM`, or mutation identity.
+
+### Private snapshot
+
+`src/pdf_annotations.c` owns records equivalent to:
 
 ```c
 typedef struct extractpdf_annotation_internal {
@@ -219,39 +148,41 @@ struct extractpdf_annotation_page {
 };
 ```
 
-No pointer back to page/document/PDF/MuPDF is allowed.
+No back-pointer to source page/document is allowed.
 
-- [ ] **Step 3: Implement tolerant survivor classification**
+### Pass 1: tolerant survivor count
 
-For each raw `/Annots` element in index order:
+From the existing `fz_page`, use `pdf_page_from_fz_page()`. NULL -> `UNSUPPORTED`.
+
+Read `pdf_page->obj` `/Annots` raw. `pdf_array_len()` naturally gives zero for missing/non-array. For each element in array order:
 
 ```text
 not dictionary -> skip
 Subtype Link    -> skip
 Subtype Popup   -> skip
 Subtype Widget  -> skip
-otherwise       -> survivor
+otherwise       -> survivor; known subtype maps explicitly, else UNKNOWN
 ```
 
-Map known subtype names explicitly to the stable ExtractPDF enum; missing/non-name/other name -> UNKNOWN.
+Count survivors with size/allocation overflow guards.
 
-Do not call `pdf_sync_annots` or any annotation resynthesis/update function.
+### Pass 2: strict materialization
 
-- [ ] **Step 4: Implement strict survivor validation/materialization**
+Obtain `pdf_page_transform(ctx, pdf_page, NULL, &page_ctm)` once. The returned CTM maps PDF page user space to Fitz page space and is applied directly.
 
 For each survivor:
 
-1. Validate `/Rect` is an array of length 4 and every member is numeric + finite.
-2. Obtain the page transform; invert it to map PDF-user-space rectangle into Fitz page space; normalize rectangle endpoints.
-3. If `/F` absent use zero; if present require integer in `[0, UINT32_MAX]`.
-4. If `/Contents` absent mark `has_contents = 0`; if present require string, decode PDF text to UTF-8, deep-copy with trailing NUL into the snapshot string arena.
-5. Check every count/allocation/string-size multiplication/addition for `SIZE_MAX` overflow; return NOMEM on overflow/allocation failure.
+1. Locate `/Rect`; require array length 4 and numeric finite members.
+2. Normalize PDF endpoints, apply `fz_transform_rect(raw_rect, page_ctm)`, verify finite result, normalize output endpoints.
+3. `/F`: missing -> 0; present -> require integer in `[0, UINT32_MAX]`.
+4. `/Contents`: missing -> absent; present -> require string, decode with `pdf_to_text_string()`, deep-copy into snapshot string arena with terminating NUL.
+5. Any malformed survivor fails the whole extraction.
 
-Any FORMAT/NOMEM/MuPDF failure disposes the whole private snapshot and returns without publication.
+Use existing `extractpdf_status_from_mupdf()` for MuPDF exceptions. Allocation/size overflow -> `NOMEM`.
 
-- [ ] **Step 5: Implement accessors and atomic publication**
+### Atomic publication and accessors
 
-Extraction begins:
+Extraction starts:
 
 ```c
 if (out_annotations == NULL)
@@ -259,89 +190,55 @@ if (out_annotations == NULL)
 *out_annotations = NULL;
 ```
 
-Only after complete success:
+Publish only after pass 2 completes and the materialized count equals the allocated survivor count.
 
-```c
-*out_annotations = snapshot;
-return EXTRACTPDF_OK;
+`annotation_count`: reset output count to zero when possible before validation.
+
+`annotation_get_info`: validate `struct_size` through `flags`; then neutral-reset type/bounds/flags before handle/index validation; accept larger structs.
+
+`annotation_contents`: reset pointer/size to NULL/0 before validation; absent contents -> `OK + NULL + 0`; present contents -> borrowed snapshot-owned UTF-8.
+
+`drop(NULL)` is safe.
+
+### GREEN acceptance
+
+On the exact GREEN SHA:
+
+```text
+Linux static build                PASS
+all static CTests                 PASS
+Linux ASan/UBSan build            PASS
+all sanitizer CTests              PASS
 ```
 
-`count` resets `*out_count = 0` when possible before validation.
-
-`get_info` validates `struct_size`, resets type/bounds/flags, then validates handle/index and copies known fields.
-
-`contents` resets pointer/size to NULL/0, returns `OK + NULL + 0` for absent contents, and borrowed snapshot-owned UTF-8 for present contents.
-
-`drop(NULL)` is a no-op.
-
-- [ ] **Step 6: Wire the implementation into the root library**
-
-Add only `src/pdf_annotations.c` to `add_library(extractpdf ...)`.
-
-- [ ] **Step 7: Verify GREEN locally/CI**
-
-Run Linux strict static + all CTests and Linux sanitizer build + all CTests. Expected: all tests including `extractpdf.pdf_annotations` pass with no sanitizer failures.
-
-- [ ] **Step 8: Commit GREEN**
-
-```bash
-git add include/extractpdf/extractpdf.h src/pdf_annotations.c CMakeLists.txt
-git commit -m "feat: expose immutable PDF annotation snapshot"
-```
+Do not weaken tests to get GREEN.
 
 ---
 
-### Task 3: Exact-head cross-platform proof and review
+## Task 3 — Final exact-head proof
 
-**Files:** no intended production changes.
+Before final full CI:
 
-- [ ] **Step 1: Confirm exact diff scope**
+- [ ] Correct any documentation/API implementation mismatch without changing locked semantics.
+- [ ] Confirm diff scope contains only spec, plan, four fixtures, one annotation test, test/root CMake, public header, and `src/pdf_annotations.c`.
+- [ ] Review explicitly against: malformed/tolerance, empty snapshot, order, identity, error atomicity.
 
-Diff from integrated base must contain only:
-
-```text
-docs/superpowers/specs/2026-08-28-extractpdf-pdf-annotations-design.md
-docs/superpowers/plans/2026-08-28-extractpdf-pdf-annotations.md
-tests/fixtures/annotations-mixed.pdf
-tests/fixtures/annotations-nonarray.pdf
-tests/fixtures/annotations-filtered-only.pdf
-tests/fixtures/annotations-late-malformed.pdf
-tests/test_pdf_annotations.c
-tests/CMakeLists.txt
-include/extractpdf/extractpdf.h
-src/pdf_annotations.c
-CMakeLists.txt
-```
-
-No page/link/outline/metadata/composition/output implementation edits are expected.
-
-- [ ] **Step 2: Run same-SHA full-ci**
-
-Require on one unchanged GREEN SHA:
+Trigger the repository's `full-ci` PR label on the **final unchanged head**. Require:
 
 ```text
-Linux static + all CTests       PASS
-Linux ASan/UBSan + all CTests   PASS
-macOS configure/build/test      PASS
-Windows DLL configure/build/test PASS
+Linux static + ASan/UBSan  PASS
+macOS build/test            PASS
+Windows DLL build/test      PASS
 ```
 
-Windows must execute `extractpdf.pdf_annotations`.
+Windows must execute `extractpdf.pdf_annotations`, proving export/link/runtime behavior through the shared-library build.
 
-- [ ] **Step 3: Fresh review against the five locked boundaries**
+After all jobs pass, update PR #36 and issue #35 with:
 
-Review explicitly for:
+- RED exact SHA + workflow/run and expected failure;
+- GREEN/final exact SHA + Linux workflow/run;
+- same-head full-ci workflow/run;
+- exact diff scope;
+- fresh review result for the five locked boundaries.
 
-```text
-malformed/tolerance
-empty snapshot
-order
-identity
-error atomicity
-```
-
-Reject any implementation that sorts survivors, exposes object identity, returns NULL on successful empty extraction, silently defaults malformed surviving public fields, retains page/document pointers, or publishes a partial snapshot.
-
-- [ ] **Step 4: Update issue #35 / PR evidence**
-
-Record RED SHA/run, GREEN SHA/run, full-ci run, exact scope, and review disposition. Keep mutation/forms explicitly deferred.
+Keep annotation mutation and forms/widgets deferred to separate architecture work.
