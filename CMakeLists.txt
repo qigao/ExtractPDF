@@ -20,6 +20,7 @@ add_library(extractpdf
   src/image_bitmap.c
   src/links.c
   src/pdf_export.c
+  src/pdf_output.c
   src/pdf_range.c)
 add_library(ExtractPDF::ExtractPDF ALIAS extractpdf)
 target_compile_features(extractpdf PUBLIC c_std_11)
