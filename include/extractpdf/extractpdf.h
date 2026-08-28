@@ -108,6 +108,17 @@ typedef struct extractpdf_link_info {
     extractpdf_point target;
 } extractpdf_link_info;
 
+typedef enum extractpdf_metadata_field {
+    EXTRACTPDF_METADATA_TITLE = 1,
+    EXTRACTPDF_METADATA_AUTHOR = 2,
+    EXTRACTPDF_METADATA_SUBJECT = 3,
+    EXTRACTPDF_METADATA_KEYWORDS = 4,
+    EXTRACTPDF_METADATA_CREATOR = 5,
+    EXTRACTPDF_METADATA_PRODUCER = 6,
+    EXTRACTPDF_METADATA_CREATION_DATE = 7,
+    EXTRACTPDF_METADATA_MODIFICATION_DATE = 8
+} extractpdf_metadata_field;
+
 typedef enum extractpdf_status {
     EXTRACTPDF_OK = 0,
     EXTRACTPDF_ERROR_ARGUMENT = 1,
@@ -127,6 +138,12 @@ EXTRACTPDF_API extractpdf_status extractpdf_open(
 EXTRACTPDF_API extractpdf_status extractpdf_page_count(
     extractpdf_document *document,
     int *out_page_count);
+
+EXTRACTPDF_API extractpdf_status extractpdf_document_metadata(
+    extractpdf_document *document,
+    extractpdf_metadata_field field,
+    char **out_utf8,
+    size_t *out_size);
 
 EXTRACTPDF_API extractpdf_status extractpdf_export_pages(
     extractpdf_document *document,
