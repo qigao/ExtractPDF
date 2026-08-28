@@ -19,6 +19,8 @@ const char *extractpdf_status_string(extractpdf_status status)
         return "out of memory";
     case EXTRACTPDF_ERROR_MUPDF:
         return "MuPDF error";
+    case EXTRACTPDF_ERROR_STATE:
+        return "invalid state";
     default:
         return "unknown error";
     }
