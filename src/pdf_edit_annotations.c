@@ -865,6 +865,13 @@ extractpdf_status extractpdf_pdf_edit_annotation_update(
         EXTRACTPDF_ANNOTATION_UPDATE_FLAGS |
         EXTRACTPDF_ANNOTATION_UPDATE_CONTENTS;
     extractpdf_pdf_edit_annotation_entry *entry = NULL;
+    pdf_page *page = NULL;
+    pdf_annot *annotation = NULL;
+    extractpdf_pdf_annotation_view view;
+    char *contents_copy = NULL;
+    int contents_present = 0;
+    int operation_open = 0;
+    int caught_code = FZ_ERROR_NONE;
     extractpdf_status status;
     size_t minimum_size;
 
@@ -877,13 +884,135 @@ extractpdf_status extractpdf_pdf_edit_annotation_update(
     if ((update->fields & ~known_fields) != 0)
         return EXTRACTPDF_ERROR_ARGUMENT;
 
-    status = extractpdf_pdf_edit_resolve_ref(edit, ref, &entry);
+    status = extractpdf_pdf_edit_resolve_live_view(
+        edit, ref, &entry, &page, &annotation, &view);
     if (status != EXTRACTPDF_OK)
         return status;
-    (void)entry;
-    if (update->fields == 0)
+
+    if (update->fields == 0) {
+        fz_drop_page(edit->ctx, &page->super);
         return EXTRACTPDF_OK;
-    return EXTRACTPDF_ERROR_UNSUPPORTED;
+    }
+    if (view.type == EXTRACTPDF_ANNOTATION_UNKNOWN) {
+        fz_drop_page(edit->ctx, &page->super);
+        return EXTRACTPDF_ERROR_UNSUPPORTED;
+    }
+    if ((update->fields & EXTRACTPDF_ANNOTATION_UPDATE_BOUNDS) != 0) {
+        enum pdf_annot_type ignored_type = PDF_ANNOT_UNKNOWN;
+
+        if (!extractpdf_pdf_edit_map_create_type(view.type, &ignored_type)) {
+            fz_drop_page(edit->ctx, &page->super);
+            return EXTRACTPDF_ERROR_UNSUPPORTED;
+        }
+        if (!extractpdf_pdf_edit_bounds_valid(update->bounds)) {
+            fz_drop_page(edit->ctx, &page->super);
+            return EXTRACTPDF_ERROR_ARGUMENT;
+        }
+    }
+    if ((update->fields & EXTRACTPDF_ANNOTATION_UPDATE_CONTENTS) != 0) {
+        status = extractpdf_pdf_edit_prepare_contents(
+            update->contents_utf8,
+            update->contents_size,
+            &contents_present,
+            &contents_copy);
+        if (status != EXTRACTPDF_OK) {
+            fz_drop_page(edit->ctx, &page->super);
+            return status;
+        }
+    }
+
+    fz_var(operation_open);
+    fz_var(caught_code);
+    fz_try(edit->ctx)
+    {
+        int applied_fields = 0;
+
+        pdf_begin_operation(
+            edit->ctx, edit->document, "ExtractPDF update annotation");
+        operation_open = 1;
+
+        if ((update->fields & EXTRACTPDF_ANNOTATION_UPDATE_BOUNDS) != 0) {
+            fz_rect bounds = fz_make_rect(
+                update->bounds.x0,
+                update->bounds.y0,
+                update->bounds.x1,
+                update->bounds.y1);
+            pdf_set_annot_rect(edit->ctx, annotation, bounds);
+            ++applied_fields;
+#if defined(EXTRACTPDF_TESTING)
+            if (applied_fields == 1 && edit->test_fault ==
+                EXTRACTPDF_PDF_EDIT_TEST_FAULT_AFTER_FIRST_UPDATE_FIELD) {
+                edit->test_fault = EXTRACTPDF_PDF_EDIT_TEST_FAULT_NONE;
+                fz_throw(
+                    edit->ctx,
+                    FZ_ERROR_GENERIC,
+                    "injected ExtractPDF update failure");
+            }
+#endif
+        }
+
+        if ((update->fields & EXTRACTPDF_ANNOTATION_UPDATE_FLAGS) != 0) {
+            extractpdf_pdf_edit_set_flags_u32(
+                edit->ctx, annotation, update->flags);
+            ++applied_fields;
+#if defined(EXTRACTPDF_TESTING)
+            if (applied_fields == 1 && edit->test_fault ==
+                EXTRACTPDF_PDF_EDIT_TEST_FAULT_AFTER_FIRST_UPDATE_FIELD) {
+                edit->test_fault = EXTRACTPDF_PDF_EDIT_TEST_FAULT_NONE;
+                fz_throw(
+                    edit->ctx,
+                    FZ_ERROR_GENERIC,
+                    "injected ExtractPDF update failure");
+            }
+#endif
+        }
+
+        if ((update->fields & EXTRACTPDF_ANNOTATION_UPDATE_CONTENTS) != 0) {
+            if (contents_present) {
+                pdf_set_annot_contents(edit->ctx, annotation, contents_copy);
+            } else {
+                pdf_dict_del(
+                    edit->ctx,
+                    pdf_annot_obj(edit->ctx, annotation),
+                    PDF_NAME(Contents));
+                pdf_annot_request_resynthesis(edit->ctx, annotation);
+            }
+            ++applied_fields;
+#if defined(EXTRACTPDF_TESTING)
+            if (applied_fields == 1 && edit->test_fault ==
+                EXTRACTPDF_PDF_EDIT_TEST_FAULT_AFTER_FIRST_UPDATE_FIELD) {
+                edit->test_fault = EXTRACTPDF_PDF_EDIT_TEST_FAULT_NONE;
+                fz_throw(
+                    edit->ctx,
+                    FZ_ERROR_GENERIC,
+                    "injected ExtractPDF update failure");
+            }
+#endif
+        }
+
+        (void)pdf_update_annot(edit->ctx, annotation);
+        pdf_end_operation(edit->ctx, edit->document);
+        operation_open = 0;
+    }
+    fz_always(edit->ctx)
+    {
+        fz_drop_page(edit->ctx, &page->super);
+        page = NULL;
+    }
+    fz_catch(edit->ctx)
+    {
+        caught_code = fz_caught(edit->ctx);
+        if (operation_open) {
+            pdf_abandon_operation(edit->ctx, edit->document);
+            operation_open = 0;
+        }
+        fz_report_error(edit->ctx);
+    }
+
+    free(contents_copy);
+    if (caught_code != FZ_ERROR_NONE)
+        return extractpdf_status_from_mupdf(caught_code);
+    return EXTRACTPDF_OK;
 }
 
 extractpdf_status extractpdf_pdf_edit_annotation_delete(
@@ -891,10 +1020,53 @@ extractpdf_status extractpdf_pdf_edit_annotation_delete(
     const extractpdf_annotation_ref *ref)
 {
     extractpdf_pdf_edit_annotation_entry *entry = NULL;
-    extractpdf_status status = extractpdf_pdf_edit_resolve_ref(edit, ref, &entry);
+    pdf_page *page = NULL;
+    pdf_annot *annotation = NULL;
+    extractpdf_pdf_annotation_view view;
+    int operation_open = 0;
+    int caught_code = FZ_ERROR_NONE;
+    extractpdf_status status;
 
-    (void)entry;
+    status = extractpdf_pdf_edit_resolve_live_view(
+        edit, ref, &entry, &page, &annotation, &view);
     if (status != EXTRACTPDF_OK)
         return status;
-    return EXTRACTPDF_ERROR_UNSUPPORTED;
+    if (view.type == EXTRACTPDF_ANNOTATION_UNKNOWN) {
+        fz_drop_page(edit->ctx, &page->super);
+        return EXTRACTPDF_ERROR_UNSUPPORTED;
+    }
+
+    fz_var(operation_open);
+    fz_var(caught_code);
+    fz_try(edit->ctx)
+    {
+        pdf_begin_operation(
+            edit->ctx, edit->document, "ExtractPDF delete annotation");
+        operation_open = 1;
+        pdf_delete_annot(edit->ctx, page, annotation);
+        pdf_end_operation(edit->ctx, edit->document);
+        operation_open = 0;
+    }
+    fz_always(edit->ctx)
+    {
+        fz_drop_page(edit->ctx, &page->super);
+        page = NULL;
+    }
+    fz_catch(edit->ctx)
+    {
+        caught_code = fz_caught(edit->ctx);
+        if (operation_open) {
+            pdf_abandon_operation(edit->ctx, edit->document);
+            operation_open = 0;
+        }
+        fz_report_error(edit->ctx);
+    }
+
+    if (caught_code != FZ_ERROR_NONE)
+        return extractpdf_status_from_mupdf(caught_code);
+
+    pdf_drop_obj(edit->ctx, entry->object);
+    entry->object = NULL;
+    entry->live = 0;
+    return EXTRACTPDF_OK;
 }
