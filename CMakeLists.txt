@@ -24,7 +24,8 @@ add_library(extractpdf
   src/pdf_range.c
   src/pdf_merge.c
   src/output_file.c
-  src/pdf_metadata.c)
+  src/pdf_metadata.c
+  src/pdf_outline.c)
 add_library(ExtractPDF::ExtractPDF ALIAS extractpdf)
 target_compile_features(extractpdf PUBLIC c_std_11)
 target_include_directories(extractpdf PUBLIC

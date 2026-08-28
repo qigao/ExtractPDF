@@ -25,6 +25,7 @@ typedef struct extractpdf_text_page extractpdf_text_page;
 typedef struct extractpdf_image_page extractpdf_image_page;
 typedef struct extractpdf_link_page extractpdf_link_page;
 typedef struct extractpdf_output extractpdf_output;
+typedef struct extractpdf_outline extractpdf_outline;
 
 typedef struct extractpdf_point {
     float x;
@@ -108,6 +109,23 @@ typedef struct extractpdf_link_info {
     extractpdf_point target;
 } extractpdf_link_info;
 
+typedef enum extractpdf_outline_destination_kind {
+    EXTRACTPDF_OUTLINE_DESTINATION_NONE = 0,
+    EXTRACTPDF_OUTLINE_DESTINATION_INTERNAL = 1,
+    EXTRACTPDF_OUTLINE_DESTINATION_URI = 2
+} extractpdf_outline_destination_kind;
+
+typedef struct extractpdf_outline_info {
+    size_t struct_size;
+    size_t parent_index;
+    size_t first_child_index;
+    size_t next_sibling_index;
+    extractpdf_outline_destination_kind destination_kind;
+    int target_page;
+    extractpdf_point target;
+    int is_open;
+} extractpdf_outline_info;
+
 typedef enum extractpdf_metadata_field {
     EXTRACTPDF_METADATA_TITLE = 1,
     EXTRACTPDF_METADATA_AUTHOR = 2,
@@ -143,6 +161,31 @@ EXTRACTPDF_API extractpdf_status extractpdf_document_metadata(
     extractpdf_document *document,
     extractpdf_metadata_field field,
     char **out_utf8,
+    size_t *out_size);
+
+EXTRACTPDF_API extractpdf_status extractpdf_document_outline(
+    extractpdf_document *document,
+    extractpdf_outline **out_outline);
+
+EXTRACTPDF_API extractpdf_status extractpdf_outline_count(
+    const extractpdf_outline *outline,
+    size_t *out_count);
+
+EXTRACTPDF_API extractpdf_status extractpdf_outline_get_info(
+    const extractpdf_outline *outline,
+    size_t index,
+    extractpdf_outline_info *out_info);
+
+EXTRACTPDF_API extractpdf_status extractpdf_outline_title(
+    const extractpdf_outline *outline,
+    size_t index,
+    const char **out_utf8,
+    size_t *out_size);
+
+EXTRACTPDF_API extractpdf_status extractpdf_outline_uri(
+    const extractpdf_outline *outline,
+    size_t index,
+    const char **out_utf8,
     size_t *out_size);
 
 EXTRACTPDF_API extractpdf_status extractpdf_export_pages(
@@ -323,6 +366,9 @@ EXTRACTPDF_API void extractpdf_drop_image_page(
 
 EXTRACTPDF_API void extractpdf_drop_link_page(
     extractpdf_link_page *links);
+
+EXTRACTPDF_API void extractpdf_drop_outline(
+    extractpdf_outline *outline);
 
 EXTRACTPDF_API void extractpdf_drop_bitmap(
     extractpdf_bitmap *bitmap);
