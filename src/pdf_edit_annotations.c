@@ -795,6 +795,11 @@ extractpdf_status extractpdf_pdf_edit_annotation_create(
         operation_open = 1;
 
         annotation = pdf_create_annot(edit->ctx, page, pdf_type);
+        if (pdf_type == PDF_ANNOT_SQUARE || pdf_type == PDF_ANNOT_CIRCLE)
+            pdf_dict_del(
+                edit->ctx,
+                pdf_annot_obj(edit->ctx, annotation),
+                PDF_NAME(RD));
         pdf_set_annot_rect(edit->ctx, annotation, bounds);
         extractpdf_pdf_edit_set_flags_u32(
             edit->ctx, annotation, options->flags);
