@@ -134,6 +134,12 @@ EXTRACTPDF_API extractpdf_status extractpdf_export_pages(
     size_t page_count,
     extractpdf_output **out_output);
 
+EXTRACTPDF_API extractpdf_status extractpdf_export_page_range(
+    extractpdf_document *document,
+    int first_page,
+    size_t page_count,
+    extractpdf_output **out_output);
+
 EXTRACTPDF_API extractpdf_status extractpdf_output_data(
     const extractpdf_output *output,
     const unsigned char **out_data,
