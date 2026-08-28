@@ -34,6 +34,23 @@
 - Keep the current single-thread handle contract. Add no mutable process-global/TLS state.
 - Strict RED precedes all new production declarations/behavior. Final feature head requires Linux static + all CTests, Linux ASan/UBSan + all CTests, macOS, and Windows DLL proof.
 
+## Completion Definition
+
+Implementation is complete only when all of these are true on one exact feature SHA:
+
+```text
+strict compile RED was captured before production ABI
+old Annotation Enumeration behavior still passes unchanged
+all Mutation V1 public contracts pass deterministic CTest
+19/19 Linux static CTests pass
+19/19 Linux ASan/UBSan CTests pass
+19/19 macOS CTests pass
+19/19 Windows DLL CTests pass
+fresh exact-head review has no Critical/Important blocker
+```
+
+Integration is a separate explicit gate after that proof.
+
 ---
 
 ## File Structure
@@ -55,30 +72,30 @@
   - private `extractpdf_pdf_annotation_view`;
   - survivor classification and strict common-materialization declarations.
 - Create `src/pdf_annotation_common.c`
-  - move the current subtype/filter/Rect/F/Contents logic out of `src/pdf_annotations.c` without changing its behavior.
+  - move current subtype/filter/Rect/F/Contents logic from `src/pdf_annotations.c` without changing behavior.
 - Modify `src/pdf_annotations.c`
-  - consume the shared helpers and retain immutable snapshot allocation/copy/public accessors.
+  - consume shared helpers and retain immutable snapshot allocation/copy/public accessors.
 
 ### Editor implementation
 
 - Create `src/pdf_edit_internal.h`
-  - private editor struct, ref registry, token helpers, page/object resolution helpers, and test-fault numeric constants under `EXTRACTPDF_TESTING`.
+  - private editor struct, ref registry, token helpers, page/object resolution helpers, test-fault constants under `EXTRACTPDF_TESTING`.
 - Create `src/pdf_edit.c`
   - begin policy checks, source-to-private clone/context lifecycle, signed-field scan, JavaScript disable, journal enable, non-consuming snapshot, drop.
 - Create `src/pdf_edit_annotations.c`
   - editor discovery, canonical ref registry, live getters, counted UTF-8 validation/copy, create/update/delete, full-uint32 flags write, appearance update, journal rollback.
 - Modify `CMakeLists.txt`
-  - compile the new production modules.
+  - compile new production modules.
 
 ### Deterministic tests
 
 - Create `tests/test_pdf_annotation_mutation.c`
   - one executable with named groups `arguments`, `begin`, `discovery`, `create`, `update-delete`, `contents-flags`, `snapshot`, `javascript` and no third-party framework.
 - Create `tests/pdf_edit_test_api.h`
-  - test-only fault enum/hook declaration; not installed and not included by the public header.
+  - test-only fault enum/hook declaration; not installed and not included by public header.
 - Create `tests/pdf_edit_fault_hook.c`
-  - test-only exported hook compiled into `extractpdf` only when tests are built; state remains per editor, never global.
-- Create checked-in deterministic fixtures:
+  - test-only hook compiled into `extractpdf` only when tests are built; state remains per editor, never global.
+- Create:
   - `tests/fixtures/annotation-mutation.pdf`
   - `tests/fixtures/annotation-mutation-signed.pdf`
   - `tests/fixtures/annotation-mutation-unsigned-signature.pdf`
@@ -88,7 +105,7 @@
   - `tests/fixtures/encrypted-one-page.pdf` with password `user-pass`
   - `tests/fixtures/composition-non-pdf.txt`
 - Modify `tests/CMakeLists.txt`
-  - register the mutation target/CTest, fixture/output paths, fault-hook compilation, and Windows DLL-copy target.
+  - register mutation target/CTest, fixture/output paths, fault-hook compilation, and Windows DLL-copy target.
 
 No page/render/text/image/link/outline/metadata/composition behavior is refactored as part of this feature.
 
@@ -107,11 +124,11 @@ No page/render/text/image/link/outline/metadata/composition behavior is refactor
 
 **Interfaces:**
 - Consumes: current public document, immutable annotation, metadata, and output APIs.
-- Produces: the complete wished-for Mutation V1 contract as a compile RED. No new production declaration appears in this task.
+- Produces: complete wished-for Mutation V1 contract as a compile RED. No new production declaration appears in this task.
 
 - [ ] **Step 1: Generate deterministic checked-in PDFs**
 
-Run this one-shot authoring script from repository root. Do not commit the script; commit only its outputs.
+Run this one-shot authoring script from repository root. Do not commit the script; commit only outputs.
 
 ```bash
 python3 - <<'PY'
@@ -192,7 +209,7 @@ PY
 sha256sum tests/fixtures/annotation-mutation*.pdf
 ```
 
-Run the generator a second time and repeat `sha256sum`. The four hashes must be unchanged.
+Run generator a second time and repeat `sha256sum`; all four hashes must remain unchanged.
 
 Fixture contract:
 
@@ -205,10 +222,10 @@ annotation-mutation.pdf page 0 survivors:
 4 Ink        flags 0           contents ink-e
 
 filtered page-0 entries: scalar 17, Link, Popup, Widget
-page 1: FreeText then Circle
+page 1 survivors: FreeText, Circle
 ```
 
-- [ ] **Step 2: Add the test-only fault declaration, with no implementation yet**
+- [ ] **Step 2: Add test-only fault declaration, no implementation**
 
 Create `tests/pdf_edit_test_api.h`:
 
@@ -234,9 +251,9 @@ EXTRACTPDF_API void extractpdf_test_pdf_edit_set_fault(
 
 The unknown `extractpdf_pdf_edit` type is intentionally part of RED.
 
-- [ ] **Step 3: Add the mutation test executable and common helpers**
+- [ ] **Step 3: Add test executable/common helpers**
 
-Create `tests/test_pdf_annotation_mutation.c` using the existing `CHECK` style:
+Create `tests/test_pdf_annotation_mutation.c` with existing `CHECK` style:
 
 ```c
 #include <extractpdf/extractpdf.h>
@@ -275,29 +292,17 @@ static int ref_is_zero(const extractpdf_annotation_ref *ref)
 }
 ```
 
-Add helpers that:
+Implement helpers to open source, save output, read live editor data, and reparse outputs exclusively through public immutable APIs. `expect_snapshot_annotation()` verifies type, bounds, flags, and missing/present-empty/non-empty Contents; it never inspects raw PDF objects.
 
-```text
-open source document
-save extractpdf_output with extractpdf_output_save_file
-read live edit info/Contents
-reparse saved output through extractpdf_open -> load_page -> extract_annotations
-verify missing/present-empty/non-empty Contents distinctly
-```
+- [ ] **Step 4: Lock output reset, struct-size, and argument contracts**
 
-`expect_snapshot_annotation()` must verify type, bounds, flags, and Contents through public immutable APIs; it must not inspect raw PDF objects.
-
-- [ ] **Step 4: Lock output reset, struct-size, and basic argument contracts**
-
-`test_arguments()` must include these exact checks:
+`test_arguments()` includes null/reset checks before any real editor is needed:
 
 ```c
 int sentinel = 0;
 extractpdf_pdf_edit *edit = (extractpdf_pdf_edit *)&sentinel;
 extractpdf_annotation_ref ref = {{UINT64_MAX, UINT64_MAX}};
 extractpdf_annotation_info info = {0};
-extractpdf_annotation_create_options create = {0};
-extractpdf_annotation_update update = {0};
 extractpdf_output *output = (extractpdf_output *)&sentinel;
 char *text = (char *)(uintptr_t)1;
 size_t size = 99;
@@ -322,14 +327,6 @@ size = 99;
 CHECK(extractpdf_pdf_edit_annotation_contents(NULL, &ref, &text, &size) == EXTRACTPDF_ERROR_ARGUMENT);
 CHECK(text == NULL && size == 0);
 
-create.struct_size = offsetof(extractpdf_annotation_create_options, contents_size);
-zero_ref(&ref);
-CHECK(extractpdf_pdf_edit_annotation_create(NULL, 0, &create, &ref) == EXTRACTPDF_ERROR_ARGUMENT);
-CHECK(ref_is_zero(&ref));
-
-update.struct_size = offsetof(extractpdf_annotation_update, contents_size);
-CHECK(extractpdf_pdf_edit_annotation_update(NULL, &ref, &update) == EXTRACTPDF_ERROR_ARGUMENT);
-
 output = (extractpdf_output *)&sentinel;
 CHECK(extractpdf_pdf_edit_snapshot(NULL, &output) == EXTRACTPDF_ERROR_ARGUMENT);
 CHECK(output == NULL);
@@ -339,9 +336,50 @@ extractpdf_drop_pdf_edit(NULL);
 CHECK(strcmp(extractpdf_status_string(EXTRACTPDF_ERROR_STATE), "invalid state") == 0);
 ```
 
-After a real editor is available later, this same group must also verify too-small create/update `struct_size`, unknown update bits, bad page indices, and reset values. Larger-than-V1 structs must be accepted by providing a wrapper struct whose first member is the V1 struct plus trailing bytes.
+The same RED test function also opens `MUTATION_PDF`, begins a real editor once the implementation exists, then locks forward-compatible struct behavior explicitly:
 
-- [ ] **Step 5: Lock begin lifetime and fail-closed policies**
+```c
+struct create_larger {
+    extractpdf_annotation_create_options v1;
+    uint64_t future;
+};
+struct update_larger {
+    extractpdf_annotation_update v1;
+    uint64_t future;
+};
+extractpdf_annotation_create_options create_small = {0};
+extractpdf_annotation_update update_small = {0};
+struct create_larger create_big = {0};
+struct update_larger update_big = {0};
+
+create_small.struct_size =
+    offsetof(extractpdf_annotation_create_options, contents_size);
+zero_ref(&ref);
+CHECK(extractpdf_pdf_edit_annotation_create(
+          edit, 0, &create_small, &ref) == EXTRACTPDF_ERROR_ARGUMENT);
+CHECK(ref_is_zero(&ref));
+
+update_small.struct_size =
+    offsetof(extractpdf_annotation_update, contents_size);
+CHECK(extractpdf_pdf_edit_annotation_update(
+          edit, &live_ref, &update_small) == EXTRACTPDF_ERROR_ARGUMENT);
+
+create_big.v1.struct_size = sizeof(create_big);
+create_big.v1.type = EXTRACTPDF_ANNOTATION_TEXT;
+create_big.v1.bounds = (extractpdf_rect){150,150,170,170};
+zero_ref(&ref);
+CHECK(extractpdf_pdf_edit_annotation_create(
+          edit, 0, &create_big.v1, &ref) == EXTRACTPDF_OK);
+
+update_big.v1.struct_size = sizeof(update_big);
+update_big.v1.fields = 0;
+CHECK(extractpdf_pdf_edit_annotation_update(
+          edit, &live_ref, &update_big.v1) == EXTRACTPDF_OK);
+```
+
+Also require unknown update bits -> `ARGUMENT`, page `-1`/page_count -> `ARGUMENT`, and every supplied count/ref/string/output is reset before later validation failure.
+
+- [ ] **Step 5: Lock begin lifetime/fail-closed policies**
 
 `test_begin_lifetime_and_fail_closed()`:
 
@@ -384,9 +422,9 @@ CHECK(edit == NULL);
 extractpdf_close(source);
 ```
 
-- [ ] **Step 6: Lock discovery/ref identity and malformed atomicity**
+- [ ] **Step 6: Lock discovery/ref identity/malformed atomicity**
 
-`test_discovery_and_refs()` must assert exactly five page-0 survivors and canonical repeated ref acquisition:
+`test_discovery_and_refs()`:
 
 ```c
 CHECK(extractpdf_pdf_edit_annotation_count(a, 0, &count) == EXTRACTPDF_OK);
@@ -397,7 +435,7 @@ CHECK(extractpdf_pdf_edit_annotation_ref_at(a, 0, 1, &square_again) == EXTRACTPD
 CHECK(memcmp(&square_ref, &square_again, sizeof(square_ref)) == 0);
 ```
 
-Open the same source into editor B and verify `square_ref` used with B returns `ARGUMENT`. Verify page `-1`, page `2`, and index `99` are `ARGUMENT` with reset outputs.
+Open editor B from same source; using `square_ref` with B must be `ARGUMENT`. Page `-1`, page `2`, and index `99` must be `ARGUMENT` with reset outputs.
 
 For `annotations-late-malformed.pdf`:
 
@@ -411,9 +449,9 @@ CHECK(extractpdf_pdf_edit_annotation_ref_at(edit, 0, 0, &ref) == EXTRACTPDF_ERRO
 CHECK(ref_is_zero(&ref));
 ```
 
-No prefix ref may be registered by the failed scan.
+No prefix ref may be registered by failed scan.
 
-- [ ] **Step 7: Lock create/update/delete/rollback/type-matrix behavior**
+- [ ] **Step 7: Lock create/update/delete/rollback/type matrix**
 
 Create helper:
 
@@ -442,7 +480,7 @@ static extractpdf_annotation_ref create_rect_annot(
 }
 ```
 
-`test_create()` creates these four exact cases and verifies each through live getters:
+`test_create()` creates and live-verifies:
 
 ```text
 page 0 TEXT      [20,20,35,35]   flags 1   Contents "new-text"
@@ -451,25 +489,25 @@ page 1 SQUARE    [100,20,150,70] flags 8   Contents absent
 page 1 CIRCLE    [20,90,70,140]  flags 16  Contents present-empty
 ```
 
-Then set the same valid options to HIGHLIGHT and UNKNOWN and require `UNSUPPORTED + zero ref`.
+Using otherwise valid options with HIGHLIGHT and UNKNOWN must return `UNSUPPORTED + zero ref`.
 
 `test_update_delete()` must:
 
 ```text
-1. acquire Text ref and Square ref from page 0;
+1. acquire Text and Square refs from page 0;
 2. delete Text;
 3. require Text get_info/contents/update/delete => STATE;
-4. reacquire page-0 index 0 and require byte-equal token to original Square ref;
-5. update Square bounds + flags + Contents using original Square ref;
-6. verify all three changed;
-7. acquire Highlight ref; BOUNDS update => UNSUPPORTED;
-8. Highlight FLAGS|CONTENTS update => OK;
+4. reacquire page-0 index 0 and require token byte-equal to original Square ref;
+5. update Square bounds+flags+Contents through original ref;
+6. verify all requested fields changed;
+7. acquire Highlight; BOUNDS update => UNSUPPORTED;
+8. Highlight FLAGS|CONTENTS => OK;
 9. live UNKNOWN zero-field update => OK;
 10. tombstone zero-field update => STATE;
 11. wrong-session zero-field update => ARGUMENT.
 ```
 
-Atomic update fault must save pre-call values explicitly:
+Atomic update fault saves and compares explicit pre/post values:
 
 ```c
 extractpdf_annotation_info before = {0};
@@ -488,7 +526,7 @@ CHECK(extractpdf_pdf_edit_annotation_contents(
 change.struct_size = sizeof(change);
 change.fields = EXTRACTPDF_ANNOTATION_UPDATE_BOUNDS |
                 EXTRACTPDF_ANNOTATION_UPDATE_CONTENTS;
-change.bounds = (extractpdf_rect){20, 20, 90, 90};
+change.bounds = (extractpdf_rect){20,20,90,90};
 change.contents_utf8 = "rollback-new";
 change.contents_size = sizeof("rollback-new") - 1;
 extractpdf_test_pdf_edit_set_fault(
@@ -503,6 +541,7 @@ CHECK(close_float(before.bounds.x0, after.bounds.x0));
 CHECK(close_float(before.bounds.y0, after.bounds.y0));
 CHECK(close_float(before.bounds.x1, after.bounds.x1));
 CHECK(close_float(before.bounds.y1, after.bounds.y1));
+CHECK(before.flags == after.flags);
 CHECK(before_size == after_size);
 CHECK(before_size == 0 || memcmp(before_text, after_text, before_size) == 0);
 extractpdf_free(before_text);
@@ -522,9 +561,9 @@ CHECK(extractpdf_pdf_edit_annotation_count(edit, 0, &after_count) == EXTRACTPDF_
 CHECK(after_count == before_count);
 ```
 
-- [ ] **Step 8: Lock full-u32 flags and counted Contents semantics**
+- [ ] **Step 8: Lock full-u32 flags/counted Contents**
 
-`test_contents_flags()` begins with the existing Text:
+`test_contents_flags()` starts from existing Text:
 
 ```c
 info.struct_size = sizeof(info);
@@ -539,7 +578,7 @@ CHECK(extractpdf_pdf_edit_annotation_get_info(edit, &text_ref, &info) == EXTRACT
 CHECK(info.flags == UINT32_MAX);
 ```
 
-Also use:
+Use:
 
 ```c
 static const char counted[3] = {'c','a','t'};
@@ -550,23 +589,23 @@ static const char embedded_nul[3] = {'a','\0','b'};
 Required sequence:
 
 ```text
-CONTENTS=counted/3 -> OK, getter returns allocated "cat" + NUL
-mutate to "dog" -> previously returned allocated copy still equals "cat"
-CONTENTS=NULL/0 -> remove; getter returns NULL/0
-CONTENTS=nonNULL/0 -> present empty; getter returns nonNULL/0
-bad_utf8/2 -> ARGUMENT, state unchanged
-embedded_nul/3 -> ARGUMENT, state unchanged
-NULL/1 -> ARGUMENT
+CONTENTS=counted/3 -> OK, getter allocated "cat" + NUL
+mutate to "dog" -> prior allocated copy still equals "cat"
+CONTENTS=NULL/0 -> remove; getter NULL/0
+CONTENTS=nonNULL/0 -> present empty; getter nonNULL/0
+bad_utf8/2 -> ARGUMENT and state unchanged
+embedded_nul/3 -> ARGUMENT and state unchanged
+NULL/1 -> ARGUMENT and state unchanged
 ```
 
-- [ ] **Step 9: Lock source/snapshot/output isolation and JavaScript non-execution**
+- [ ] **Step 9: Lock source/snapshot/output isolation and JS non-execution**
 
-Before beginning an editor, obtain an immutable source annotation snapshot and retain it. After begin succeeds, close source, mutate editor, then prove the retained source snapshot still reads:
+Before editor begin, retain immutable source annotation snapshot. After begin succeeds, close source, mutate editor, then retained source snapshot must still expose:
 
 ```text
 Text bounds [10,160,30,180]
 flags 2147483649
-Contents "text-a"
+Contents text-a
 ```
 
 Snapshot test:
@@ -588,16 +627,15 @@ update.contents_utf8 = "snapshot-b";
 update.contents_size = sizeof("snapshot-b") - 1;
 CHECK(extractpdf_pdf_edit_annotation_update(edit, &text_ref, &update) == EXTRACTPDF_OK);
 CHECK(extractpdf_pdf_edit_snapshot(edit, &b) == EXTRACTPDF_OK);
-
 CHECK(extractpdf_output_data(a, &a_data, &a_size) == EXTRACTPDF_OK);
 CHECK(memcmp(a_data, a_copy, a_size) == 0);
 ```
 
-Save A/B, reparse both through immutable annotation enumeration, and require A=`text-a`, B=`snapshot-b`. Drop the editor and re-read A/B output bytes again to prove output lifetime independence.
+Save A/B, reparse through immutable annotation enumeration, require A=`text-a`, B=`snapshot-b`. Drop editor and read A/B bytes again to prove output lifetime independence.
 
-Arm `SNAPSHOT_BEFORE_PUBLISH`, require failure + NULL output, then perform a real Contents update through the same ref and require success; a mere getter is not sufficient proof that the editor remains usable after failed snapshot.
+Arm `SNAPSHOT_BEFORE_PUBLISH`, require non-OK + NULL output, then perform a real update to `after-failed-snapshot`, read it through same ref, snapshot again, reparse, and require new value.
 
-JavaScript fixture starts with `/Info /Title (SAFE)` and `/OpenAction` JavaScript `this.title = "EXECUTED"`. `test_javascript_disabled()` must begin an editor, update the Text annotation so `pdf_update_annot()` executes, snapshot, reparse, and require public metadata Title remains exactly `SAFE`.
+JS fixture starts with `/Info /Title (SAFE)` and `/OpenAction` JS `this.title = "EXECUTED"`. `test_javascript_disabled()` must begin editor, update Text so `pdf_update_annot()` executes, snapshot, reparse, and require public metadata Title exactly `SAFE`.
 
 - [ ] **Step 10: Add named test-group dispatch**
 
@@ -625,7 +663,7 @@ int main(int argc, char **argv)
 }
 ```
 
-- [ ] **Step 11: Register the RED target**
+- [ ] **Step 11: Register RED target**
 
 Append to `tests/CMakeLists.txt`:
 
@@ -653,9 +691,9 @@ add_test(NAME extractpdf.pdf_annotation_mutation
 set_tests_properties(extractpdf.pdf_annotation_mutation PROPERTIES TIMEOUT 60)
 ```
 
-Add `extractpdf_test_pdf_annotation_mutation` to the existing Windows DLL-copy list. Do **not** add `pdf_edit_fault_hook.c` in RED.
+Add target to Windows DLL-copy list. Do not add `pdf_edit_fault_hook.c` in RED.
 
-- [ ] **Step 12: Run and capture strict RED**
+- [ ] **Step 12: Run/capture strict RED**
 
 ```bash
 rm -rf build
@@ -676,7 +714,7 @@ only extractpdf_test_pdf_annotation_mutation fails to compile
 failure is absent approved ABI: editor/ref/types/status/constants/functions
 ```
 
-A fixture/runtime error, missing header/path, or old target regression is not valid RED.
+Fixture/runtime error, missing header/path, or old-target regression is invalid RED.
 
 Commit:
 
@@ -691,7 +729,7 @@ git add tests/fixtures/annotation-mutation.pdf \
 git commit -m "test: define PDF annotation mutation red"
 ```
 
-Open a draft PR to `master`, link #37/#2, push, and record exact RED SHA + workflow in PR #body and #37 before any production ABI is added.
+Open draft PR to `master`, link #37/#2, push, and record exact RED SHA + workflow in PR body and #37 before production ABI.
 
 ---
 
@@ -730,9 +768,9 @@ extractpdf_status extractpdf_pdf_annotation_read_view(
     extractpdf_pdf_annotation_view *out_view);
 ```
 
-- [ ] **Step 1: Prove the existing annotation target is green before refactor**
+- [ ] **Step 1: Prove current annotation target green before refactor**
 
-The RED build already produced every old executable before failing the new target. Run:
+The RED build already produced old executables before failing new target:
 
 ```bash
 ctest --test-dir build -R '^extractpdf\.pdf_annotations$' --output-on-failure
@@ -740,29 +778,25 @@ ctest --test-dir build -R '^extractpdf\.pdf_annotations$' --output-on-failure
 
 Expected: pass.
 
-- [ ] **Step 2: Move classification/materialization helpers without behavior changes**
+- [ ] **Step 2: Move classification/materialization helpers without behavior change**
 
-Create `src/pdf_annotation_common.h/.c`. Move the existing private logic for:
+Create shared module and move:
 
 ```text
-dictionary key presence lookup
-Subtype explicit mapping
+dictionary key-presence lookup
+Subtype mapping
 Link/Popup/Widget filtering
 UNKNOWN mapping
 strict four-finite-number Rect validation
 strict uint32 /F validation
-strict optional PDF-string /Contents validation + pdf_to_text_string decoding
+strict optional PDF-string /Contents validation and pdf_to_text_string decode
 ```
 
-`read_view()` receives a caller-computed `page_ctm`; it must not recompute page transform for each annotation. It zero-initializes all output fields and maps normalized PDF Rect to normalized Fitz bounds with `fz_transform_rect(raw, page_ctm)`.
+`read_view()` receives caller-computed `page_ctm`, zero-initializes output, and maps normalized PDF Rect to normalized Fitz bounds with `fz_transform_rect(raw, page_ctm)`. Borrowed Contents is copied immediately by callers.
 
-The returned Contents pointer is private/borrowed and must be copied before leaving the current MuPDF access scope.
+- [ ] **Step 3: Rewrite immutable enumeration to consume shared helpers**
 
-- [ ] **Step 3: Rewrite immutable enumeration to use shared helpers**
-
-First pass continues raw `/Annots` traversal and calls only `classify()`.
-
-Second pass computes `pdf_page_transform()` once, then:
+First pass remains raw `/Annots` + classify. Second pass computes page transform once:
 
 ```c
 extractpdf_pdf_annotation_view view;
@@ -784,9 +818,9 @@ if (view.has_contents) {
 }
 ```
 
-Delete the duplicate static classifier/Rect/F/Contents code from `src/pdf_annotations.c`.
+Delete duplicate private classifier/Rect/F/Contents code from `src/pdf_annotations.c`.
 
-- [ ] **Step 4: Build every old target explicitly while mutation stays compile-RED**
+- [ ] **Step 4: Build old targets explicitly while mutation remains compile-RED**
 
 ```bash
 cmake --build build --parallel 2 --target \
@@ -811,7 +845,7 @@ cmake --build build --parallel 2 --target \
 ctest --test-dir build -E '^extractpdf\.pdf_annotation_mutation$' --output-on-failure
 ```
 
-Expected: 18/18 old CTests pass. Do not run a full default build and misclassify the still-intentional mutation compile RED as a refactor regression.
+Expected: 18/18 old CTests pass. Do not misclassify intentional mutation compile RED as refactor failure.
 
 - [ ] **Step 5: Commit**
 
@@ -821,11 +855,11 @@ git add src/pdf_annotation_common.h src/pdf_annotation_common.c \
 git commit -m "refactor: share PDF annotation semantics"
 ```
 
-Reviewer rejects this task if any old annotation behavior changes or editor-specific state enters the common module.
+Reviewer rejects if old annotation behavior changes or editor state enters common module.
 
 ---
 
-### Task 3: Add the ABI shell and isolated editor lifecycle
+### Task 3: Add ABI shell and isolated editor lifecycle
 
 **Files:**
 - Modify: `include/extractpdf/extractpdf.h`
@@ -838,12 +872,12 @@ Reviewer rejects this task if any old annotation behavior changes or editor-spec
 - Modify: `CMakeLists.txt`
 
 **Interfaces:**
-- Consumes: `extractpdf_serialize_pdf()`, private `extractpdf_output` bytes, MuPDF PDF document/stream/javascript/journal/signature APIs.
-- Produces: complete linkable public Mutation V1 ABI; real begin/snapshot/drop; annotation calls initially provide exact reset/validation shells and otherwise `UNSUPPORTED` until Tasks 4-6.
+- Consumes: `extractpdf_serialize_pdf()`, private output bytes, MuPDF PDF stream/JS/journal/signature APIs.
+- Produces: complete linkable Mutation V1 ABI; real begin/snapshot/drop; annotation functions exact reset/validation shells until Tasks 4-6.
 
 - [ ] **Step 1: Add exact public ABI**
 
-Add to `include/extractpdf/extractpdf.h`:
+Add:
 
 ```c
 typedef struct extractpdf_pdf_edit extractpdf_pdf_edit;
@@ -877,13 +911,13 @@ typedef struct extractpdf_annotation_update {
 } extractpdf_annotation_update;
 ```
 
-Append status value without renumbering old values:
+Append:
 
 ```c
 EXTRACTPDF_ERROR_STATE = 8
 ```
 
-Add exactly these public functions:
+Add exactly:
 
 ```c
 EXTRACTPDF_API extractpdf_status extractpdf_pdf_edit_begin(
@@ -908,8 +942,6 @@ EXTRACTPDF_API void extractpdf_drop_pdf_edit(extractpdf_pdf_edit *);
 ```
 
 - [ ] **Step 2: Add stable STATE string**
-
-In `src/status.c`:
 
 ```c
 case EXTRACTPDF_ERROR_STATE:
@@ -958,23 +990,23 @@ struct extractpdf_pdf_edit {
 #endif
 ```
 
-The test header and private enum intentionally share numeric values but not a header dependency from `src/` to `tests/`.
+Test header and private enum share numeric values but no source-to-tests include dependency.
 
 - [ ] **Step 4: Implement signed-field scan without widget/event execution**
 
-In `src/pdf_edit.c`, walk `Root/AcroForm/Fields` using `pdf_walk_tree()` and inherited `/FT`. For a `/Sig` field call `pdf_signature_is_signed(ctx, document, field)`. A found signed field is enough to reject the source. Do not load widgets, enable JS, or dispatch events for this scan.
+Walk `Root/AcroForm/Fields` via `pdf_walk_tree()` with inherited `/FT`. For `/Sig`, call `pdf_signature_is_signed(ctx, document, field)`. A signed field rejects source. Do not load widgets, enable JS, or dispatch events.
 
-- [ ] **Step 5: Implement atomic `extractpdf_pdf_edit_begin()`**
+- [ ] **Step 5: Implement atomic begin**
 
-Required order:
+Order:
 
 ```text
 reset *out_edit
 validate source internals
 pdf_document_from_fz_document -> NULL => UNSUPPORTED
 raw trailer /Encrypt present => UNSUPPORTED
-signed-field scan => signed => UNSUPPORTED
-extractpdf_serialize_pdf(source ctx/pdf) -> seed_output
+signed-field scan -> signed => UNSUPPORTED
+extractpdf_serialize_pdf(source ctx/pdf) -> deterministic seed_output
 allocate edit
 new independent fz_context + discard callbacks
 fz_open_memory(seed_output bytes)
@@ -985,9 +1017,9 @@ create nonzero session_cookie
 publish edit
 ```
 
-Keep `seed_output` alive for the whole editor lifetime because the private document's input stream may reference its memory.
+Keep `seed_output` alive for editor lifetime because private document input stream may reference its memory.
 
-Use a private 64-bit mixer:
+Use:
 
 ```c
 static uint64_t mix64(uint64_t x)
@@ -1001,15 +1033,17 @@ static uint64_t mix64(uint64_t x)
 }
 ```
 
-Build the nonzero session discriminator from editor/context addresses, `time(NULL)`, `clock()`, and eight bytes from editor-local `fz_memrnd()`. This is an opaque session discriminator, not a cryptographic authentication boundary; no mutable global counter/state is introduced.
+Build nonzero session discriminator from edit/context addresses, `time(NULL)`, `clock()`, and eight bytes from editor-local `fz_memrnd()`. It is an opaque session discriminator, not a cryptographic authentication boundary; no mutable global counter/state.
 
-Any exception tears down all partial state and maps through `extractpdf_status_from_mupdf()`.
+Any exception tears down partial state and maps through `extractpdf_status_from_mupdf()`.
 
-- [ ] **Step 6: Implement non-consuming snapshot with MuPDF's snapshot writer**
+- [ ] **Step 6: Implement non-consuming snapshot with `pdf_write_snapshot()`**
 
-Do **not** call the existing full-finalizing `extractpdf_serialize_pdf()` on the live edit document. MuPDF 1.28.2 provides `pdf_write_snapshot()`, specifically documented to avoid finalizing the in-memory incremental xref.
+Do not call full-finalizing `extractpdf_serialize_pdf()` on live editor. MuPDF 1.28.2 `pdf_write_snapshot()` is specifically the non-finalizing writer for the in-memory incremental xref.
 
-In `src/pdf_edit.c`, implement a private buffer materializer:
+In `src/pdf_edit.c`, create a private buffer/output, call `pdf_write_snapshot()`, close output, retrieve buffer storage, allocate `extractpdf_output`, deep-copy bytes, then publish only after complete success. The helper must drop buffer/output on every exception path and map MuPDF errors.
+
+Required skeleton:
 
 ```c
 static extractpdf_status snapshot_pdf(
@@ -1074,17 +1108,15 @@ static extractpdf_status snapshot_pdf(
 }
 ```
 
-`extractpdf_pdf_edit_snapshot()` resets output, validates edit, calls this helper, then under `EXTRACTPDF_TESTING` consumes `SNAPSHOT_BEFORE_PUBLISH` by dropping the just-created result and returning `EXTRACTPDF_ERROR_MUPDF`. Otherwise publish result.
+`extractpdf_pdf_edit_snapshot()` resets output, validates editor, calls helper, then under test build consumes `SNAPSHOT_BEFORE_PUBLISH` by dropping result and returning `EXTRACTPDF_ERROR_MUPDF`. Same-state byte identity RED is mandatory acceptance proof; never weaken it.
 
-The same-state byte-identity RED test is the acceptance proof that the pinned snapshot writer is deterministic for this editor model; do not weaken that assertion.
+- [ ] **Step 7: Implement drop and annotation API validation shells**
 
-- [ ] **Step 7: Implement drop and exact annotation API shells**
+`extractpdf_drop_pdf_edit()` drops kept registry objects, registry, private PDF document, context, then seed output; NULL no-op. Document must be dropped before context/seed bytes.
 
-`extractpdf_drop_pdf_edit()` drops every kept registry object, registry allocation, private PDF document, private context, and finally `seed_output`; NULL is no-op. Drop document before context and seed bytes only after document no longer references its input stream.
+Define annotation functions in `src/pdf_edit_annotations.c` so test binary links. At this task they implement exact reset/pointer/minimum-`struct_size` validation and otherwise return `UNSUPPORTED` for a valid editor until later task.
 
-Define all annotation functions in `src/pdf_edit_annotations.c` so the test executable links. At this task they must implement exact output reset/pointer/`struct_size` validation and otherwise return `UNSUPPORTED` for a valid editor until the corresponding later task.
-
-- [ ] **Step 8: Add per-editor test fault hook**
+- [ ] **Step 8: Add per-editor test hook**
 
 In `tests/CMakeLists.txt`:
 
@@ -1114,11 +1146,11 @@ void extractpdf_test_pdf_edit_set_fault(
 }
 ```
 
-Production sources compare `edit->test_fault` only against the private `EXTRACTPDF_PDF_EDIT_TEST_FAULT_*` constants, never identifiers from `tests/pdf_edit_test_api.h`.
+Production source compares only private `EXTRACTPDF_PDF_EDIT_TEST_FAULT_*` constants.
 
-- [ ] **Step 9: Register production sources and run lifecycle groups**
+- [ ] **Step 9: Register sources/run lifecycle groups**
 
-Add to root `add_library(extractpdf ...)`:
+Add root sources:
 
 ```cmake
 src/pdf_annotation_common.c
@@ -1140,7 +1172,7 @@ cmake --build build --parallel 2
 ./build/tests/extractpdf_test_pdf_annotation_mutation begin
 ```
 
-Expected: `arguments` and `begin` pass. Discovery/CRUD groups remain behavioral RED because their shells return `UNSUPPORTED`.
+Expected: arguments and begin pass. Discovery/CRUD groups remain behavioral RED.
 
 - [ ] **Step 10: Commit**
 
@@ -1153,7 +1185,7 @@ git commit -m "feat: add isolated PDF editor lifecycle"
 
 ---
 
-### Task 4: Implement discovery, canonical refs, and live getters
+### Task 4: Implement discovery, canonical refs, live getters
 
 **Files:**
 - Modify: `src/pdf_edit_internal.h`
@@ -1161,10 +1193,10 @@ git commit -m "feat: add isolated PDF editor lifecycle"
 - Test: `tests/test_pdf_annotation_mutation.c`
 
 **Interfaces:**
-- Consumes: shared annotation classifier/view and private editor PDF.
-- Produces: real count/ref_at/get_info/contents plus canonical refs that survive index shifts.
+- Consumes: shared classifier/view + private editor PDF.
+- Produces: real count/ref_at/get_info/contents and canonical refs surviving index shifts.
 
-- [ ] **Step 1: Run focused failing discovery group**
+- [ ] **Step 1: Run focused failing discovery**
 
 ```bash
 ./build/tests/extractpdf_test_pdf_annotation_mutation discovery
@@ -1172,9 +1204,7 @@ git commit -m "feat: add isolated PDF editor lifecycle"
 
 Expected: fail on current `UNSUPPORTED` shells.
 
-- [ ] **Step 2: Add private identity and registry-capacity helpers**
-
-Compare private annotation identity exactly:
+- [ ] **Step 2: Add private identity/registry-capacity helpers**
 
 ```c
 static int same_pdf_identity(fz_context *ctx, pdf_obj *a, pdf_obj *b)
@@ -1189,35 +1219,31 @@ static int same_pdf_identity(fz_context *ctx, pdf_obj *a, pdf_obj *b)
 }
 ```
 
-Never compare dictionary contents. `reserve_entries()` overflow-checks allocation and runs before an operation that cannot tolerate a later allocation failure.
+Never compare dictionary contents. `reserve_entries()` overflow-checks and allocates before operations that cannot tolerate later allocation failure.
 
-- [ ] **Step 3: Define canonical token encoding and validation**
+- [ ] **Step 3: Define canonical token encoding/validation**
 
-Never recycle a tombstoned slot. Repeated acquisition of a live object returns its existing slot/token.
-
-Concrete token layout:
+Never recycle tombstone slot. Repeated acquisition of live object returns existing token.
 
 ```text
-opaque[0] = edit->session_cookie
-opaque[1] = (uint64_t(entry->tag) << 32) | uint64_t(slot + 1)
+opaque[0] = session_cookie
+opaque[1] = (uint64_t(tag) << 32) | uint64_t(slot + 1)
 ```
 
-Maximum slots: `UINT32_MAX - 1`; exceeding it is `NOMEM`.
+Maximum slots `UINT32_MAX - 1`; beyond -> `NOMEM`. Derive nonzero `tag` from `mix64(session_cookie ^ (slot + 1))`.
 
-Derive `entry->tag` deterministically from `mix64(edit->session_cookie ^ (slot + 1))`, force zero to `1`; no second random/global state is required.
-
-Resolution order:
+Resolution:
 
 ```text
-NULL edit/ref                        ARGUMENT
-opaque[0] != session_cookie          ARGUMENT
-encoded slot 0/out of range          ARGUMENT
-tag mismatch                         ARGUMENT
-matching slot with live==0           STATE
-matching live entry                  OK
+NULL edit/ref -> ARGUMENT
+wrong cookie -> ARGUMENT
+zero/out-of-range slot -> ARGUMENT
+tag mismatch -> ARGUMENT
+matching tombstone -> STATE
+matching live -> OK
 ```
 
-- [ ] **Step 4: Scan and validate the entire requested page before publication**
+- [ ] **Step 4: Scan/validate whole page before publication**
 
 Implement:
 
@@ -1234,31 +1260,29 @@ static extractpdf_status scan_page(
 Sequence:
 
 ```text
-validate page index with pdf_count_pages
+validate page against pdf_count_pages
 pdf_load_page
 pdf_page_transform once
-raw page->obj /Annots walk
-non-dict skip
-shared classify: Link/Popup/Widget skip; other dict survives
-shared read_view for EVERY survivor
+raw page->obj /Annots
+skip non-dict
+shared classify filters Link/Popup/Widget
+shared read_view validates EVERY survivor
 only after whole scan succeeds keep wanted object
 release page
 publish count/object
 ```
 
-A malformed late survivor returns `FORMAT`; it publishes no new object/ref from the prefix.
+Malformed later survivor -> `FORMAT`, no prefix object/ref publication.
 
 - [ ] **Step 5: Implement count/ref_at**
 
-`count()` resets output and publishes the scanned count only on complete success.
+`count()` resets/publishes only complete scan count.
 
-`ref_at()` zeros output, scans/validates the complete page, checks `index < count`, then either finds the existing canonical registry entry or appends one kept private `pdf_obj *` and publishes its token.
+`ref_at()` zeros output, scans full page, validates `index < count`, canonical-registers kept object, publishes token.
 
-- [ ] **Step 6: Resolve a ref to a live `pdf_page` + borrowed `pdf_annot`**
+- [ ] **Step 6: Resolve ref while page stays alive**
 
-Do not return a `pdf_annot *` after its page is dropped because the annotation borrows its page pointer.
-
-Private resolver shape:
+Do not retain `pdf_annot *` after its page is dropped.
 
 ```c
 static extractpdf_status resolve_live_annot(
@@ -1268,13 +1292,13 @@ static extractpdf_status resolve_live_annot(
     pdf_annot **out_annot);
 ```
 
-It loads `entry->page_index`, iterates `pdf_first_annot()/pdf_next_annot()`, compares `pdf_annot_obj()` to the kept registry object, and returns a borrowed annot while `*out_page` remains alive. Caller drops the page after all work. If the registry says live but object is no longer present, return `STATE`.
+Load entry page, iterate `pdf_first_annot()/pdf_next_annot()`, compare `pdf_annot_obj()` to kept registry object, return borrowed annot while output page remains live. Missing live object -> `STATE`.
 
 - [ ] **Step 7: Implement live getters**
 
-`get_info()` validates minimum existing `extractpdf_annotation_info` size, preserves `struct_size`, resets known fields, resolves page/annot, computes one page CTM, calls shared `read_view()`, and copies type/bounds/flags.
+`get_info()` validates minimum existing info size, preserves `struct_size`, resets known fields, resolves page/annot, computes page CTM, calls shared view, copies type/bounds/flags.
 
-`contents()` independently resets non-NULL outputs, requires both outputs, resolves/read_view, and returns an allocated copy:
+`contents()` independently resets outputs, requires both, resolves/view, and copies:
 
 ```c
 if (!view.has_contents)
@@ -1289,7 +1313,7 @@ memcpy(copy, view.contents_utf8, view.contents_size + 1);
 *out_size = view.contents_size;
 ```
 
-- [ ] **Step 8: Run discovery + immutable regression gates**
+- [ ] **Step 8: Run discovery + old annotation regression**
 
 ```bash
 cmake --build build --parallel 2
@@ -1297,7 +1321,7 @@ cmake --build build --parallel 2
 ctest --test-dir build -R '^extractpdf\.pdf_annotations$' --output-on-failure
 ```
 
-Expected: both pass.
+Expected both pass.
 
 - [ ] **Step 9: Commit**
 
@@ -1308,43 +1332,43 @@ git commit -m "feat: add annotation edit refs and discovery"
 
 ---
 
-### Task 5: Implement safe Rect-based annotation creation
+### Task 5: Implement safe Rect-based create
 
 **Files:**
 - Modify: `src/pdf_edit_annotations.c`
 - Test: `tests/test_pdf_annotation_mutation.c`
 
 **Interfaces:**
-- Consumes: editor page loading, registry reserve/publish, MuPDF journal/create/setter APIs.
-- Produces: atomic TEXT/FREE_TEXT/SQUARE/CIRCLE create with immediate canonical live ref.
+- Consumes: page loading, registry reserve/publish, MuPDF journal/create/setters.
+- Produces: atomic TEXT/FREE_TEXT/SQUARE/CIRCLE create + canonical live ref.
 
-- [ ] **Step 1: Run focused failing create group**
+- [ ] **Step 1: Run focused failing create**
 
 ```bash
 ./build/tests/extractpdf_test_pdf_annotation_mutation create
 ```
 
-Expected: fail on create `UNSUPPORTED` shell.
+Expected fail on create shell.
 
 - [ ] **Step 2: Implement counted UTF-8 validation/copy**
 
-Canonical accepted byte forms:
+Accepted byte forms:
 
 ```text
-ASCII: 01..7F
-2-byte: C2..DF 80..BF
-3-byte: E0 A0..BF 80..BF
-        E1..EC 80..BF 80..BF
-        ED 80..9F 80..BF
-        EE..EF 80..BF 80..BF
-4-byte: F0 90..BF 80..BF 80..BF
-        F1..F3 80..BF 80..BF 80..BF
-        F4 80..8F 80..BF 80..BF
+ASCII 01..7F
+2-byte C2..DF 80..BF
+3-byte E0 A0..BF 80..BF
+       E1..EC 80..BF 80..BF
+       ED 80..9F 80..BF
+       EE..EF 80..BF 80..BF
+4-byte F0 90..BF 80..BF 80..BF
+       F1..F3 80..BF 80..BF 80..BF
+       F4 80..8F 80..BF 80..BF
 ```
 
-Reject byte 00 anywhere in a present counted range, overlong sequences, surrogates, >U+10FFFF, and truncated/invalid continuations. For present data, overflow-check `size + 1`, allocate, copy exactly `size`, append NUL. NULL/0 is the absent marker and allocates nothing.
+Reject byte 00 in present range, overlong, surrogate, >U+10FFFF, truncated/invalid continuation. Present data: overflow-check `size+1`, allocate, exact copy, append NUL. NULL/0 is absent marker.
 
-- [ ] **Step 3: Validate create request before journal mutation**
+- [ ] **Step 3: Validate create before journal mutation**
 
 Minimum size:
 
@@ -1353,9 +1377,9 @@ offsetof(extractpdf_annotation_create_options, contents_size) +
     sizeof(options->contents_size)
 ```
 
-Validate page index, supported type, finite ordered bounds, and Contents tuple. Allow zero-width/zero-height rectangles.
+Validate page, supported type, finite ordered bounds, Contents tuple. Zero-width/height allowed.
 
-Map only:
+Only map:
 
 ```c
 TEXT      -> PDF_ANNOT_TEXT
@@ -1364,9 +1388,9 @@ SQUARE    -> PDF_ANNOT_SQUARE
 CIRCLE    -> PDF_ANNOT_CIRCLE
 ```
 
-All other types are `UNSUPPORTED`.
+Everything else -> `UNSUPPORTED`.
 
-- [ ] **Step 4: Implement full-uint32 flag writer**
+- [ ] **Step 4: Implement full-u32 flags**
 
 ```c
 static void set_annot_flags_u32(
@@ -1384,9 +1408,9 @@ static void set_annot_flags_u32(
 }
 ```
 
-This mirrors the low-range setter's dictionary result without signed narrowing. The enclosing public operation and later `pdf_update_annot()` provide the same mutation/appearance boundary.
+No signed narrowing. Enclosing journal operation + later `pdf_update_annot()` define the public atomic/appearance boundary.
 
-- [ ] **Step 5: Implement create inside one outer journal operation**
+- [ ] **Step 5: Implement create in one outer journal operation**
 
 Reserve registry capacity before `pdf_begin_operation()`.
 
@@ -1394,27 +1418,25 @@ Reserve registry capacity before `pdf_begin_operation()`.
 begin outer operation
 pdf_create_annot
 set Rect
-set full-u32 flags
+set u32 flags
 set Contents only when present
 pdf_update_annot
-optional deterministic test fault before outer end
-pdf_end_operation
-fill pre-reserved registry slot from pdf_annot_obj
+optional test fault
+end outer operation
+fill pre-reserved registry entry
 publish token
 ```
 
-Under `EXTRACTPDF_TESTING`, `AFTER_CREATE_MUTATION` clears itself and throws `FZ_ERROR_GENERIC` before `pdf_end_operation()`.
+`AFTER_CREATE_MUTATION` clears itself and throws before outer end. Exception -> abandon, drop temporary resources, no registry count increment, output ref stays zero.
 
-On exception: `pdf_abandon_operation()`, drop owned annot/page/temp Contents, leave output ref zero, and do not increment registry count.
-
-- [ ] **Step 6: Run create group and create-rollback assertions**
+- [ ] **Step 6: Run create + create rollback**
 
 ```bash
 cmake --build build --parallel 2
 ./build/tests/extractpdf_test_pdf_annotation_mutation create
 ```
 
-Expected: all four create types pass, Highlight/UNKNOWN create are `UNSUPPORTED`, injected create failure leaves count unchanged and output ref zero.
+Expected four supported types pass; Highlight/UNKNOWN unsupported; injected create failure preserves count + zero ref.
 
 - [ ] **Step 7: Commit**
 
@@ -1425,15 +1447,15 @@ git commit -m "feat: create Rect-based PDF annotations"
 
 ---
 
-### Task 6: Implement partial update, delete, Contents ownership, and rollback
+### Task 6: Implement partial update/delete/Contents ownership/rollback
 
 **Files:**
 - Modify: `src/pdf_edit_annotations.c`
 - Test: `tests/test_pdf_annotation_mutation.c`
 
 **Interfaces:**
-- Consumes: canonical refs, UTF-8 helper, full-u32 flags helper, journal/setter/delete APIs, per-editor fault.
-- Produces: atomic partial update/delete, tombstones, exact Contents presence semantics, full-u32 round-trip.
+- Consumes: canonical refs, UTF-8 helper, u32 flags, journal/setter/delete, per-editor fault.
+- Produces: atomic update/delete, tombstones, exact Contents presence, full-u32 round-trip.
 
 - [ ] **Step 1: Run focused failing groups**
 
@@ -1442,62 +1464,52 @@ git commit -m "feat: create Rect-based PDF annotations"
 ./build/tests/extractpdf_test_pdf_annotation_mutation contents-flags
 ```
 
-Expected: fail on current update/delete shells.
+- [ ] **Step 2: Validate whole update before mutation**
 
-- [ ] **Step 2: Validate entire update request before mutation**
-
-Minimum size is through `contents_size`. Resolve ref **before** zero-field no-op handling.
+Minimum size through `contents_size`. Resolve ref before zero-mask no-op.
 
 ```c
 const uint32_t known =
     EXTRACTPDF_ANNOTATION_UPDATE_BOUNDS |
     EXTRACTPDF_ANNOTATION_UPDATE_FLAGS |
     EXTRACTPDF_ANNOTATION_UPDATE_CONTENTS;
-
 if (update->fields & ~known)
     return EXTRACTPDF_ERROR_ARGUMENT;
 if (update->fields == 0)
     return EXTRACTPDF_OK;
 ```
 
-Then:
+Then nonzero UNKNOWN -> unsupported; unsupported BOUNDS type -> unsupported; prevalidate requested bounds/Contents and allocate temp text before operation.
 
-```text
-UNKNOWN + nonzero fields -> UNSUPPORTED
-BOUNDS on non Text/FreeText/Square/Circle -> UNSUPPORTED
-requested bounds -> validate finite/ordered
-requested Contents -> validate tuple/UTF-8 and allocate temp C string before operation
-```
+- [ ] **Step 3: Preserve absent vs empty Contents**
 
-- [ ] **Step 3: Preserve absent versus present-empty Contents**
+Present string -> `pdf_set_annot_contents()`.
 
-Present string uses `pdf_set_annot_contents()`.
-
-Removal uses:
+Removal:
 
 ```c
 pdf_dict_del(ctx, pdf_annot_obj(ctx, annot), PDF_NAME(Contents));
 pdf_annot_request_resynthesis(ctx, annot);
 ```
 
-Do not turn removal into `pdf_set_annot_contents(annot, "")`.
+Do not encode removal as empty string.
 
-- [ ] **Step 4: Apply fixed-order update atomically**
+- [ ] **Step 4: Apply fixed-order atomic update**
 
-Order: BOUNDS -> FLAGS -> CONTENTS. After each requested field increments `applied_fields`; when `AFTER_FIRST_UPDATE_FIELD` is armed and `applied_fields == 1`, clear it and throw before the next field.
+Order BOUNDS -> FLAGS -> CONTENTS. Increment `applied_fields` after each requested field. Test fault after first field clears/throws before second.
 
-After all fields:
+After fields:
 
 ```c
 pdf_update_annot(ctx, annot);
 pdf_end_operation(ctx, edit->document);
 ```
 
-Any exception abandons the outer operation and leaves registry state untouched.
+Exception -> abandon; registry unchanged.
 
-- [ ] **Step 5: Implement delete and tombstone only after successful PDF delete**
+- [ ] **Step 5: Implement delete/tombstone after success only**
 
-Resolve the live ref to page/annot. UNKNOWN is `UNSUPPORTED`; any recognized ordinary annotation is deletable.
+Resolve live ref. UNKNOWN -> unsupported; recognized ordinary type deletable.
 
 ```c
 pdf_begin_operation(ctx, edit->document, "ExtractPDF delete annotation");
@@ -1506,9 +1518,9 @@ pdf_end_operation(ctx, edit->document);
 entry->live = 0;
 ```
 
-On exception abandon and keep `entry->live == 1`. Never recycle that slot. Associated Popup removal performed by MuPDF is accepted internal consistency behavior.
+Exception -> abandon + keep live. Never recycle slot.
 
-- [ ] **Step 6: Run update/delete/Contents/full-u32 tests**
+- [ ] **Step 6: Run update/delete/Contents/u32 tests**
 
 ```bash
 cmake --build build --parallel 2
@@ -1519,18 +1531,18 @@ cmake --build build --parallel 2
 Expected:
 
 ```text
-failed multi-field update restores all fields
-Text tombstone returns STATE from get/info/contents/update/delete
-Square ref remains stable after Text deletion shifts index
-Highlight bounds UNSUPPORTED, generic flags/Contents OK
+multi-field fault restores every field
+Text tombstone STATE for get/info/contents/update/delete
+Square ref stable after earlier delete shifts index
+Highlight bounds unsupported; flags/Contents OK
 live UNKNOWN zero-mask OK
 wrong-session zero-mask ARGUMENT
 tombstone zero-mask STATE
-raw 2147483649 and UINT32_MAX round-trip exactly
-counted non-NUL-terminated input works
-owned getter string survives later edit mutation
-absent vs present-empty preserved
-invalid UTF-8 / embedded NUL / NULL+nonzero rejected before mutation
+2147483649 and UINT32_MAX exact round-trip
+counted non-NUL input works
+owned getter survives later mutation
+absent/present-empty distinct
+invalid UTF-8/NUL/NULL+nonzero rejected before mutation
 ```
 
 - [ ] **Step 7: Commit**
@@ -1542,14 +1554,14 @@ git commit -m "feat: atomically update and delete annotations"
 
 ---
 
-### Task 7: Prove snapshot/source isolation and JavaScript non-execution through public outputs
+### Task 7: Prove source/snapshot/JS isolation through public outputs
 
 **Files:**
 - Modify only if a real defect is exposed: `src/pdf_edit.c`, `src/pdf_edit_annotations.c`, `tests/test_pdf_annotation_mutation.c`
 
 **Interfaces:**
-- Consumes: completed lifecycle/discovery/CRUD implementation.
-- Produces: final semantic proof before all-suite GREEN.
+- Consumes completed editor/discovery/CRUD.
+- Produces final semantic proof before all-suite GREEN.
 
 - [ ] **Step 1: Run snapshot group unchanged**
 
@@ -1557,80 +1569,78 @@ git commit -m "feat: atomically update and delete annotations"
 ./build/tests/extractpdf_test_pdf_annotation_mutation snapshot
 ```
 
-Expected: pass. Failure is a product defect; do not weaken same-state byte identity, source isolation, output independence, or non-consuming assertions.
+Failure is product defect; do not weaken same-state byte identity, source isolation, output independence, or non-consuming assertions.
 
-- [ ] **Step 2: Require retained source snapshot to stay original after source close + editor mutation**
+- [ ] **Step 2: Verify retained source snapshot after source close + editor mutation**
 
-Verify through retained immutable snapshot:
+Require:
 
 ```text
-Text type
-Fitz bounds 10,160,30,180
+Text bounds 10,160,30,180
 flags 2147483649
 Contents text-a
 ```
 
-No source handle remains open solely for this assertion.
+No source handle remains open solely for test.
 
-- [ ] **Step 3: Reparse snapshots A and B only through public immutable APIs**
+- [ ] **Step 3: Reparse snapshots A/B only through public APIs**
 
-Required:
+Require:
 
 ```text
-A bytes == repeat bytes with no mutation
-A bytes remain unchanged after mutation
+A bytes == repeat with no mutation
+A unchanged after later mutation
 B contains later mutation
 A reparse -> text-a
 B reparse -> snapshot-b
-existing Text ref stays valid after snapshots
-outputs remain valid after editor drop
+Text ref valid after snapshots
+outputs valid after editor drop
 ```
 
-- [ ] **Step 4: Prove failed snapshot does not consume/corrupt editor**
+- [ ] **Step 4: Prove failed snapshot leaves editor fully usable**
 
-Arm `SNAPSHOT_BEFORE_PUBLISH`, require non-OK + NULL output, then update Contents to `after-failed-snapshot`, read it through the same ref, snapshot again, reparse, and require the new value. This proves post-failure mutation and publication both remain usable.
+Arm fault, require failure+NULL, then update Contents to `after-failed-snapshot`, read through same ref, snapshot again, reparse and require new value.
 
-- [ ] **Step 5: Run JavaScript group after real appearance path exists**
+- [ ] **Step 5: Run JS group after real appearance update exists**
 
 ```bash
 ./build/tests/extractpdf_test_pdf_annotation_mutation javascript
 ```
 
-The group performs a Text Contents update, snapshots, reparses metadata, and requires Title `SAFE`. Any `EXECUTED` result is a blocker.
+Group updates Text, snapshots, reparses metadata, requires Title `SAFE`. `EXECUTED` is blocker.
 
-- [ ] **Step 6: Run full mutation executable**
+- [ ] **Step 6: Run entire mutation executable**
 
 ```bash
 cmake --build build --parallel 2
 ./build/tests/extractpdf_test_pdf_annotation_mutation
 ```
 
-Expected: all groups pass.
+Expected all groups pass.
 
 - [ ] **Step 7: Commit only real corrections**
 
-If Step 1-6 required changes:
+If files changed:
 
 ```bash
 git add src/pdf_edit.c src/pdf_edit_annotations.c tests/test_pdf_annotation_mutation.c
 git commit -m "test: lock PDF annotation editor isolation"
 ```
 
-If no files changed, create no empty commit.
+No empty commit if no changes.
 
 ---
 
-### Task 8: Reach full GREEN and exact-head cross-platform proof
+### Task 8: Reach full GREEN/exact-head cross-platform proof
 
 **Files:**
-- No planned feature expansion.
-- Modify only approved-scope files if a real compiler/portability defect is found.
+- No planned expansion; modify only approved scope for real portability/compiler defect.
 
 **Interfaces:**
-- Consumes: Tasks 1-7.
-- Produces: merge-ready exact-head evidence; does not merge.
+- Consumes Tasks 1-7.
+- Produces merge-ready exact-head evidence; does not merge.
 
-- [ ] **Step 1: Fresh Linux static build + all CTests**
+- [ ] **Step 1: Fresh Linux static + all CTests**
 
 ```bash
 rm -rf build
@@ -1643,7 +1653,7 @@ cmake --build build --parallel 2
 ctest --test-dir build --output-on-failure
 ```
 
-Expected: **19/19 CTests pass**.
+Expected **19/19**.
 
 - [ ] **Step 2: Fresh Linux ASan/UBSan + all CTests**
 
@@ -1660,11 +1670,11 @@ cmake --build build-asan --parallel 2
 ctest --test-dir build-asan --output-on-failure
 ```
 
-Expected: 19/19, no sanitizer issue in editor/ref/string/registry code.
+Expected 19/19, no sanitizer issue.
 
 - [ ] **Step 3: Exact-head scope review**
 
-Allowed production paths:
+Allowed production:
 
 ```text
 include/extractpdf/extractpdf.h
@@ -1678,7 +1688,7 @@ src/pdf_edit_annotations.c
 CMakeLists.txt
 ```
 
-Allowed test/docs paths:
+Allowed tests/docs:
 
 ```text
 docs/superpowers/specs/2026-08-28-extractpdf-pdf-annotation-mutation-design.md
@@ -1693,73 +1703,66 @@ tests/fixtures/annotation-mutation-unsigned-signature.pdf
 tests/fixtures/annotation-mutation-js.pdf
 ```
 
-No unrelated page/render/text/image/link/outline/metadata/composition/output-file change is acceptable.
+No unrelated page/render/text/image/link/outline/metadata/composition/output-file change.
 
-- [ ] **Step 4: Push final GREEN and capture exact-head Linux PR CI**
+- [ ] **Step 4: Push final GREEN/capture Linux PR CI**
 
-Normal PR synchronize on the final exact SHA must pass:
-
-```text
-Linux strict static build + 19/19 CTests
-Linux ASan/UBSan + 19/19 CTests
-```
-
-Update draft PR and #37 with RED SHA/workflow, first production GREEN SHA/workflow, and final exact SHA.
+Normal synchronize on final exact SHA must pass Linux static 19/19 + ASan/UBSan 19/19. Update PR/#37 with RED SHA/run, first production GREEN SHA/run, final exact SHA.
 
 - [ ] **Step 5: Trigger same-head `full-ci`**
 
-Add `full-ci` only after final SHA is fixed. Verify labeled workflow `head_sha` equals that SHA.
+Add `full-ci` only after exact SHA fixed; verify labeled run head matches exact SHA.
 
 Acceptance:
 
 ```text
-Linux static + 19/19                 success
-Linux ASan/UBSan + 19/19            success
-macOS configure/build/19/19         success
-Windows DLL configure/build/19/19   success
+Linux static 19/19 success
+Linux ASan/UBSan 19/19 success
+macOS 19/19 success
+Windows DLL 19/19 success
 ```
 
-Windows logs must show editor source compilation, `extractpdf_test_pdf_annotation_mutation.exe`, and `extractpdf.pdf_annotation_mutation` passing through the DLL build.
+Windows logs must show editor sources, mutation test executable, and mutation CTest through DLL build.
 
-- [ ] **Step 6: Final exact-head review against every locked boundary**
+- [ ] **Step 6: Final exact-head review**
 
 Review:
 
 ```text
 source immutability
-begin source-lifetime independence
+begin lifetime independence
 encrypted/signed fail-closed
 JavaScript disabled
 discovery semantic reuse + malformed atomicity
-canonical refs + wrong-session + tombstone + no slot reuse
+canonical refs + wrong-session + tombstone + no reuse
 full uint32 flags
 Contents absent/empty/counting/UTF-8/ownership
 create type matrix
 zero-field validation ordering
 update/create rollback
-appearance update before operation completion
+appearance before operation completion
 snapshot determinism/non-consumption/output independence
 no MuPDF/PDF identity in public ABI
 ```
 
-Any Critical/Important fix creates a new exact SHA and requires Linux + same-head full-ci proof again.
+Any Critical/Important fix changes exact SHA and requires Linux + same-head full-ci again.
 
 - [ ] **Step 7: Mark implementation/evidence complete, integration pending**
 
-Only after Step 1-6 pass, mark PR ready and update #37/roadmap to say implementation/evidence complete; integration pending. Do not merge in this task.
+Only after all proof passes, mark PR ready and update #37/roadmap. Do not merge.
 
 ---
 
 ### Task 9: Explicit integration gate
 
 **Files:**
-- Bookkeeping only after successful integration: PR, issue #37, roadmap #2.
+- Bookkeeping only after successful integration: PR, #37, #2.
 
 **Interfaces:**
-- Consumes: proven exact-head full-ci from Task 8.
-- Produces: integrated master proof and closes #37.
+- Consumes proven Task-8 exact-head full-ci.
+- Produces integrated master proof and closes #37.
 
-A plan executor must stop before this task until the user gives separate explicit integration authorization.
+Plan executor stops before Task 9 until user gives separate explicit integration authorization.
 
 - [ ] **Step 1: Re-fetch merge state immediately before merge**
 
@@ -1767,7 +1770,7 @@ Require:
 
 ```text
 PR open + ready
-head SHA exactly equals proven full-ci SHA
+head exactly proven SHA
 base master expected descendant
 mergeable true
 no unresolved review thread
@@ -1775,32 +1778,32 @@ no new review/comment blocker
 same-head full-ci success
 ```
 
-- [ ] **Step 2: Merge with `expected_head_sha` and merge method `merge`**
+- [ ] **Step 2: Merge with `expected_head_sha`, method `merge`**
 
-GitHub must reject if head moved.
+Head movement must reject merge.
 
-- [ ] **Step 3: Verify integrated master push workflow by merge SHA**
+- [ ] **Step 3: Verify integrated master push run by merge SHA**
 
-Do not close #37 from PR CI. Find the `push` run whose `head_sha` equals merge commit and require:
+Do not close from PR CI. Require push run:
 
 ```text
-Linux static + all CTests       success
-Linux ASan/UBSan + all CTests  success
-macOS                           success
-Windows DLL                     success
+Linux static success
+Linux ASan/UBSan success
+macOS success
+Windows DLL success
 ```
 
-Inspect Windows integrated logs to confirm mutation CTest runs.
+Inspect integrated Windows logs for mutation CTest.
 
-- [ ] **Step 4: Close bookkeeping after integrated GREEN only**
+- [ ] **Step 4: Close bookkeeping after integrated GREEN**
 
-Close #37 completed and update roadmap #2:
+Close #37 completed and update #2:
 
 ```text
 [x] Annotation mutation editor — #37 / PR #... — integrated
 ```
 
-Record final feature SHA, merge SHA, same-head full-ci workflow, and integrated-master push workflow. Leave subtype-specific geometry and Forms/widgets separate.
+Record final feature SHA, merge SHA, same-head full-ci run, integrated push run. Leave subtype geometry and Forms/widgets separate.
 
 ---
 
@@ -1819,7 +1822,7 @@ Task 5  create Text/FreeText/Square/Circle + create rollback
    ↓
 Task 6  update/delete + tombstone + full-u32 + Contents + rollback
    ↓
-Task 7  source/snapshot/JavaScript/public-output semantic proof
+Task 7  source/snapshot/JavaScript/public-output proof
    ↓
 Task 8  19/19 + sanitizers + same-SHA Linux/macOS/Windows full-ci + review
    ↓
