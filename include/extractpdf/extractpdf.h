@@ -26,6 +26,7 @@ typedef struct extractpdf_image_page extractpdf_image_page;
 typedef struct extractpdf_link_page extractpdf_link_page;
 typedef struct extractpdf_output extractpdf_output;
 typedef struct extractpdf_outline extractpdf_outline;
+typedef struct extractpdf_annotation_page extractpdf_annotation_page;
 
 typedef struct extractpdf_point {
     float x;
@@ -125,6 +126,42 @@ typedef struct extractpdf_outline_info {
     extractpdf_point target;
     int is_open;
 } extractpdf_outline_info;
+
+typedef enum extractpdf_annotation_type {
+    EXTRACTPDF_ANNOTATION_UNKNOWN = 0,
+    EXTRACTPDF_ANNOTATION_TEXT = 1,
+    EXTRACTPDF_ANNOTATION_FREE_TEXT = 2,
+    EXTRACTPDF_ANNOTATION_LINE = 3,
+    EXTRACTPDF_ANNOTATION_SQUARE = 4,
+    EXTRACTPDF_ANNOTATION_CIRCLE = 5,
+    EXTRACTPDF_ANNOTATION_POLYGON = 6,
+    EXTRACTPDF_ANNOTATION_POLY_LINE = 7,
+    EXTRACTPDF_ANNOTATION_HIGHLIGHT = 8,
+    EXTRACTPDF_ANNOTATION_UNDERLINE = 9,
+    EXTRACTPDF_ANNOTATION_SQUIGGLY = 10,
+    EXTRACTPDF_ANNOTATION_STRIKE_OUT = 11,
+    EXTRACTPDF_ANNOTATION_REDACT = 12,
+    EXTRACTPDF_ANNOTATION_STAMP = 13,
+    EXTRACTPDF_ANNOTATION_CARET = 14,
+    EXTRACTPDF_ANNOTATION_INK = 15,
+    EXTRACTPDF_ANNOTATION_FILE_ATTACHMENT = 16,
+    EXTRACTPDF_ANNOTATION_SOUND = 17,
+    EXTRACTPDF_ANNOTATION_MOVIE = 18,
+    EXTRACTPDF_ANNOTATION_RICH_MEDIA = 19,
+    EXTRACTPDF_ANNOTATION_SCREEN = 20,
+    EXTRACTPDF_ANNOTATION_PRINTER_MARK = 21,
+    EXTRACTPDF_ANNOTATION_TRAP_NET = 22,
+    EXTRACTPDF_ANNOTATION_WATERMARK = 23,
+    EXTRACTPDF_ANNOTATION_3D = 24,
+    EXTRACTPDF_ANNOTATION_PROJECTION = 25
+} extractpdf_annotation_type;
+
+typedef struct extractpdf_annotation_info {
+    size_t struct_size;
+    extractpdf_annotation_type type;
+    extractpdf_rect bounds;
+    uint32_t flags;
+} extractpdf_annotation_info;
 
 typedef enum extractpdf_metadata_field {
     EXTRACTPDF_METADATA_TITLE = 1,
@@ -349,6 +386,25 @@ EXTRACTPDF_API extractpdf_status extractpdf_link_uri(
     const char **out_utf8,
     size_t *out_size);
 
+EXTRACTPDF_API extractpdf_status extractpdf_extract_annotations(
+    extractpdf_page *page,
+    extractpdf_annotation_page **out_annotations);
+
+EXTRACTPDF_API extractpdf_status extractpdf_annotation_count(
+    const extractpdf_annotation_page *annotations,
+    size_t *out_count);
+
+EXTRACTPDF_API extractpdf_status extractpdf_annotation_get_info(
+    const extractpdf_annotation_page *annotations,
+    size_t index,
+    extractpdf_annotation_info *out_info);
+
+EXTRACTPDF_API extractpdf_status extractpdf_annotation_contents(
+    const extractpdf_annotation_page *annotations,
+    size_t index,
+    const char **out_utf8,
+    size_t *out_size);
+
 EXTRACTPDF_API const char *extractpdf_status_string(
     extractpdf_status status);
 
@@ -369,6 +425,9 @@ EXTRACTPDF_API void extractpdf_drop_link_page(
 
 EXTRACTPDF_API void extractpdf_drop_outline(
     extractpdf_outline *outline);
+
+EXTRACTPDF_API void extractpdf_drop_annotation_page(
+    extractpdf_annotation_page *annotations);
 
 EXTRACTPDF_API void extractpdf_drop_bitmap(
     extractpdf_bitmap *bitmap);
