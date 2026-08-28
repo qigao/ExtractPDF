@@ -105,6 +105,14 @@ target_compile_definitions(extractpdf_test_pdf_order PRIVATE
 add_test(NAME extractpdf.pdf_order COMMAND extractpdf_test_pdf_order)
 set_tests_properties(extractpdf.pdf_order PROPERTIES TIMEOUT 30)
 
+add_executable(extractpdf_test_pdf_delete test_pdf_delete.c)
+target_link_libraries(extractpdf_test_pdf_delete PRIVATE ExtractPDF::ExtractPDF)
+target_compile_definitions(extractpdf_test_pdf_delete PRIVATE
+  COMPOSITION_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-three-page.pdf"
+  DELETE_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/composition-delete-output.pdf")
+add_test(NAME extractpdf.pdf_delete COMMAND extractpdf_test_pdf_delete)
+set_tests_properties(extractpdf.pdf_delete PROPERTIES TIMEOUT 30)
+
 if(WIN32 AND BUILD_SHARED_LIBS)
   foreach(test_target IN ITEMS
       extractpdf_test_status
@@ -118,7 +126,8 @@ if(WIN32 AND BUILD_SHARED_LIBS)
       extractpdf_test_links
       extractpdf_test_pdf_export
       extractpdf_test_pdf_range
-      extractpdf_test_pdf_order)
+      extractpdf_test_pdf_order
+      extractpdf_test_pdf_delete)
     add_custom_command(TARGET ${test_target} POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E copy_if_different
         $<TARGET_FILE:extractpdf>
