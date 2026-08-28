@@ -140,6 +140,11 @@ EXTRACTPDF_API extractpdf_status extractpdf_export_page_range(
     size_t page_count,
     extractpdf_output **out_output);
 
+EXTRACTPDF_API extractpdf_status extractpdf_merge_outputs(
+    const extractpdf_output *const *inputs,
+    size_t input_count,
+    extractpdf_output **out_output);
+
 EXTRACTPDF_API extractpdf_status extractpdf_output_data(
     const extractpdf_output *output,
     const unsigned char **out_data,
