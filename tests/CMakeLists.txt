@@ -300,15 +300,29 @@ if(WIN32 AND BUILD_SHARED_LIBS)
     VERBATIM)
 endif()
 
-add_executable(extractpdf_test_pdf_crop test_pdf_crop.c)
-target_link_libraries(extractpdf_test_pdf_crop PRIVATE ExtractPDF::ExtractPDF)
+add_executable(extractpdf_test_pdf_crop
+  test_pdf_crop.c
+  test_pdf_crop_raw.c)
+target_link_libraries(extractpdf_test_pdf_crop PRIVATE
+  ExtractPDF::ExtractPDF
+  unofficial::libmupdf::libmupdf)
 target_compile_definitions(extractpdf_test_pdf_crop PRIVATE
   CROP_INTERACTIVE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/crop-interactive.pdf"
+  CROP_INHERITED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/crop-inherited.pdf"
   CROP_MALFORMED_BOX_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/crop-malformed-box.pdf"
   CROP_MALFORMED_ROTATE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/crop-malformed-rotate.pdf"
   CROP_MALFORMED_USERUNIT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/crop-malformed-userunit.pdf"
   SIGNED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotation-mutation-signed.pdf"
   ENCRYPTED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/encrypted-one-page.pdf"
-  NON_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-non-pdf.txt")
+  NON_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-non-pdf.txt"
+  CROP_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/crop-output.pdf")
 add_test(NAME extractpdf.pdf_crop COMMAND extractpdf_test_pdf_crop)
 set_tests_properties(extractpdf.pdf_crop PROPERTIES TIMEOUT 60)
+
+if(WIN32 AND BUILD_SHARED_LIBS)
+  add_custom_command(TARGET extractpdf_test_pdf_crop POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      $<TARGET_FILE:extractpdf>
+      $<TARGET_FILE_DIR:extractpdf_test_pdf_crop>
+    VERBATIM)
+endif()
