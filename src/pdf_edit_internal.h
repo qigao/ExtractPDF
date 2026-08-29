@@ -10,6 +10,11 @@ typedef struct extractpdf_pdf_edit_annotation_entry {
     int live;
 } extractpdf_pdf_edit_annotation_entry;
 
+typedef struct extractpdf_pdf_edit_form_entry {
+    pdf_obj *group_head;
+    uint32_t tag;
+} extractpdf_pdf_edit_form_entry;
+
 #if defined(EXTRACTPDF_TESTING)
 enum {
     EXTRACTPDF_PDF_EDIT_TEST_FAULT_NONE = 0,
@@ -27,6 +32,9 @@ struct extractpdf_pdf_edit {
     extractpdf_pdf_edit_annotation_entry *entries;
     size_t entry_count;
     size_t entry_capacity;
+    extractpdf_pdf_edit_form_entry *form_entries;
+    size_t form_entry_count;
+    size_t form_entry_capacity;
 #if defined(EXTRACTPDF_TESTING)
     int test_fault;
 #endif

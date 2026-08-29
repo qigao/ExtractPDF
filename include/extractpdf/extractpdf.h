@@ -252,6 +252,25 @@ typedef struct extractpdf_form_widget_info {
     size_t button_option_index;
 } extractpdf_form_widget_info;
 
+typedef struct extractpdf_form_field_ref {
+    uint64_t opaque[2];
+} extractpdf_form_field_ref;
+
+typedef struct extractpdf_form_value_input {
+    size_t struct_size;
+    extractpdf_form_value_kind kind;
+    size_t option_index;
+    const char *utf8;
+    size_t utf8_size;
+} extractpdf_form_value_input;
+
+typedef struct extractpdf_form_value_update {
+    size_t struct_size;
+    extractpdf_form_value_presence presence;
+    const extractpdf_form_value_input *values;
+    size_t value_count;
+} extractpdf_form_value_update;
+
 typedef enum extractpdf_metadata_field {
     EXTRACTPDF_METADATA_TITLE = 1,
     EXTRACTPDF_METADATA_AUTHOR = 2,
@@ -411,6 +430,20 @@ EXTRACTPDF_API extractpdf_status extractpdf_output_save_file(
 EXTRACTPDF_API extractpdf_status extractpdf_pdf_edit_begin(
     extractpdf_document *document,
     extractpdf_pdf_edit **out_edit);
+
+EXTRACTPDF_API extractpdf_status extractpdf_pdf_edit_form_snapshot(
+    extractpdf_pdf_edit *edit,
+    extractpdf_form **out_form);
+
+EXTRACTPDF_API extractpdf_status extractpdf_pdf_edit_form_field_ref_at(
+    extractpdf_pdf_edit *edit,
+    size_t field_index,
+    extractpdf_form_field_ref *out_ref);
+
+EXTRACTPDF_API extractpdf_status extractpdf_pdf_edit_form_set_values(
+    extractpdf_pdf_edit *edit,
+    const extractpdf_form_field_ref *ref,
+    const extractpdf_form_value_update *update);
 
 EXTRACTPDF_API extractpdf_status extractpdf_pdf_edit_annotation_count(
     extractpdf_pdf_edit *edit,

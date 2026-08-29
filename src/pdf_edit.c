@@ -98,11 +98,16 @@ static void extractpdf_dispose_pdf_edit(extractpdf_pdf_edit *edit)
             if (edit->entries[index].object != NULL)
                 pdf_drop_obj(edit->ctx, edit->entries[index].object);
         }
+        for (index = 0; index < edit->form_entry_count; ++index) {
+            if (edit->form_entries[index].group_head != NULL)
+                pdf_drop_obj(edit->ctx, edit->form_entries[index].group_head);
+        }
         if (edit->document != NULL)
             pdf_drop_document(edit->ctx, edit->document);
     }
 
     free(edit->entries);
+    free(edit->form_entries);
     if (edit->ctx != NULL)
         fz_drop_context(edit->ctx);
     extractpdf_drop_output(edit->seed_output);
