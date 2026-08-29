@@ -68,4 +68,6 @@ if(EXTRACTPDF_BUILD_TESTS)
   target_compile_definitions(extractpdf PRIVATE EXTRACTPDF_TESTING=1)
   include(CTest)
   add_subdirectory(tests)
+  target_sources(extractpdf_test_pdf_form_mutation PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_form_rollback.c")
 endif()
