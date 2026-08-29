@@ -64,6 +64,11 @@ extractpdf_status extractpdf_pdf_form_parse(
     pdf_document *document,
     extractpdf_pdf_form_model **out_model);
 
+extractpdf_status extractpdf_pdf_form_reconcile_widgets(
+    fz_context *ctx,
+    pdf_document *document,
+    extractpdf_pdf_form_model *model);
+
 void extractpdf_pdf_form_drop_model(
     extractpdf_pdf_form_model *model);
 
