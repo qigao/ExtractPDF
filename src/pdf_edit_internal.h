@@ -46,6 +46,12 @@ extractpdf_status extractpdf_pdf_edit_form_apply_zero_widget_text(
     size_t field_index,
     const struct extractpdf_pdf_form_live_field *live,
     const extractpdf_form_value_update *update);
+extractpdf_status extractpdf_pdf_edit_form_apply_button(
+    extractpdf_pdf_edit *edit,
+    const struct extractpdf_pdf_form_model *model,
+    size_t field_index,
+    const struct extractpdf_pdf_form_live_field *live,
+    const extractpdf_form_value_update *update);
 
 #if defined(EXTRACTPDF_TESTING)
 enum {
