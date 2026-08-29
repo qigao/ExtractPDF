@@ -26,6 +26,7 @@ add_library(extractpdf
   src/output_file.c
   src/pdf_metadata.c
   src/pdf_outline.c
+  src/pdf_object_common.c
   src/pdf_annotation_common.c
   src/pdf_annotations.c
   src/pdf_edit.c

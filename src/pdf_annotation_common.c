@@ -1,29 +1,7 @@
 #include "pdf_annotation_common.h"
+#include "pdf_object_common.h"
 
-#include <math.h>
-#include <stdint.h>
 #include <string.h>
-
-static int extractpdf_pdf_annotation_dict_find(
-    fz_context *ctx,
-    pdf_obj *dictionary,
-    pdf_obj *key,
-    pdf_obj **out_value)
-{
-    int count;
-    int index;
-
-    *out_value = NULL;
-    count = pdf_dict_len(ctx, dictionary);
-    for (index = 0; index < count; ++index) {
-        pdf_obj *candidate = pdf_dict_get_key(ctx, dictionary, index);
-        if (pdf_name_eq(ctx, candidate, key)) {
-            *out_value = pdf_dict_get_val(ctx, dictionary, index);
-            return 1;
-        }
-    }
-    return 0;
-}
 
 static extractpdf_annotation_type extractpdf_pdf_annotation_type_from_name(
     const char *name)
@@ -91,7 +69,7 @@ int extractpdf_pdf_annotation_classify(
     int present;
 
     *out_type = EXTRACTPDF_ANNOTATION_UNKNOWN;
-    present = extractpdf_pdf_annotation_dict_find(
+    present = extractpdf_pdf_dict_find(
         ctx, annotation, PDF_NAME(Subtype), &subtype);
     if (!present || !pdf_is_name(ctx, subtype))
         return 1;
@@ -106,80 +84,6 @@ int extractpdf_pdf_annotation_classify(
     return 1;
 }
 
-static extractpdf_status extractpdf_pdf_annotation_read_bounds(
-    fz_context *ctx,
-    pdf_obj *annotation,
-    fz_matrix page_ctm,
-    extractpdf_rect *out_bounds)
-{
-    pdf_obj *rect_obj = NULL;
-    float values[4];
-    fz_rect raw;
-    fz_rect transformed;
-    int present;
-    int index;
-
-    present = extractpdf_pdf_annotation_dict_find(
-        ctx, annotation, PDF_NAME(Rect), &rect_obj);
-    if (!present || !pdf_is_array(ctx, rect_obj) ||
-        pdf_array_len(ctx, rect_obj) != 4)
-        return EXTRACTPDF_ERROR_FORMAT;
-
-    for (index = 0; index < 4; ++index) {
-        pdf_obj *value = pdf_array_get(ctx, rect_obj, index);
-        if (!pdf_is_number(ctx, value))
-            return EXTRACTPDF_ERROR_FORMAT;
-        values[index] = pdf_to_real(ctx, value);
-        if (!isfinite(values[index]))
-            return EXTRACTPDF_ERROR_FORMAT;
-    }
-
-    raw.x0 = values[0] < values[2] ? values[0] : values[2];
-    raw.x1 = values[0] < values[2] ? values[2] : values[0];
-    raw.y0 = values[1] < values[3] ? values[1] : values[3];
-    raw.y1 = values[1] < values[3] ? values[3] : values[1];
-    transformed = fz_transform_rect(raw, page_ctm);
-
-    if (!isfinite(transformed.x0) || !isfinite(transformed.y0) ||
-        !isfinite(transformed.x1) || !isfinite(transformed.y1))
-        return EXTRACTPDF_ERROR_FORMAT;
-
-    out_bounds->x0 = transformed.x0 < transformed.x1 ?
-        transformed.x0 : transformed.x1;
-    out_bounds->x1 = transformed.x0 < transformed.x1 ?
-        transformed.x1 : transformed.x0;
-    out_bounds->y0 = transformed.y0 < transformed.y1 ?
-        transformed.y0 : transformed.y1;
-    out_bounds->y1 = transformed.y0 < transformed.y1 ?
-        transformed.y1 : transformed.y0;
-    return EXTRACTPDF_OK;
-}
-
-static extractpdf_status extractpdf_pdf_annotation_read_flags(
-    fz_context *ctx,
-    pdf_obj *annotation,
-    uint32_t *out_flags)
-{
-    pdf_obj *flags_obj = NULL;
-    int64_t value;
-    int present;
-
-    *out_flags = 0;
-    present = extractpdf_pdf_annotation_dict_find(
-        ctx, annotation, PDF_NAME(F), &flags_obj);
-    if (!present)
-        return EXTRACTPDF_OK;
-    if (!pdf_is_int(ctx, flags_obj))
-        return EXTRACTPDF_ERROR_FORMAT;
-
-    value = pdf_to_int64(ctx, flags_obj);
-    if (value < 0 || (uint64_t)value > UINT32_MAX)
-        return EXTRACTPDF_ERROR_FORMAT;
-
-    *out_flags = (uint32_t)value;
-    return EXTRACTPDF_OK;
-}
-
 static extractpdf_status extractpdf_pdf_annotation_read_contents(
     fz_context *ctx,
     pdf_obj *annotation,
@@ -189,7 +93,7 @@ static extractpdf_status extractpdf_pdf_annotation_read_contents(
     const char *text;
     int present;
 
-    present = extractpdf_pdf_annotation_dict_find(
+    present = extractpdf_pdf_dict_find(
         ctx, annotation, PDF_NAME(Contents), &contents_obj);
     if (!present)
         return EXTRACTPDF_OK;
@@ -218,13 +122,13 @@ extractpdf_status extractpdf_pdf_annotation_read_view(
     memset(out_view, 0, sizeof(*out_view));
     out_view->type = type;
 
-    status = extractpdf_pdf_annotation_read_bounds(
-        ctx, annotation, page_ctm, &out_view->bounds);
+    status = extractpdf_pdf_read_rect(
+        ctx, annotation, PDF_NAME(Rect), page_ctm, &out_view->bounds);
     if (status != EXTRACTPDF_OK)
         return status;
 
-    status = extractpdf_pdf_annotation_read_flags(
-        ctx, annotation, &out_view->flags);
+    status = extractpdf_pdf_read_optional_uint32(
+        ctx, annotation, PDF_NAME(F), 0, &out_view->flags);
     if (status != EXTRACTPDF_OK)
         return status;
 
