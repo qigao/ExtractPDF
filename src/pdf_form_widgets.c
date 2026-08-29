@@ -309,37 +309,6 @@ static extractpdf_status append_widget(
     return EXTRACTPDF_OK;
 }
 
-static extractpdf_status append_live_widget(
-    fz_context *ctx,
-    extractpdf_pdf_form_provenance *provenance,
-    size_t field_index,
-    pdf_obj *object,
-    int page_index)
-{
-    extractpdf_pdf_form_live_field *live;
-    extractpdf_pdf_form_live_widget *grown;
-    size_t next;
-
-    if (provenance == NULL)
-        return EXTRACTPDF_OK;
-    if (field_index >= provenance->field_count)
-        return EXTRACTPDF_ERROR_FORMAT;
-    live = &provenance->fields[field_index];
-    if (live->widget_count == SIZE_MAX ||
-        live->widget_count + 1 > SIZE_MAX / sizeof(*live->widgets))
-        return EXTRACTPDF_ERROR_NOMEM;
-    next = live->widget_count + 1;
-    grown = (extractpdf_pdf_form_live_widget *)realloc(
-        live->widgets, next * sizeof(*live->widgets));
-    if (grown == NULL)
-        return EXTRACTPDF_ERROR_NOMEM;
-    live->widgets = grown;
-    live->widgets[live->widget_count].object = pdf_keep_obj(ctx, object);
-    live->widgets[live->widget_count].page_index = page_index;
-    live->widget_count = next;
-    return EXTRACTPDF_OK;
-}
-
 static extractpdf_status add_button_options(
     extractpdf_pdf_form_model *model,
     extractpdf_widget_state *states)
@@ -391,8 +360,7 @@ static extractpdf_status add_button_options(
 extractpdf_status extractpdf_pdf_form_reconcile_widgets(
     fz_context *ctx,
     pdf_document *document,
-    extractpdf_pdf_form_model *model,
-    extractpdf_pdf_form_provenance *provenance)
+    extractpdf_pdf_form_model *model)
 {
     extractpdf_expected_widget *expected = NULL;
     extractpdf_widget_state *states = NULL;
@@ -405,8 +373,6 @@ extractpdf_status extractpdf_pdf_form_reconcile_widgets(
 
     if (ctx == NULL || document == NULL || model == NULL)
         return EXTRACTPDF_ERROR_ARGUMENT;
-    if (provenance != NULL && provenance->field_count != model->field_count)
-        return EXTRACTPDF_ERROR_FORMAT;
     status = collect_expected(ctx, document, model, &expected, &expected_count);
     if (status != EXTRACTPDF_OK)
         return status;
@@ -461,9 +427,6 @@ extractpdf_status extractpdf_pdf_form_reconcile_widgets(
                     model->fields[match->field_index].type, &state);
             if (status == EXTRACTPDF_OK)
                 status = append_widget(model, &widget, state, &states, &state_capacity);
-            if (status == EXTRACTPDF_OK)
-                status = append_live_widget(
-                    ctx, provenance, match->field_index, obj, page_index);
             free(state);
             if (status == EXTRACTPDF_OK) {
                 ++match->seen;
