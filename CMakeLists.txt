@@ -31,6 +31,7 @@ add_library(extractpdf
   src/pdf_annotations.c
   src/pdf_form_common.c
   src/pdf_form_widgets.c
+  src/pdf_form_provenance_widgets.c
   src/pdf_form_values.c
   src/pdf_form_choices.c
   src/pdf_form.c
