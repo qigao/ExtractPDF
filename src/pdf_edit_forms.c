@@ -108,30 +108,66 @@ static void extractpdf_pdf_edit_form_make_token(
         ((uint64_t)entry->tag << 32) | (uint64_t)(slot + 1);
 }
 
+static int extractpdf_pdf_edit_form_locator_equal(
+    const extractpdf_pdf_edit_form_entry *entry,
+    const extractpdf_pdf_form_locator *locator)
+{
+    if (entry == NULL || locator == NULL)
+        return 0;
+    if (entry->locator_step_count != locator->step_count)
+        return 0;
+    if (entry->locator_step_count == 0)
+        return 1;
+    if (entry->locator_steps == NULL || locator->steps == NULL)
+        return 0;
+    return memcmp(
+        entry->locator_steps,
+        locator->steps,
+        entry->locator_step_count * sizeof(*entry->locator_steps)) == 0;
+}
+
 static extractpdf_status extractpdf_pdf_edit_form_register(
     extractpdf_pdf_edit *edit,
-    pdf_obj *group_head,
+    const extractpdf_pdf_form_live_field *live,
     extractpdf_form_field_ref *out_ref)
 {
+    size_t *locator_copy;
     size_t slot;
     extractpdf_status status;
 
+    if (live == NULL || live->locator.step_count == 0 ||
+        live->locator.steps == NULL)
+        return EXTRACTPDF_ERROR_FORMAT;
     for (slot = 0; slot < edit->form_entry_count; ++slot) {
-        if (extractpdf_pdf_form_same_identity(
-                edit->ctx, edit->form_entries[slot].group_head, group_head)) {
+        if (extractpdf_pdf_edit_form_locator_equal(
+                &edit->form_entries[slot], &live->locator)) {
             extractpdf_pdf_edit_form_make_token(edit, slot, out_ref);
             return EXTRACTPDF_OK;
         }
     }
     if (edit->form_entry_count >= (size_t)UINT32_MAX - 1)
         return EXTRACTPDF_ERROR_NOMEM;
+    if (live->locator.step_count > SIZE_MAX / sizeof(*locator_copy))
+        return EXTRACTPDF_ERROR_NOMEM;
+    locator_copy = (size_t *)malloc(
+        live->locator.step_count * sizeof(*locator_copy));
+    if (locator_copy == NULL)
+        return EXTRACTPDF_ERROR_NOMEM;
+    memcpy(
+        locator_copy,
+        live->locator.steps,
+        live->locator.step_count * sizeof(*locator_copy));
+
     status = extractpdf_pdf_edit_form_reserve_entries(
         edit, edit->form_entry_count + 1);
-    if (status != EXTRACTPDF_OK)
+    if (status != EXTRACTPDF_OK) {
+        free(locator_copy);
         return status;
+    }
 
     slot = edit->form_entry_count;
-    edit->form_entries[slot].group_head = pdf_keep_obj(edit->ctx, group_head);
+    edit->form_entries[slot].locator_steps = locator_copy;
+    edit->form_entries[slot].locator_step_count = live->locator.step_count;
     edit->form_entries[slot].tag = extractpdf_pdf_edit_form_tag_for_slot(edit, slot);
     ++edit->form_entry_count;
     extractpdf_pdf_edit_form_make_token(edit, slot, out_ref);
@@ -165,7 +201,8 @@ static extractpdf_status extractpdf_pdf_edit_form_resolve_ref(
     if (slot >= edit->form_entry_count)
         return EXTRACTPDF_ERROR_ARGUMENT;
     entry = &edit->form_entries[slot];
-    if (entry->tag != tag || entry->group_head == NULL)
+    if (entry->tag != tag || entry->locator_step_count == 0 ||
+        entry->locator_steps == NULL)
         return EXTRACTPDF_ERROR_ARGUMENT;
     if (out_entry != NULL)
         *out_entry = entry;
@@ -197,14 +234,16 @@ extractpdf_status extractpdf_pdf_edit_form_field_ref_at(
         return EXTRACTPDF_ERROR_ARGUMENT;
     }
     if (provenance == NULL || provenance->field_count != model->field_count ||
-        provenance->fields[field_index].group_head == NULL) {
+        provenance->fields[field_index].group_head == NULL ||
+        provenance->fields[field_index].locator.step_count == 0 ||
+        provenance->fields[field_index].locator.steps == NULL) {
         extractpdf_pdf_form_drop_provenance(edit->ctx, provenance);
         extractpdf_pdf_form_drop_model(model);
         return EXTRACTPDF_ERROR_FORMAT;
     }
 
     status = extractpdf_pdf_edit_form_register(
-        edit, provenance->fields[field_index].group_head, out_ref);
+        edit, &provenance->fields[field_index], out_ref);
     extractpdf_pdf_form_drop_provenance(edit->ctx, provenance);
     extractpdf_pdf_form_drop_model(model);
     if (status != EXTRACTPDF_OK)
@@ -237,16 +276,9 @@ static extractpdf_status extractpdf_pdf_edit_form_find_current_field(
         extractpdf_pdf_form_drop_model(model);
         return EXTRACTPDF_ERROR_FORMAT;
     }
-    status = extractpdf_pdf_form_capture_provenance_widgets(
-        edit->ctx, edit->document, model, provenance);
-    if (status != EXTRACTPDF_OK) {
-        extractpdf_pdf_form_drop_provenance(edit->ctx, provenance);
-        extractpdf_pdf_form_drop_model(model);
-        return status;
-    }
     for (i = 0; i < provenance->field_count; ++i) {
-        if (!extractpdf_pdf_form_same_identity(
-                edit->ctx, entry->group_head, provenance->fields[i].group_head))
+        if (!extractpdf_pdf_edit_form_locator_equal(
+                entry, &provenance->fields[i].locator))
             continue;
         if (match != SIZE_MAX) {
             extractpdf_pdf_form_drop_provenance(edit->ctx, provenance);
@@ -259,6 +291,13 @@ static extractpdf_status extractpdf_pdf_edit_form_find_current_field(
         extractpdf_pdf_form_drop_provenance(edit->ctx, provenance);
         extractpdf_pdf_form_drop_model(model);
         return EXTRACTPDF_ERROR_STATE;
+    }
+    status = extractpdf_pdf_form_capture_provenance_widgets(
+        edit->ctx, edit->document, model, provenance);
+    if (status != EXTRACTPDF_OK) {
+        extractpdf_pdf_form_drop_provenance(edit->ctx, provenance);
+        extractpdf_pdf_form_drop_model(model);
+        return status;
     }
     *out_model = model;
     *out_provenance = provenance;

@@ -11,7 +11,8 @@ typedef struct extractpdf_pdf_edit_annotation_entry {
 } extractpdf_pdf_edit_annotation_entry;
 
 typedef struct extractpdf_pdf_edit_form_entry {
-    pdf_obj *group_head;
+    size_t *locator_steps;
+    size_t locator_step_count;
     uint32_t tag;
 } extractpdf_pdf_edit_form_entry;
 
