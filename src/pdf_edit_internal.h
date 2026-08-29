@@ -38,6 +38,8 @@ extractpdf_status extractpdf_pdf_edit_form_prepare_widget_handles(
 void extractpdf_pdf_edit_form_drop_widget_handles(
     extractpdf_pdf_edit *edit,
     extractpdf_pdf_edit_form_widget_handles *handles);
+extractpdf_status extractpdf_pdf_edit_form_mutation_preflight(
+    extractpdf_pdf_edit *edit);
 extractpdf_status extractpdf_pdf_edit_form_apply_zero_widget_text(
     extractpdf_pdf_edit *edit,
     const struct extractpdf_pdf_form_model *model,
