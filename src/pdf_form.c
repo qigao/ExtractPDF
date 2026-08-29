@@ -50,6 +50,8 @@ extractpdf_status extractpdf_document_form(
     fz_try(document->ctx)
     {
         status = extractpdf_pdf_form_parse(document->ctx, pdf, &model);
+        if (status == EXTRACTPDF_OK)
+            status = extractpdf_pdf_form_reconcile_widgets(document->ctx, pdf, model);
     }
     fz_catch(document->ctx)
     {
@@ -96,8 +98,7 @@ extractpdf_status extractpdf_form_field_get_info(
 
     if (out_info == NULL)
         return EXTRACTPDF_ERROR_ARGUMENT;
-    minimum_size = offsetof(extractpdf_form_field_info, is_signed) +
-        sizeof(out_info->is_signed);
+    minimum_size = offsetof(extractpdf_form_field_info, is_signed) + sizeof(out_info->is_signed);
     if (out_info->struct_size < minimum_size)
         return EXTRACTPDF_ERROR_ARGUMENT;
     out_info->type = EXTRACTPDF_FORM_FIELD_UNKNOWN;
@@ -108,10 +109,8 @@ extractpdf_status extractpdf_form_field_get_info(
     out_info->widget_count = 0;
     out_info->is_multiselect = 0;
     out_info->is_signed = 0;
-    if (form == NULL || form->model == NULL ||
-        field_index >= form->model->field_count)
+    if (form == NULL || form->model == NULL || field_index >= form->model->field_count)
         return EXTRACTPDF_ERROR_ARGUMENT;
-
     field = &form->model->fields[field_index];
     out_info->type = field->type;
     out_info->flags = field->flags;
@@ -125,237 +124,160 @@ extractpdf_status extractpdf_form_field_get_info(
 }
 
 static extractpdf_status extractpdf_form_field_string(
-    const extractpdf_form *form,
-    size_t field_index,
+    const extractpdf_form *form, size_t field_index,
     const extractpdf_pdf_form_string *string,
-    const char **out_utf8,
-    size_t *out_size)
+    const char **out_utf8, size_t *out_size)
 {
-    if (out_utf8 != NULL)
-        *out_utf8 = NULL;
-    if (out_size != NULL)
-        *out_size = 0;
-    if (form == NULL || form->model == NULL || out_utf8 == NULL ||
-        out_size == NULL || field_index >= form->model->field_count)
+    if (out_utf8 != NULL) *out_utf8 = NULL;
+    if (out_size != NULL) *out_size = 0;
+    if (form == NULL || form->model == NULL || out_utf8 == NULL || out_size == NULL ||
+        field_index >= form->model->field_count)
         return EXTRACTPDF_ERROR_ARGUMENT;
-    if (!string->present)
-        return EXTRACTPDF_OK;
+    if (!string->present) return EXTRACTPDF_OK;
     *out_utf8 = extractpdf_form_string_data(form->model, string);
     *out_size = string->size;
     return EXTRACTPDF_OK;
 }
 
-extractpdf_status extractpdf_form_field_name(
-    const extractpdf_form *form,
-    size_t field_index,
-    const char **out_utf8,
-    size_t *out_size)
+extractpdf_status extractpdf_form_field_name(const extractpdf_form *form,
+    size_t field_index, const char **out_utf8, size_t *out_size)
 {
-    if (form == NULL || form->model == NULL ||
-        field_index >= form->model->field_count) {
-        if (out_utf8 != NULL)
-            *out_utf8 = NULL;
-        if (out_size != NULL)
-            *out_size = 0;
+    if (form == NULL || form->model == NULL || field_index >= form->model->field_count) {
+        if (out_utf8 != NULL) *out_utf8 = NULL;
+        if (out_size != NULL) *out_size = 0;
         return EXTRACTPDF_ERROR_ARGUMENT;
     }
-    return extractpdf_form_field_string(
-        form, field_index, &form->model->fields[field_index].name,
-        out_utf8, out_size);
+    return extractpdf_form_field_string(form, field_index,
+        &form->model->fields[field_index].name, out_utf8, out_size);
 }
 
-extractpdf_status extractpdf_form_field_label(
-    const extractpdf_form *form,
-    size_t field_index,
-    const char **out_utf8,
-    size_t *out_size)
+extractpdf_status extractpdf_form_field_label(const extractpdf_form *form,
+    size_t field_index, const char **out_utf8, size_t *out_size)
 {
-    if (form == NULL || form->model == NULL ||
-        field_index >= form->model->field_count) {
-        if (out_utf8 != NULL)
-            *out_utf8 = NULL;
-        if (out_size != NULL)
-            *out_size = 0;
+    if (form == NULL || form->model == NULL || field_index >= form->model->field_count) {
+        if (out_utf8 != NULL) *out_utf8 = NULL;
+        if (out_size != NULL) *out_size = 0;
         return EXTRACTPDF_ERROR_ARGUMENT;
     }
-    return extractpdf_form_field_string(
-        form, field_index, &form->model->fields[field_index].label,
-        out_utf8, out_size);
+    return extractpdf_form_field_string(form, field_index,
+        &form->model->fields[field_index].label, out_utf8, out_size);
 }
 
-extractpdf_status extractpdf_form_field_value_get_info(
-    const extractpdf_form *form,
-    size_t field_index,
-    size_t value_index,
-    extractpdf_form_value_info *out_info)
+extractpdf_status extractpdf_form_field_value_get_info(const extractpdf_form *form,
+    size_t field_index, size_t value_index, extractpdf_form_value_info *out_info)
 {
     const extractpdf_pdf_form_field_internal *field;
     const extractpdf_pdf_form_value_internal *value;
     size_t minimum_size;
-
-    if (out_info == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
-    minimum_size = offsetof(extractpdf_form_value_info, option_index) +
-        sizeof(out_info->option_index);
-    if (out_info->struct_size < minimum_size)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+    if (out_info == NULL) return EXTRACTPDF_ERROR_ARGUMENT;
+    minimum_size = offsetof(extractpdf_form_value_info, option_index) + sizeof(out_info->option_index);
+    if (out_info->struct_size < minimum_size) return EXTRACTPDF_ERROR_ARGUMENT;
     out_info->kind = EXTRACTPDF_FORM_VALUE_UTF8;
     out_info->option_index = SIZE_MAX;
-    if (form == NULL || form->model == NULL ||
-        field_index >= form->model->field_count)
+    if (form == NULL || form->model == NULL || field_index >= form->model->field_count)
         return EXTRACTPDF_ERROR_ARGUMENT;
     field = &form->model->fields[field_index];
-    if (value_index >= field->value_count)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+    if (value_index >= field->value_count) return EXTRACTPDF_ERROR_ARGUMENT;
     value = &form->model->values[field->first_value + value_index];
     out_info->kind = value->kind;
-    out_info->option_index = value->kind == EXTRACTPDF_FORM_VALUE_OPTION ?
-        value->option_index : SIZE_MAX;
+    out_info->option_index = value->kind == EXTRACTPDF_FORM_VALUE_OPTION ? value->option_index : SIZE_MAX;
     return EXTRACTPDF_OK;
 }
 
-extractpdf_status extractpdf_form_field_value_utf8(
-    const extractpdf_form *form,
-    size_t field_index,
-    size_t value_index,
-    const char **out_utf8,
-    size_t *out_size)
+extractpdf_status extractpdf_form_field_value_utf8(const extractpdf_form *form,
+    size_t field_index, size_t value_index, const char **out_utf8, size_t *out_size)
 {
     const extractpdf_pdf_form_field_internal *field;
     const extractpdf_pdf_form_value_internal *value;
-
-    if (out_utf8 != NULL)
-        *out_utf8 = NULL;
-    if (out_size != NULL)
-        *out_size = 0;
-    if (form == NULL || form->model == NULL || out_utf8 == NULL ||
-        out_size == NULL || field_index >= form->model->field_count)
+    if (out_utf8 != NULL) *out_utf8 = NULL;
+    if (out_size != NULL) *out_size = 0;
+    if (form == NULL || form->model == NULL || out_utf8 == NULL || out_size == NULL ||
+        field_index >= form->model->field_count)
         return EXTRACTPDF_ERROR_ARGUMENT;
     field = &form->model->fields[field_index];
-    if (value_index >= field->value_count)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+    if (value_index >= field->value_count) return EXTRACTPDF_ERROR_ARGUMENT;
     value = &form->model->values[field->first_value + value_index];
-    if (value->kind != EXTRACTPDF_FORM_VALUE_UTF8)
-        return EXTRACTPDF_ERROR_UNSUPPORTED;
+    if (value->kind != EXTRACTPDF_FORM_VALUE_UTF8) return EXTRACTPDF_ERROR_UNSUPPORTED;
     *out_utf8 = extractpdf_form_string_data(form->model, &value->utf8);
     *out_size = value->utf8.size;
     return EXTRACTPDF_OK;
 }
 
-extractpdf_status extractpdf_form_field_option_get_info(
-    const extractpdf_form *form,
-    size_t field_index,
-    size_t option_index,
-    extractpdf_form_option_info *out_info)
+extractpdf_status extractpdf_form_field_option_get_info(const extractpdf_form *form,
+    size_t field_index, size_t option_index, extractpdf_form_option_info *out_info)
 {
     const extractpdf_pdf_form_field_internal *field;
     const extractpdf_pdf_form_option_internal *option;
     size_t minimum_size;
-
-    if (out_info == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
-    minimum_size = offsetof(extractpdf_form_option_info, kind) +
-        sizeof(out_info->kind);
-    if (out_info->struct_size < minimum_size)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+    if (out_info == NULL) return EXTRACTPDF_ERROR_ARGUMENT;
+    minimum_size = offsetof(extractpdf_form_option_info, kind) + sizeof(out_info->kind);
+    if (out_info->struct_size < minimum_size) return EXTRACTPDF_ERROR_ARGUMENT;
     out_info->kind = EXTRACTPDF_FORM_OPTION_BUTTON_STATE;
-    if (form == NULL || form->model == NULL ||
-        field_index >= form->model->field_count)
+    if (form == NULL || form->model == NULL || field_index >= form->model->field_count)
         return EXTRACTPDF_ERROR_ARGUMENT;
     field = &form->model->fields[field_index];
-    if (option_index >= field->option_count)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+    if (option_index >= field->option_count) return EXTRACTPDF_ERROR_ARGUMENT;
     option = &form->model->options[field->first_option + option_index];
     out_info->kind = option->kind;
     return EXTRACTPDF_OK;
 }
 
-static extractpdf_status extractpdf_form_option_string(
-    const extractpdf_form *form,
-    size_t field_index,
-    size_t option_index,
-    int display,
-    const char **out_utf8,
-    size_t *out_size)
+static extractpdf_status extractpdf_form_option_string(const extractpdf_form *form,
+    size_t field_index, size_t option_index, int display,
+    const char **out_utf8, size_t *out_size)
 {
     const extractpdf_pdf_form_field_internal *field;
     const extractpdf_pdf_form_option_internal *option;
     const extractpdf_pdf_form_string *string;
-
-    if (out_utf8 != NULL)
-        *out_utf8 = NULL;
-    if (out_size != NULL)
-        *out_size = 0;
-    if (form == NULL || form->model == NULL || out_utf8 == NULL ||
-        out_size == NULL || field_index >= form->model->field_count)
+    if (out_utf8 != NULL) *out_utf8 = NULL;
+    if (out_size != NULL) *out_size = 0;
+    if (form == NULL || form->model == NULL || out_utf8 == NULL || out_size == NULL ||
+        field_index >= form->model->field_count)
         return EXTRACTPDF_ERROR_ARGUMENT;
     field = &form->model->fields[field_index];
-    if (option_index >= field->option_count)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+    if (option_index >= field->option_count) return EXTRACTPDF_ERROR_ARGUMENT;
     option = &form->model->options[field->first_option + option_index];
-    if (option->kind != EXTRACTPDF_FORM_OPTION_CHOICE)
-        return EXTRACTPDF_ERROR_UNSUPPORTED;
+    if (option->kind != EXTRACTPDF_FORM_OPTION_CHOICE) return EXTRACTPDF_ERROR_UNSUPPORTED;
     string = display ? &option->display_text : &option->export_text;
     *out_utf8 = extractpdf_form_string_data(form->model, string);
     *out_size = string->size;
     return EXTRACTPDF_OK;
 }
 
-extractpdf_status extractpdf_form_field_option_export(
-    const extractpdf_form *form,
-    size_t field_index,
-    size_t option_index,
-    const char **out_utf8,
-    size_t *out_size)
+extractpdf_status extractpdf_form_field_option_export(const extractpdf_form *form,
+    size_t field_index, size_t option_index, const char **out_utf8, size_t *out_size)
 {
-    return extractpdf_form_option_string(
-        form, field_index, option_index, 0, out_utf8, out_size);
+    return extractpdf_form_option_string(form, field_index, option_index, 0, out_utf8, out_size);
 }
 
-extractpdf_status extractpdf_form_field_option_display(
-    const extractpdf_form *form,
-    size_t field_index,
-    size_t option_index,
-    const char **out_utf8,
-    size_t *out_size)
+extractpdf_status extractpdf_form_field_option_display(const extractpdf_form *form,
+    size_t field_index, size_t option_index, const char **out_utf8, size_t *out_size)
 {
-    return extractpdf_form_option_string(
-        form, field_index, option_index, 1, out_utf8, out_size);
+    return extractpdf_form_option_string(form, field_index, option_index, 1, out_utf8, out_size);
 }
 
-extractpdf_status extractpdf_form_widget_count(
-    const extractpdf_form *form,
-    size_t *out_count)
+extractpdf_status extractpdf_form_widget_count(const extractpdf_form *form, size_t *out_count)
 {
-    if (out_count != NULL)
-        *out_count = 0;
-    if (form == NULL || form->model == NULL || out_count == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+    if (out_count != NULL) *out_count = 0;
+    if (form == NULL || form->model == NULL || out_count == NULL) return EXTRACTPDF_ERROR_ARGUMENT;
     *out_count = form->model->widget_count;
     return EXTRACTPDF_OK;
 }
 
-extractpdf_status extractpdf_form_widget_get_info(
-    const extractpdf_form *form,
-    size_t widget_index,
-    extractpdf_form_widget_info *out_info)
+extractpdf_status extractpdf_form_widget_get_info(const extractpdf_form *form,
+    size_t widget_index, extractpdf_form_widget_info *out_info)
 {
     const extractpdf_pdf_form_widget_internal *widget;
     size_t minimum_size;
-
-    if (out_info == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
-    minimum_size = offsetof(extractpdf_form_widget_info, button_option_index) +
-        sizeof(out_info->button_option_index);
-    if (out_info->struct_size < minimum_size)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+    if (out_info == NULL) return EXTRACTPDF_ERROR_ARGUMENT;
+    minimum_size = offsetof(extractpdf_form_widget_info, button_option_index) + sizeof(out_info->button_option_index);
+    if (out_info->struct_size < minimum_size) return EXTRACTPDF_ERROR_ARGUMENT;
     out_info->field_index = SIZE_MAX;
     out_info->page_index = -1;
     extractpdf_form_reset_rect(&out_info->bounds);
     out_info->flags = 0;
     out_info->button_option_index = SIZE_MAX;
-    if (form == NULL || form->model == NULL ||
-        widget_index >= form->model->widget_count)
+    if (form == NULL || form->model == NULL || widget_index >= form->model->widget_count)
         return EXTRACTPDF_ERROR_ARGUMENT;
     widget = &form->model->widgets[widget_index];
     out_info->field_index = widget->field_index;
@@ -368,8 +290,7 @@ extractpdf_status extractpdf_form_widget_get_info(
 
 void extractpdf_drop_form(extractpdf_form *form)
 {
-    if (form == NULL)
-        return;
+    if (form == NULL) return;
     extractpdf_pdf_form_drop_model(form->model);
     free(form);
 }
