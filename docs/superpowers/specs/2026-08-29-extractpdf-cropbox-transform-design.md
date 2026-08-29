@@ -77,9 +77,19 @@ Callers never supply raw PDF user-space coordinates.
 
 ### 4.1 Source visible rectangle
 
-For each requested page, V1 resolves the page's current effective visible region from the effective `/CropBox`, falling back to effective `/MediaBox` when `/CropBox` is absent.
+For each requested page, V1 resolves the raw effective `/CropBox`, falling back to the raw effective `/MediaBox` when `/CropBox` is absent.
 
-The public visible region used for request validation is the current Fitz page-space rectangle produced by the same page transform semantics used by the existing public read APIs.
+PDF permits a CropBox to extend beyond MediaBox; the actually usable visible region is its intersection with MediaBox. Therefore V1 defines the **effective visible box** as:
+
+```text
+effective_visible_pdf = intersection(
+    normalized(raw_effective_cropbox),
+    normalized(raw_effective_mediabox))
+```
+
+The public visible region used for request validation is the Fitz page-space rectangle produced from that effective region by the same page transform semantics used by existing read APIs.
+
+A raw CropBox that extends beyond MediaBox is not itself a format error. An empty/non-positive intersection is `EXTRACTPDF_ERROR_FORMAT` because there is no valid visible page region for this transform contract.
 
 ### 4.2 Shrink-only rule
 
@@ -95,7 +105,7 @@ request.x1 <= current.x1
 request.y1 <= current.y1
 ```
 
-V1 does not expand or recover content outside the current effective visible region. Any request outside the current effective crop is `EXTRACTPDF_ERROR_ARGUMENT`.
+V1 does not expand or recover content outside the current effective visible region. Any request outside the current effective visible region is `EXTRACTPDF_ERROR_ARGUMENT`.
 
 This means V1 is monotonic within one call and relative to the source document supplied to that call.
 
@@ -125,13 +135,17 @@ new_y = old_y - y0
 
 subject to the existing page rotation/UserUnit transform. This equation describes the observable public result; implementation must derive the raw `/CropBox` through the source page transform rather than manually subtracting coordinates from every PDF object.
 
-### 4.4 Rotation and UserUnit
+### 4.4 Fitz-to-PDF mapping, Rotate, and UserUnit
 
 V1 must support valid existing `/Rotate` and `/UserUnit` values.
 
-The implementation converts the requested public rectangle back to PDF user space using the inverse of the **current source page transform**. It must transform all four public rectangle corners, then compute the normalized axis-aligned PDF rectangle from the transformed points before writing `/CropBox`.
+MuPDF 1.28.2 `pdf_page_obj_transform()` returns the current CropBox in Fitz coordinates and a matrix that maps **Fitz page space to PDF page space**. CropBox V1 should use that raw-object transform path; it must not load a page merely to discover the mapping and must not invert this matrix again.
 
-This avoids assuming an unrotated page or a particular PDF origin orientation.
+For a requested public rectangle, the implementation transforms all four Fitz-space corners with the returned Fitz-to-PDF matrix and computes the normalized axis-aligned PDF rectangle from those four transformed points before writing `/CropBox`.
+
+This avoids assuming an unrotated page, a lower-left public origin, or a particular PDF coordinate orientation.
+
+`/Rotate` is an inheritable page attribute. `/UserUnit` is page-local: when absent on the page dictionary its value is 1.0. V1 does not invent inheritance for UserUnit.
 
 V1 does not modify `/Rotate` or `/UserUnit`.
 
@@ -139,21 +153,23 @@ V1 does not modify `/Rotate` or `/UserUnit`.
 
 Transformation is stricter than tolerant rendering. Before any private-graph write, each requested page must have a structurally valid page-box environment.
 
-The private preflight resolves page-tree inheritance without mutating it and validates:
+The private preflight resolves inheritable page attributes without mutating the page tree and validates:
 
 - page object is a dictionary;
-- `/Parent` traversal is finite, acyclic, and bounded to depth 256;
-- effective `/MediaBox` exists;
-- effective `/CropBox` is the nearest inherited/local `/CropBox`, or `/MediaBox` if no CropBox exists;
+- `/Parent` traversal used for inheritable attributes is finite, acyclic, and bounded to depth 256;
+- effective `/MediaBox` exists as the nearest local/inherited MediaBox;
+- raw effective `/CropBox` is the nearest local/inherited CropBox, or MediaBox if no CropBox exists;
 - each resolved box is an array of exactly four numeric finite values;
-- normalized width and height are positive;
-- effective CropBox is contained by effective MediaBox in PDF user space;
-- inherited/local `/Rotate`, when present, is an integer multiple of 90;
-- inherited/local `/UserUnit`, when present, is finite and strictly positive.
+- each normalized raw box has positive width and height;
+- the MediaBox/CropBox intersection has positive width and height;
+- effective `/Rotate`, resolved through normal page inheritance, is an integer multiple of 90 when present;
+- page-local `/UserUnit`, when present, is a finite strictly positive number.
 
-Malformed page-tree or box structure returns `EXTRACTPDF_ERROR_FORMAT`. Structurally valid page-tree depth greater than 256 returns `EXTRACTPDF_ERROR_UNSUPPORTED`.
+A CropBox extending beyond MediaBox is accepted; its effective visible region is the intersection defined in §4.1.
 
-The strict validator exists to prevent a transform from depending on silent MuPDF box repair/clamping that the caller cannot observe or reproduce.
+Malformed page-tree or box structure returns `EXTRACTPDF_ERROR_FORMAT`. Structurally valid page-tree inheritance depth greater than 256 returns `EXTRACTPDF_ERROR_UNSUPPORTED`.
+
+The strict validator exists to prevent a transform from depending on silent MuPDF repair of malformed arrays/types while still preserving the PDF-defined CropBox/MediaBox intersection rule.
 
 ## 6. Batch semantics
 
@@ -180,7 +196,7 @@ Duplicate page indices are `EXTRACTPDF_ERROR_ARGUMENT`. V1 does not define last-
 
 ### 6.2 All-or-nothing publication
 
-No output is published until every request has been applied to the isolated private graph and final serialization succeeds.
+No output is published until every request has been validated and, for a changed batch, every requested change has been applied to the isolated private graph and final serialization succeeds.
 
 Because the source document is never mutated, journal rollback is not required for V1. If any private write or serialization fails, the private graph is discarded and `*out_output` remains `NULL`.
 
@@ -188,7 +204,7 @@ This is failure atomicity by isolation rather than mutation rollback.
 
 ## 7. Full-document isolation flow
 
-The implementation architecture is:
+The implementation architecture for a batch containing at least one changed page is:
 
 ```text
 source extractpdf_document
@@ -214,6 +230,8 @@ new immutable extractpdf_output
 
 The private re-resolution is mandatory. Source `pdf_obj *` pointers, page objects, or other MuPDF identities must never cross into the private context.
 
+For an all-no-op batch, §11 defines a shorter path: validate completely, serialize the unchanged source once, and return that deterministic serialization without private reopen or writes.
+
 ## 8. Write surface
 
 For each changed page, the only semantic PDF write permitted by CropBox V1 is:
@@ -222,7 +240,7 @@ For each changed page, the only semantic PDF write permitted by CropBox V1 is:
 page dictionary /CropBox = [llx lly urx ury]
 ```
 
-The value is page-local even when the source effective CropBox was inherited.
+The value is page-local even when the source raw effective CropBox was inherited.
 
 CropBox V1 must not write or normalize any of the following as a side effect:
 
@@ -244,13 +262,15 @@ CropBox V1 must not write or normalize any of the following as a side effect:
 /Dests
 ```
 
+PDF defines missing BleedBox/TrimBox/ArtBox values in terms of CropBox. Therefore changing CropBox can change the **effective default value** of one of those boxes when its entry is absent. CropBox V1 makes no promise to freeze those derived defaults. It promises only that it does not write those keys. Explicit BleedBox/TrimBox/ArtBox entries remain structurally unchanged.
+
 It must not invoke page-wide form recalculation, annotation update, Widget appearance regeneration, JavaScript, form events, validation, formatting, calculation, or activation actions.
 
 ## 9. Structural preservation contract
 
 CropBox changes visibility and the page transform. It does not destructively prune the object graph.
 
-The following objects are structurally unchanged except for the page's new `/CropBox` entry:
+The following objects are structurally unchanged except for the page's new `/CropBox` entry and PDF-defined derived defaults discussed in §8:
 
 - page content streams;
 - page resources;
@@ -298,7 +318,7 @@ At minimum it proves:
 
 No-op is defined explicitly.
 
-A request is a semantic no-op when its public `bounds` exactly equal the page's current effective public visible rectangle after normalization into `extractpdf_rect` values.
+A request is a semantic no-op when its public `bounds` are component-wise numerically equal to the page's current effective public visible rectangle. NaN is already rejected; `-0.0` and `+0.0` compare as equal.
 
 For a no-op request:
 
@@ -308,7 +328,7 @@ For a no-op request:
 
 The API still returns a successful immutable output because `extractpdf_crop_pages()` is an output-producing transform primitive.
 
-If every request in the batch is a no-op, output bytes must equal the existing deterministic serialization of the complete source PDF. Repeating the same no-op call on the same unchanged source must return byte-identical output bytes.
+If every request in the batch is a no-op, the implementation validates the complete batch, performs the existing deterministic serialization of the source PDF once, and returns those bytes directly. Repeating the same no-op call on the same unchanged source must return byte-identical output bytes.
 
 The output is **not** required to be byte-identical to the original input file bytes, because ExtractPDF's serializer may canonicalize a valid source PDF.
 
@@ -333,7 +353,9 @@ Use existing status values only.
 
 - malformed page dictionary/page-tree structure;
 - malformed MediaBox/CropBox;
-- invalid effective Rotate/UserUnit representation;
+- empty MediaBox/CropBox effective intersection;
+- invalid effective inherited Rotate representation;
+- invalid page-local UserUnit representation;
 - private reparse produces inconsistent page structure.
 
 ### `EXTRACTPDF_ERROR_UNSUPPORTED`
@@ -378,6 +400,8 @@ Do not move unrelated Phase 4 or Phase 5 code merely to create a generic transfo
 
 A reusable strict page-box helper is acceptable only if it has a single clear responsibility: resolve/validate effective page boxes and page transform inputs without performing mutation.
 
+Raw page observation should prefer `pdf_lookup_page_obj()` plus `pdf_page_obj_transform()` and should not create page runtime state merely to calculate a CropBox transform.
+
 ## 15. Test architecture
 
 Add one new CTest executable/target:
@@ -411,8 +435,9 @@ The final test surface must cover at least:
 - crop of the internal-destination target page;
 - at least one object partially or fully outside the new visible region;
 - rotated page (`/Rotate 90` at minimum);
-- non-default valid `/UserUnit` case or a deterministic combined rotation/UserUnit fixture;
+- non-default valid page-local `/UserUnit` case or a deterministic combined rotation/UserUnit fixture;
 - inherited CropBox materialized locally on mutation;
+- raw CropBox extending outside MediaBox but with a non-empty effective intersection;
 - all-no-op batch;
 - mixed no-op + changed batch;
 - multi-page changed batch;
@@ -420,9 +445,11 @@ The final test surface must cover at least:
 - negative/out-of-range page index;
 - NaN/infinity;
 - zero/inverted rectangle;
-- crop rectangle extending beyond current effective crop;
+- crop rectangle extending beyond current effective visible region;
 - malformed MediaBox/CropBox;
-- malformed Rotate/UserUnit;
+- empty CropBox/MediaBox effective intersection;
+- malformed inherited Rotate;
+- malformed page-local UserUnit;
 - source immutability;
 - output lifetime after source close.
 
@@ -432,7 +459,9 @@ Public observation is primary, but a small private test helper may also parse se
 
 - changed pages have exactly the expected local `/CropBox` values;
 - no-op pages do not gain a local `/CropBox` merely due to request membership;
-- `/MediaBox`, `/Contents`, `/Resources`, `/Annots`, root `/AcroForm`, and root `/Outlines` object content is unchanged by the transform except for serializer-level object renumbering/serialization representation.
+- `/MediaBox`, `/Contents`, `/Resources`, `/Annots`, root `/AcroForm`, and root `/Outlines` object semantics are unchanged by the transform except for serializer-level representation/object renumbering;
+- explicitly present `/BleedBox`, `/TrimBox`, and `/ArtBox` values are not rewritten;
+- absent BleedBox/TrimBox/ArtBox entries remain absent even though their effective PDF defaults may now follow the changed CropBox.
 
 Tests must compare semantics rather than relying on stable indirect object numbers across full serialization.
 
