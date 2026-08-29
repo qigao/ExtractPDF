@@ -76,6 +76,20 @@ static void copy_editor_output(extractpdf_pdf_edit *edit,
     extractpdf_drop_output(output);
 }
 
+static size_t count_bytes(const unsigned char *data, size_t size, const char *needle)
+{
+    size_t needle_size = strlen(needle);
+    size_t i;
+    size_t count = 0;
+
+    if (needle_size == 0 || needle_size > size)
+        return 0;
+    for (i = 0; i + needle_size <= size; ++i)
+        if (memcmp(data + i, needle, needle_size) == 0)
+            ++count;
+    return count;
+}
+
 static extractpdf_output *snapshot_source(const char *path, int observe_document_form)
 {
     extractpdf_document *document = NULL;
@@ -163,6 +177,28 @@ static void expect_text_field(const extractpdf_form *form, const char *name,
     }
 }
 
+static void expect_button_field(const extractpdf_form *form, const char *name,
+    extractpdf_form_field_type type, extractpdf_form_value_presence presence,
+    size_t value_count, size_t option_index)
+{
+    size_t index = form_field_index_by_name(form, name);
+    extractpdf_form_field_info info = {0};
+
+    info.struct_size = sizeof(info);
+    CHECK(extractpdf_form_field_get_info(form, index, &info) == EXTRACTPDF_OK);
+    CHECK(info.type == type);
+    CHECK(info.value_presence == presence);
+    CHECK(info.value_count == value_count);
+    if (value_count != 0) {
+        extractpdf_form_value_info value_info = {0};
+        CHECK(value_count == 1);
+        value_info.struct_size = sizeof(value_info);
+        CHECK(extractpdf_form_field_value_get_info(form, index, 0, &value_info) == EXTRACTPDF_OK);
+        CHECK(value_info.kind == EXTRACTPDF_FORM_VALUE_OPTION);
+        CHECK(value_info.option_index == option_index);
+    }
+}
+
 static void make_text_update(extractpdf_form_value_input *value,
     extractpdf_form_value_update *update, const char *text, size_t size)
 {
@@ -177,6 +213,30 @@ static void make_text_update(extractpdf_form_value_input *value,
     update->presence = EXTRACTPDF_FORM_VALUE_PRESENT;
     update->values = value;
     update->value_count = 1;
+}
+
+static void make_option_update(extractpdf_form_value_input *value,
+    extractpdf_form_value_update *update, size_t option_index)
+{
+    memset(value, 0, sizeof(*value));
+    memset(update, 0, sizeof(*update));
+    value->struct_size = sizeof(*value);
+    value->kind = EXTRACTPDF_FORM_VALUE_OPTION;
+    value->option_index = option_index;
+    update->struct_size = sizeof(*update);
+    update->presence = EXTRACTPDF_FORM_VALUE_PRESENT;
+    update->values = value;
+    update->value_count = 1;
+}
+
+static void make_empty_update(extractpdf_form_value_update *update,
+    extractpdf_form_value_presence presence)
+{
+    memset(update, 0, sizeof(*update));
+    update->struct_size = sizeof(*update);
+    update->presence = presence;
+    update->values = NULL;
+    update->value_count = 0;
 }
 
 static extractpdf_pdf_edit *open_edit(const char *path)
@@ -413,6 +473,98 @@ static void test_text_group_and_inheritance(void)
     extractpdf_drop_pdf_edit(edit);
 }
 
+static void test_button_mutation_and_ap_preservation(void)
+{
+    extractpdf_pdf_edit *edit = open_edit(FORM_MUTATION_BASIC_PDF);
+    extractpdf_form_field_ref check = field_ref_by_name(edit, "check");
+    extractpdf_form_field_ref radio = field_ref_by_name(edit, "radio");
+    extractpdf_form_value_input value;
+    extractpdf_form_value_update update;
+    extractpdf_form *form = NULL;
+    extractpdf_output *output = NULL;
+    extractpdf_document *reopened = NULL;
+    unsigned char *bytes = NULL;
+    size_t size = 0;
+
+    CHECK(extractpdf_pdf_edit_form_snapshot(edit, &form) == EXTRACTPDF_OK);
+    expect_button_field(form, "check", EXTRACTPDF_FORM_FIELD_CHECKBOX,
+        EXTRACTPDF_FORM_VALUE_PRESENT, 0, SIZE_MAX);
+    expect_button_field(form, "radio", EXTRACTPDF_FORM_FIELD_RADIO_BUTTON,
+        EXTRACTPDF_FORM_VALUE_PRESENT, 1, 0);
+    extractpdf_drop_form(form); form = NULL;
+
+    make_option_update(&value, &update, 0);
+    CHECK(extractpdf_pdf_edit_form_set_values(edit, &check, &update) == EXTRACTPDF_OK);
+    CHECK(extractpdf_pdf_edit_form_snapshot(edit, &form) == EXTRACTPDF_OK);
+    expect_button_field(form, "check", EXTRACTPDF_FORM_FIELD_CHECKBOX,
+        EXTRACTPDF_FORM_VALUE_PRESENT, 1, 0);
+    extractpdf_drop_form(form); form = NULL;
+
+    make_empty_update(&update, EXTRACTPDF_FORM_VALUE_PRESENT);
+    CHECK(extractpdf_pdf_edit_form_set_values(edit, &check, &update) == EXTRACTPDF_OK);
+    CHECK(extractpdf_pdf_edit_form_snapshot(edit, &form) == EXTRACTPDF_OK);
+    expect_button_field(form, "check", EXTRACTPDF_FORM_FIELD_CHECKBOX,
+        EXTRACTPDF_FORM_VALUE_PRESENT, 0, SIZE_MAX);
+    extractpdf_drop_form(form); form = NULL;
+
+    make_empty_update(&update, EXTRACTPDF_FORM_VALUE_MISSING);
+    CHECK(extractpdf_pdf_edit_form_set_values(edit, &check, &update) == EXTRACTPDF_OK);
+    CHECK(extractpdf_pdf_edit_form_snapshot(edit, &form) == EXTRACTPDF_OK);
+    expect_button_field(form, "check", EXTRACTPDF_FORM_FIELD_CHECKBOX,
+        EXTRACTPDF_FORM_VALUE_MISSING, 0, SIZE_MAX);
+    extractpdf_drop_form(form); form = NULL;
+
+    make_option_update(&value, &update, 1);
+    CHECK(extractpdf_pdf_edit_form_set_values(edit, &radio, &update) == EXTRACTPDF_OK);
+    CHECK(extractpdf_pdf_edit_form_snapshot(edit, &form) == EXTRACTPDF_OK);
+    expect_button_field(form, "radio", EXTRACTPDF_FORM_FIELD_RADIO_BUTTON,
+        EXTRACTPDF_FORM_VALUE_PRESENT, 1, 1);
+    extractpdf_drop_form(form); form = NULL;
+
+    make_option_update(&value, &update, 0);
+    CHECK(extractpdf_pdf_edit_form_set_values(edit, &radio, &update) == EXTRACTPDF_OK);
+    make_empty_update(&update, EXTRACTPDF_FORM_VALUE_PRESENT);
+    CHECK(extractpdf_pdf_edit_form_set_values(edit, &radio, &update) == EXTRACTPDF_OK);
+    CHECK(extractpdf_pdf_edit_form_snapshot(edit, &form) == EXTRACTPDF_OK);
+    expect_button_field(form, "radio", EXTRACTPDF_FORM_FIELD_RADIO_BUTTON,
+        EXTRACTPDF_FORM_VALUE_PRESENT, 0, SIZE_MAX);
+    extractpdf_drop_form(form); form = NULL;
+
+    make_empty_update(&update, EXTRACTPDF_FORM_VALUE_MISSING);
+    CHECK(extractpdf_pdf_edit_form_set_values(edit, &radio, &update) == EXTRACTPDF_OK);
+    CHECK(extractpdf_pdf_edit_form_snapshot(edit, &form) == EXTRACTPDF_OK);
+    expect_button_field(form, "radio", EXTRACTPDF_FORM_FIELD_RADIO_BUTTON,
+        EXTRACTPDF_FORM_VALUE_MISSING, 0, SIZE_MAX);
+    extractpdf_drop_form(form); form = NULL;
+
+    make_option_update(&value, &update, 99);
+    CHECK(extractpdf_pdf_edit_form_set_values(edit, &radio, &update) == EXTRACTPDF_ERROR_ARGUMENT);
+    make_text_update(&value, &update, "bad", 3);
+    CHECK(extractpdf_pdf_edit_form_set_values(edit, &radio, &update) == EXTRACTPDF_ERROR_ARGUMENT);
+
+    CHECK(extractpdf_pdf_edit_snapshot(edit, &output) == EXTRACTPDF_OK);
+    copy_output(output, &bytes, &size);
+    CHECK(count_bytes(bytes, size, "CHECK-AP-KEEP-OFF") == 1);
+    CHECK(count_bytes(bytes, size, "CHECK-AP-KEEP-YES") == 1);
+    CHECK(count_bytes(bytes, size, "RADIO-AP-KEEP-OFF") == 1);
+    CHECK(count_bytes(bytes, size, "RADIO-AP-KEEP-ON") == 1);
+    free(bytes);
+
+    remove(FORM_MUTATION_ROUNDTRIP_PDF);
+    CHECK(extractpdf_output_save_file(output, FORM_MUTATION_ROUNDTRIP_PDF) == EXTRACTPDF_OK);
+    CHECK(extractpdf_open(FORM_MUTATION_ROUNDTRIP_PDF, NULL, &reopened) == EXTRACTPDF_OK);
+    CHECK(extractpdf_document_form(reopened, &form) == EXTRACTPDF_OK);
+    expect_button_field(form, "check", EXTRACTPDF_FORM_FIELD_CHECKBOX,
+        EXTRACTPDF_FORM_VALUE_MISSING, 0, SIZE_MAX);
+    expect_button_field(form, "radio", EXTRACTPDF_FORM_FIELD_RADIO_BUTTON,
+        EXTRACTPDF_FORM_VALUE_MISSING, 0, SIZE_MAX);
+    extractpdf_drop_form(form);
+    extractpdf_close(reopened);
+    extractpdf_drop_output(output);
+    remove(FORM_MUTATION_ROUNDTRIP_PDF);
+    extractpdf_drop_pdf_edit(edit);
+}
+
 static void test_api_reset(void)
 {
     extractpdf_form *form = (extractpdf_form *)(uintptr_t)1;
@@ -436,5 +588,6 @@ int main(void)
     test_text_validation_and_noop();
     test_text_modes_and_preflight();
     test_text_group_and_inheritance();
+    test_button_mutation_and_ap_preservation();
     return EXIT_SUCCESS;
 }
