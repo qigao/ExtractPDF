@@ -1,5 +1,7 @@
 #include <extractpdf/extractpdf.h>
 
+#include "pdf_edit_test_api.h"
+
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -67,6 +69,19 @@ static void copy_output(
     *out_size = size;
 }
 
+static void copy_editor_output(
+    extractpdf_pdf_edit *edit,
+    unsigned char **out_data,
+    size_t *out_size)
+{
+    extractpdf_output *output = NULL;
+
+    CHECK(extractpdf_pdf_edit_snapshot(edit, &output) == EXTRACTPDF_OK);
+    CHECK(output != NULL);
+    copy_output(output, out_data, out_size);
+    extractpdf_drop_output(output);
+}
+
 static extractpdf_output *snapshot_source(
     const char *path,
     int observe_document_form)
@@ -87,6 +102,35 @@ static extractpdf_output *snapshot_source(
     extractpdf_drop_pdf_edit(edit);
     extractpdf_close(document);
     return output;
+}
+
+static extractpdf_form_field_ref field_ref_by_name(
+    extractpdf_pdf_edit *edit,
+    const char *wanted)
+{
+    extractpdf_form *form = NULL;
+    extractpdf_form_field_ref ref = {{0, 0}};
+    size_t count = 0;
+    size_t index;
+
+    CHECK(extractpdf_pdf_edit_form_snapshot(edit, &form) == EXTRACTPDF_OK);
+    CHECK(form != NULL);
+    CHECK(extractpdf_form_field_count(form, &count) == EXTRACTPDF_OK);
+    for (index = 0; index < count; ++index) {
+        const char *name = NULL;
+        size_t size = 0;
+        CHECK(extractpdf_form_field_name(form, index, &name, &size) == EXTRACTPDF_OK);
+        if (name != NULL && size == strlen(wanted) &&
+            memcmp(name, wanted, size) == 0) {
+            CHECK(extractpdf_pdf_edit_form_field_ref_at(edit, index, &ref) ==
+                EXTRACTPDF_OK);
+            extractpdf_drop_form(form);
+            return ref;
+        }
+    }
+    extractpdf_drop_form(form);
+    CHECK(0);
+    return ref;
 }
 
 static void test_editor_snapshot_and_refs(void)
@@ -183,6 +227,47 @@ static void test_need_appearances_observation_is_byte_preserving(void)
     extractpdf_drop_pdf_edit(edit);
 }
 
+static void test_widget_prepare_is_byte_preserving(void)
+{
+    extractpdf_document *document = NULL;
+    extractpdf_pdf_edit *edit = NULL;
+    extractpdf_form_field_ref ref;
+    extractpdf_form_value_input value = {0};
+    extractpdf_form_value_update update = {0};
+    unsigned char *before = NULL;
+    unsigned char *after = NULL;
+    size_t before_size = 0;
+    size_t after_size = 0;
+
+    CHECK(extractpdf_open(FORM_MUTATION_BASIC_PDF, NULL, &document) == EXTRACTPDF_OK);
+    CHECK(extractpdf_pdf_edit_begin(document, &edit) == EXTRACTPDF_OK);
+    extractpdf_close(document);
+    ref = field_ref_by_name(edit, "textWidget");
+
+    value.struct_size = sizeof(value);
+    value.kind = EXTRACTPDF_FORM_VALUE_UTF8;
+    value.option_index = SIZE_MAX;
+    value.utf8 = "new-text";
+    value.utf8_size = 8;
+    update.struct_size = sizeof(update);
+    update.presence = EXTRACTPDF_FORM_VALUE_PRESENT;
+    update.values = &value;
+    update.value_count = 1;
+
+    copy_editor_output(edit, &before, &before_size);
+    extractpdf_test_pdf_edit_set_fault(
+        edit, EXTRACTPDF_TEST_PDF_EDIT_FAULT_FORM_AFTER_WIDGET_PREPARE);
+    CHECK(extractpdf_pdf_edit_form_set_values(edit, &ref, &update) ==
+        EXTRACTPDF_ERROR_MUPDF);
+    copy_editor_output(edit, &after, &after_size);
+    CHECK(before_size == after_size);
+    CHECK(memcmp(before, after, before_size) == 0);
+
+    free(before);
+    free(after);
+    extractpdf_drop_pdf_edit(edit);
+}
+
 static void test_api_reset(void)
 {
     extractpdf_form *form = (extractpdf_form *)(uintptr_t)1;
@@ -205,5 +290,6 @@ int main(void)
     test_api_reset();
     test_editor_snapshot_and_refs();
     test_need_appearances_observation_is_byte_preserving();
+    test_widget_prepare_is_byte_preserving();
     return EXIT_SUCCESS;
 }
