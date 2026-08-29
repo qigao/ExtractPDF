@@ -8,7 +8,7 @@ typedef struct extractpdf_pdf_crop_page_view {
     fz_rect media_pdf;
     fz_rect crop_pdf;
     fz_rect visible_pdf;
-    fz_matrix public_to_pdf;
+    fz_matrix pdf_to_public;
     extractpdf_rect visible_public;
     int rotate_degrees;
     float user_unit;
