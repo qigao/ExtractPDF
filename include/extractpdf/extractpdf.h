@@ -42,6 +42,12 @@ typedef struct extractpdf_rect {
     float y1;
 } extractpdf_rect;
 
+typedef struct extractpdf_page_crop {
+    size_t struct_size;
+    int page_index;
+    extractpdf_rect bounds;
+} extractpdf_page_crop;
+
 typedef struct extractpdf_quad {
     extractpdf_point ul;
     extractpdf_point ur;
@@ -416,6 +422,12 @@ EXTRACTPDF_API extractpdf_status extractpdf_export_page_range(
 EXTRACTPDF_API extractpdf_status extractpdf_merge_outputs(
     const extractpdf_output *const *inputs,
     size_t input_count,
+    extractpdf_output **out_output);
+
+EXTRACTPDF_API extractpdf_status extractpdf_crop_pages(
+    extractpdf_document *document,
+    const extractpdf_page_crop *crops,
+    size_t crop_count,
     extractpdf_output **out_output);
 
 EXTRACTPDF_API extractpdf_status extractpdf_output_data(
