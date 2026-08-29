@@ -270,3 +270,28 @@ if(WIN32 AND BUILD_SHARED_LIBS)
       VERBATIM)
   endforeach()
 endif()
+
+add_executable(extractpdf_test_pdf_form_mutation
+  test_pdf_form_mutation.c)
+target_link_libraries(extractpdf_test_pdf_form_mutation PRIVATE ExtractPDF::ExtractPDF)
+target_compile_definitions(extractpdf_test_pdf_form_mutation PRIVATE
+  FORM_MUTATION_BASIC_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-basic.pdf"
+  FORM_MUTATION_CHOICE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-choice.pdf"
+  FORM_MUTATION_GROUPS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-groups.pdf"
+  FORM_MUTATION_MODES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-modes.pdf"
+  FORM_MUTATION_EVENTS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-events.pdf"
+  FORM_MUTATION_NEED_APPEARANCES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-need-appearances.pdf"
+  FORM_MUTATION_XFA_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-xfa.pdf"
+  FORM_MUTATION_BAD_NEED_APPEARANCES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-bad-need-appearances.pdf"
+  FORM_MUTATION_DIRECT_FIELD_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-direct-field.pdf")
+add_test(NAME extractpdf.pdf_form_mutation
+  COMMAND extractpdf_test_pdf_form_mutation)
+set_tests_properties(extractpdf.pdf_form_mutation PROPERTIES TIMEOUT 60)
+
+if(WIN32 AND BUILD_SHARED_LIBS)
+  add_custom_command(TARGET extractpdf_test_pdf_form_mutation POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      $<TARGET_FILE:extractpdf>
+      $<TARGET_FILE_DIR:extractpdf_test_pdf_form_mutation>
+    VERBATIM)
+endif()
