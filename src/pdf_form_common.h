@@ -15,7 +15,13 @@ typedef struct extractpdf_pdf_form_live_widget {
     int page_index;
 } extractpdf_pdf_form_live_widget;
 
+typedef struct extractpdf_pdf_form_locator {
+    size_t *steps;
+    size_t step_count;
+} extractpdf_pdf_form_locator;
+
 typedef struct extractpdf_pdf_form_live_field {
+    extractpdf_pdf_form_locator locator;
     pdf_obj *group_head;
     pdf_obj **group_nodes;
     size_t group_node_count;

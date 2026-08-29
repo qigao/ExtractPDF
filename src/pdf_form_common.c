@@ -9,6 +9,7 @@ typedef struct extractpdf_pdf_form_node {
     size_t parent_node;
     size_t group_index;
     size_t depth;
+    size_t tree_index;
     int has_local_t;
     int is_widget;
 } extractpdf_pdf_form_node;
@@ -90,6 +91,9 @@ void extractpdf_pdf_form_drop_provenance(
             &provenance->fields[field_index];
         size_t index;
 
+        free(field->locator.steps);
+        field->locator.steps = NULL;
+        field->locator.step_count = 0;
         if (field->group_head != NULL)
             pdf_drop_obj(ctx, field->group_head);
         for (index = 0; index < field->group_node_count; ++index)
@@ -343,6 +347,7 @@ static extractpdf_status extractpdf_pdf_form_traverse(
     size_t parent_node,
     size_t parent_group,
     size_t depth,
+    size_t tree_index,
     int top_level)
 {
     pdf_obj *parent_obj = NULL;
@@ -411,6 +416,7 @@ static extractpdf_status extractpdf_pdf_form_traverse(
     state->nodes[node_index].parent_node = parent_node;
     state->nodes[node_index].group_index = group_index;
     state->nodes[node_index].depth = depth;
+    state->nodes[node_index].tree_index = tree_index;
     state->nodes[node_index].has_local_t = has_local_t;
     state->nodes[node_index].is_widget = is_widget;
     ++state->node_count;
@@ -429,7 +435,8 @@ static extractpdf_status extractpdf_pdf_form_traverse(
     for (index = 0; index < count; ++index) {
         pdf_obj *child = pdf_array_get(state->ctx, kids, index);
         status = extractpdf_pdf_form_traverse(
-            state, child, node_index, group_index, depth + 1, 0);
+            state, child, node_index, group_index,
+            depth + 1, (size_t)index, 0);
         if (status != EXTRACTPDF_OK)
             return status;
     }
@@ -760,6 +767,50 @@ static extractpdf_status extractpdf_pdf_form_materialize_fields(
     return field_index == terminal_count ? EXTRACTPDF_OK : EXTRACTPDF_ERROR_FORMAT;
 }
 
+static extractpdf_status extractpdf_pdf_form_materialize_locator(
+    extractpdf_pdf_form_parse_state *state,
+    size_t head_node,
+    extractpdf_pdf_form_locator *out_locator)
+{
+    size_t cursor;
+    size_t at;
+    size_t count;
+    size_t *steps;
+
+    if (out_locator == NULL || head_node >= state->node_count)
+        return EXTRACTPDF_ERROR_FORMAT;
+    out_locator->steps = NULL;
+    out_locator->step_count = 0;
+
+    count = state->nodes[head_node].depth;
+    if (count == 0)
+        return EXTRACTPDF_ERROR_FORMAT;
+    if (count > SIZE_MAX / sizeof(*steps))
+        return EXTRACTPDF_ERROR_NOMEM;
+    steps = (size_t *)malloc(count * sizeof(*steps));
+    if (steps == NULL)
+        return EXTRACTPDF_ERROR_NOMEM;
+
+    cursor = head_node;
+    at = count;
+    while (cursor != SIZE_MAX) {
+        if (cursor >= state->node_count || at == 0) {
+            free(steps);
+            return EXTRACTPDF_ERROR_FORMAT;
+        }
+        steps[--at] = state->nodes[cursor].tree_index;
+        cursor = state->nodes[cursor].parent_node;
+    }
+    if (at != 0) {
+        free(steps);
+        return EXTRACTPDF_ERROR_FORMAT;
+    }
+
+    out_locator->steps = steps;
+    out_locator->step_count = count;
+    return EXTRACTPDF_OK;
+}
+
 static extractpdf_status extractpdf_pdf_form_materialize_provenance(
     extractpdf_pdf_form_parse_state *state)
 {
@@ -784,6 +835,7 @@ static extractpdf_status extractpdf_pdf_form_materialize_provenance(
         const extractpdf_pdf_form_group *group = &state->groups[group_index];
         extractpdf_pdf_form_live_field *live;
         extractpdf_pdf_form_effective effective;
+        extractpdf_status status;
         size_t node_index;
         size_t node_count = 0;
         size_t at = 0;
@@ -793,6 +845,10 @@ static extractpdf_status extractpdf_pdf_form_materialize_provenance(
         if (group->public_index >= provenance->field_count)
             return EXTRACTPDF_ERROR_FORMAT;
         live = &provenance->fields[group->public_index];
+        status = extractpdf_pdf_form_materialize_locator(
+            state, group->head_node, &live->locator);
+        if (status != EXTRACTPDF_OK)
+            return status;
         live->group_head = pdf_keep_obj(
             state->ctx, state->nodes[group->head_node].object);
 
@@ -862,7 +918,8 @@ static extractpdf_status extractpdf_pdf_form_parse_impl(
 
     for (index = 0; index < count; ++index) {
         pdf_obj *field = pdf_array_get(state->ctx, fields, index);
-        status = extractpdf_pdf_form_traverse(state, field, SIZE_MAX, SIZE_MAX, 1, 1);
+        status = extractpdf_pdf_form_traverse(
+            state, field, SIZE_MAX, SIZE_MAX, 1, (size_t)index, 1);
         if (status != EXTRACTPDF_OK)
             return status;
     }
