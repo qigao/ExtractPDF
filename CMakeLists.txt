@@ -19,6 +19,7 @@ add_library(extractpdf
   src/images.c
   src/image_bitmap.c
   src/links.c
+  src/pdf_page_box_common.c
   src/pdf_crop.c
   src/pdf_crop_preflight.c
   src/pdf_trim.c
