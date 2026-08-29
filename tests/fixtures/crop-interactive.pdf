@@ -44,13 +44,13 @@ endobj
 << /Title (Crop target) /Parent 11 0 R /Dest [4 0 R /XYZ 100 200 0] >>
 endobj
 13 0 obj
-<< /FT /Tx /T (crop_text) /V (CROP-VALUE) /Kids [15 0 R] >>
+<< /T (crop) /Kids [15 0 R] >>
 endobj
 14 0 obj
 << /Fields [13 0 R] /NeedAppearances false >>
 endobj
 15 0 obj
-<< /Type /Annot /Subtype /Widget /Rect [250 80 340 110] /Parent 13 0 R /P 3 0 R /F 4 >>
+<< /Type /Annot /Subtype /Widget /T (text) /FT /Tx /V (CROP-VALUE) /Rect [250 80 340 110] /Parent 13 0 R /P 3 0 R /F 4 >>
 endobj
 16 0 obj
 << /Length 44 >>
@@ -74,11 +74,11 @@ xref
 0000001253 00000 n 
 0000001327 00000 n 
 0000001414 00000 n 
-0000001490 00000 n 
-0000001552 00000 n 
-0000001656 00000 n 
+0000001461 00000 n 
+0000001523 00000 n 
+0000001661 00000 n 
 trailer
 << /Size 17 /Root 1 0 R >>
 startxref
-1750
+1755
 %%EOF
