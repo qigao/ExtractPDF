@@ -309,6 +309,13 @@ extractpdf_status extractpdf_pdf_edit_form_set_values(
     if (status != EXTRACTPDF_OK)
         return status;
 
+    status = extractpdf_pdf_edit_form_mutation_preflight(edit);
+    if (status != EXTRACTPDF_OK) {
+        extractpdf_pdf_form_drop_provenance(edit->ctx, provenance);
+        extractpdf_pdf_form_drop_model(model);
+        return status;
+    }
+
     if (model->fields[field_index].type == EXTRACTPDF_FORM_FIELD_TEXT &&
         provenance->fields[field_index].widget_count == 0) {
         status = extractpdf_pdf_edit_form_apply_zero_widget_text(
