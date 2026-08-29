@@ -4,7 +4,7 @@
 
 **Goal:** Add deterministic, session-local, journal-atomic AcroForm value mutation to the existing `extractpdf_pdf_edit` layer without making `extractpdf_form` mutable or executing PDF form runtime behavior.
 
-**Architecture:** Reuse the strict AcroForm parser as the single semantic authority, but refactor Widget reconciliation onto raw page objects so observation never enters MuPDF page/annotation runtime. Add an optional live provenance sidecar for editor-only field identity, a separate form-ref registry, a typed value-assignment engine, and target-Widget update helpers. Checkbox/Radio mutate `/V` + `/AS` while preserving `/AP`; Text/Combo/List use one outer journal operation and target-only MuPDF Widget resynthesis after a mandatory zero-side-effect page-load safety gate.
+**Architecture:** Reuse the strict AcroForm parser as the single semantic authority, refactor Widget reconciliation onto raw page objects so observation never enters MuPDF page/annotation runtime, and add an optional live provenance sidecar for editor-only identity. A separate form-ref registry resolves one logical terminal field group; a typed assignment engine owns `/V`/`/I`; a focused Widget layer owns button `/AS` and target-only Text/Choice appearance refresh. Checkbox/Radio preserve `/AP`. Text/Combo/List may load MuPDF Widget wrappers only after a mandatory zero-byte-change safety gate on pinned MuPDF 1.28.2.
 
 **Tech Stack:** C11, MuPDF 1.28.2, CMake 3.20+, CTest, pinned vcpkg commit `f74a2eade17a628413746557d04db25ccf6e76f9`, GitHub Actions Linux/macOS/Windows.
 
@@ -13,63 +13,63 @@
 ## Global Constraints
 
 - Integrated base is exactly `fdcb2f6cd489de34802d09989ab61a1af8cd1861`; implementation branch is `feat/acroform-value-mutation`.
-- Pinned PDF engine is MuPDF **1.28.2**; do not change vcpkg pins, overlay ports, or CI workflow to make the feature pass.
-- Existing suite starts at **20 CTests**; this slice adds exactly one new public test target, `extractpdf.pdf_form_mutation`, for **21 total**.
-- First implementation checkpoint is a strict compile RED: existing targets #1-#20 still build, and only the new #21 target fails because the approved mutation ABI is absent.
+- Pinned PDF engine is MuPDF **1.28.2**. Do not change vcpkg pins, overlay ports, or `.github/workflows/ci.yml` to make the feature pass.
+- Existing suite starts at **20 CTests**. This slice adds exactly one new public test target, `extractpdf.pdf_form_mutation`, for **21 total**.
+- First implementation checkpoint is strict compile RED: the library and existing targets #1-#20 build; only new target #21 fails because the approved mutation ABI does not exist yet.
 - `extractpdf_form` remains immutable, deep-owned, document-independent, and free of MuPDF pointers.
-- Mutation exists only on `extractpdf_pdf_edit`; do not add a second mutable form/document handle.
-- Public mutation identity is `extractpdf_form_field_ref`; snapshot indices, field names, Widget indices, PDF object numbers, and option strings are never public mutation identity.
-- Form refs use a token domain cryptographically/seman­tically distinct from annotation refs and are valid only for one editor session.
-- Every editor form observation path must remain raw and side-effect-free. `extractpdf_pdf_edit_form_snapshot()`, `extractpdf_pdf_edit_form_field_ref_at()`, and strict form parsing/reconciliation must not call `pdf_load_page()`, `pdf_update_page()`, `pdf_update_open_pages()`, or any form event/runtime API.
-- Raw page reconciliation must use `pdf_lookup_page_obj()` plus `pdf_page_obj_transform()` and raw `/Annots` dictionaries.
-- Value mutation V1 supports Text, Checkbox, Radio, Combo, and List. PushButton, Signature, UNKNOWN, Text RichText, and Text FileSelect return `EXTRACTPDF_ERROR_UNSUPPORTED` after caller-command validation.
-- Mutation-only preflight: `/XFA` present -> `UNSUPPORTED`; `/NeedAppearances true` -> `UNSUPPORTED`; non-Boolean `/NeedAppearances` -> `FORMAT`. Observation/ref discovery remains allowed.
-- Do not execute Keystroke, Validate, Format, Calculate, Widget activation, SubmitForm, ResetForm, JavaScript, `/CO`, or page-wide recalculation.
-- Do not call `pdf_set_field_value`, `pdf_set_annot_field_value`, `pdf_set_text_field_value`, `pdf_set_choice_field_value`, `pdf_choice_widget_set_value`, `pdf_toggle_widget`, `pdf_calculate_form`, or `pdf_reset_form`.
-- Semantic no-op happens only after parse, mutation-capability preflight, caller validation, unsupported-mode checks, and ReadOnly checks. A no-op returns `OK` without a journal operation or any byte change.
-- Every successful non-noop setter is exactly one outer `pdf_begin_operation()` / `pdf_end_operation()` pair; every failure after begin must `pdf_abandon_operation()`.
-- Checkbox/Radio preserve existing `/AP` objects/streams and update only canonical `/V` plus Widget `/AS`.
-- Text/Combo/List appearance refresh may use `pdf_load_page()` only after the mandatory Task 4 safety gate passes for pinned MuPDF 1.28.2; if that gate fails, **STOP implementation and return to design** rather than weakening no-execution/no-side-effect semantics.
-- Text/Combo/List must set each target Widget editing state to true while requesting/updating its appearance, restore the previous editing state in exception-safe cleanup, and never use page-wide update as a shortcut.
+- Mutation exists only on `extractpdf_pdf_edit`; do not introduce a second mutable form/document handle.
+- Public mutation identity is `extractpdf_form_field_ref`. Snapshot indices, field names, Widget indices, PDF object numbers, and option strings are never public mutation identity.
+- Form refs use a token domain distinct from annotation refs and are valid only for one editor session.
+- `extractpdf_document_form()`, `extractpdf_pdf_edit_form_snapshot()`, `extractpdf_pdf_edit_form_field_ref_at()`, and strict form parsing/reconciliation must not call `pdf_load_page()`, `fz_load_page()`, `pdf_update_page()`, `pdf_update_open_pages()`, or form event/runtime APIs.
+- Raw page reconciliation uses `pdf_lookup_page_obj()`, raw `/Annots`, and `pdf_page_obj_transform()` exactly as locked by the spec.
+- Value mutation V1 supports Text, Checkbox, Radio, Combo, and List. PushButton, Signature, UNKNOWN, Text RichText, and Text FileSelect are `EXTRACTPDF_ERROR_UNSUPPORTED` after command validation.
+- Mutation-only preflight: `/XFA` present -> `UNSUPPORTED`; `/NeedAppearances true` -> `UNSUPPORTED`; non-Boolean `/NeedAppearances` -> `FORMAT`. Observation and ref discovery remain allowed.
+- Never execute Keystroke, Validate, Format, Calculate, Widget activation, SubmitForm, ResetForm, JavaScript, `/CO`, or page-wide recalculation.
+- Never call `pdf_set_field_value`, `pdf_set_annot_field_value`, `pdf_set_text_field_value`, `pdf_set_choice_field_value`, `pdf_choice_widget_set_value`, `pdf_toggle_widget`, `pdf_calculate_form`, or `pdf_reset_form`.
+- Semantic no-op occurs only after ref validation, strict parse, mutation preflight, assignment validation, unsupported-mode checks, ReadOnly check, and external-inheritance check. No-op returns `OK` without a journal operation or byte change.
+- Every successful non-noop setter is exactly one outer `pdf_begin_operation()` / `pdf_end_operation()` pair. Any failure after begin must execute `pdf_abandon_operation()`.
+- Checkbox/Radio update canonical `/V` plus every target Widget `/AS` and preserve existing `/AP` objects/streams.
+- Text/Combo/List appearance refresh may use `pdf_load_page()` only in the mutation Widget-wrapper layer and only after Task 4 proves preparatory page loading is byte-preserving on the locked deterministic fixture. If Task 4 fails, **STOP and return to design**.
+- Target Text/Combo/List Widgets must run resynthesis with Widget editing state enabled, then restore the previous state in exception-safe cleanup. Do not use page-wide update as a shortcut.
 - Multi-list caller order is preserved. Duplicate option indices are `ARGUMENT`. Single choice OPTION writes `/I [index]`; multi choice writes `/I` matching selected indices exactly.
-- Missing and present-empty are distinct. Checkbox/Radio `PRESENT + 0` is explicit Off; `MISSING + 0` removes group-local `/V` and visually sets Widgets Off.
-- If effective `/V` is inherited from outside the target logical group, assigning MISSING is `UNSUPPORTED`; PRESENT may safely override it at the group head.
+- Missing and present-empty remain distinct. Checkbox/Radio `PRESENT + 0` is explicit Off; `MISSING + 0` removes group-local `/V` and sets target Widgets visually Off.
+- If effective `/V` is inherited from outside the target logical group, MISSING is `UNSUPPORTED`; PRESENT may override it at the group head without touching siblings.
 - V1 does not mutate `/DV`, `/Ff`, `/Opt`, `/T`, `/TU`, `/MaxLen`, field structure, Widget structure/geometry, signatures, XFA, or NeedAppearances.
-- Final frozen feature SHA must pass Linux static 21/21, Linux ASan/UBSan 21/21, macOS 21/21, and Windows DLL 21/21 on the same SHA before integration is even considered.
-- Keep the PR draft/open through the feature proof/review gate. Merge only after explicit user authorization and then require integrated-master push proof before closing #46.
+- Final frozen feature SHA must pass Linux static 21/21, Linux ASan/UBSan 21/21, macOS 21/21, and Windows DLL 21/21 on the same SHA.
+- Keep the PR draft/open through Task 11. Merge only after explicit user authorization, then require integrated-master push proof before closing #46.
 
 ## File Structure
 
 **Create**
 
-- `src/pdf_edit_forms.c` — public editor form snapshot/ref APIs, form-ref registry, current-field resolution, mutation preflight, and the outer setter transaction coordinator.
-- `src/pdf_edit_form_values.c` — public update validation, normalized assignment copy, semantic equality/no-op comparison, and canonical `/V`/`/I` writes.
-- `src/pdf_edit_form_widgets.c` — target Widget wrapper preparation, page-load safety boundary, Checkbox/Radio `/AS`, Text/Combo/List targeted appearance refresh, and cleanup.
-- `tests/test_pdf_form_mutation.c` — all public mutation/identity/round-trip/atomicity/no-execution tests.
-- `tests/fixtures/acroform-mutation-basic.pdf` — deterministic Text + Checkbox + Radio fields, including zero-Widget and multi-Widget cases.
-- `tests/fixtures/acroform-mutation-choice.pdf` — editable/non-editable Combo and single/multi List, including duplicate exports.
-- `tests/fixtures/acroform-mutation-groups.pdf` — same-group local `/V`/`/I` overrides plus external inherited `/V` and sibling field.
-- `tests/fixtures/acroform-mutation-modes.pdf` — ReadOnly/Required/NoExport/RichText/FileSelect/PushButton/Signature/UNKNOWN fields.
-- `tests/fixtures/acroform-mutation-events.pdf` — Keystroke/Validate/Format/Calculate/activation/`/CO` sentinels plus target and unrelated Widgets.
-- `tests/fixtures/acroform-mutation-need-appearances.pdf` — valid AcroForm with `/NeedAppearances true` and stable pre-existing Widget appearances.
-- `tests/fixtures/acroform-mutation-xfa.pdf` — valid AcroForm plus present `/XFA`.
-- `tests/fixtures/acroform-mutation-bad-need-appearances.pdf` — `/NeedAppearances` present with a non-Boolean value.
-- `tests/fixtures/acroform-mutation-direct-field.pdf` — a direct logical field dictionary used to prove direct-group ref stability inside one editor session.
+- `src/pdf_edit_forms.c` — public editor form snapshot/ref APIs, form-ref registry, current-field resolution, mutation preflight, outer setter transaction coordinator.
+- `src/pdf_edit_form_values.c` — update validation, owned normalized assignment, semantic equality/no-op, canonical `/V`/`/I` writes.
+- `src/pdf_edit_form_widgets.c` — Widget-wrapper preparation/drop, Checkbox/Radio `/AS`, Text/Combo/List target-only appearance refresh.
+- `tests/test_pdf_form_mutation.c` — all mutation/identity/round-trip/atomicity/no-execution tests.
+- `tests/fixtures/acroform-mutation-basic.pdf` — Text + Checkbox + Radio fields, zero-Widget and multi-Widget cases.
+- `tests/fixtures/acroform-mutation-choice.pdf` — editable/non-editable Combo and single/multi List, duplicate export case.
+- `tests/fixtures/acroform-mutation-groups.pdf` — same-group `/V`/`/I` overrides, external inherited `/V`, sibling field.
+- `tests/fixtures/acroform-mutation-modes.pdf` — ReadOnly/Required/NoExport/RichText/FileSelect/PushButton/Signature/UNKNOWN.
+- `tests/fixtures/acroform-mutation-events.pdf` — Keystroke/Validate/Format/Calculate/activation/`/CO` sentinels and unrelated Widget.
+- `tests/fixtures/acroform-mutation-need-appearances.pdf` — valid form, `/NeedAppearances true`, stable AP marker.
+- `tests/fixtures/acroform-mutation-xfa.pdf` — valid form plus present `/XFA`.
+- `tests/fixtures/acroform-mutation-bad-need-appearances.pdf` — non-Boolean `/NeedAppearances`.
+- `tests/fixtures/acroform-mutation-direct-field.pdf` — direct logical field dictionary for ref/rollback stability.
 
 **Modify**
 
-- `include/extractpdf/extractpdf.h` — add only the approved form-field ref/value-update ABI and three editor form functions.
-- `CMakeLists.txt` — register the three focused production files.
-- `src/pdf_form_common.h` — private provenance/build interfaces and common identity helpers.
-- `src/pdf_form_common.c` — optional live provenance creation from the validated field graph.
-- `src/pdf_form_widgets.c` — raw page-object reconciliation and optional provenance Widget capture.
-- `src/pdf_form.c` — factor one internal reusable `extractpdf_form` snapshot builder used by document and editor paths.
-- `src/pdf_edit_internal.h` — form registry state, private mutation context types, and test-only fault IDs.
-- `src/pdf_edit.c` — dispose form registry entries and any retained PDF objects.
-- `tests/CMakeLists.txt` — register fixture paths and `extractpdf.pdf_form_mutation`; add NeedAppearances fixture to the read-only form target.
-- `tests/test_pdf_form.c` — raw-observation byte-preservation regression only; keep mutation assertions out of this target.
-- `tests/pdf_edit_test_api.h` — add form-mutation fault IDs only.
-- `tests/pdf_edit_fault_hook.c` — route the new fault IDs through the existing test hook.
+- `include/extractpdf/extractpdf.h` — approved ref/value-update ABI and exactly three editor form APIs.
+- `CMakeLists.txt` — add the three focused production files.
+- `src/pdf_form_common.h` — provenance/build interfaces and shared identity helper.
+- `src/pdf_form_common.c` — optional live provenance generated from the validated field graph.
+- `src/pdf_form_widgets.c` — raw page-object reconciliation plus optional Widget provenance capture.
+- `src/pdf_form.c` — reusable private PDF-to-`extractpdf_form` snapshot builder.
+- `src/pdf_edit_internal.h` — form registry, private assignment/Widget interfaces, test fault IDs.
+- `src/pdf_edit.c` — dispose retained form registry objects.
+- `tests/CMakeLists.txt` — register #21 and fixture paths; add NeedAppearances fixture to read-only form target.
+- `tests/test_pdf_form.c` — raw-observation regression only.
+- `tests/pdf_edit_test_api.h` — form mutation fault IDs.
+- `tests/pdf_edit_fault_hook.c` — existing hook routes new IDs.
 
 ---
 
@@ -79,15 +79,15 @@
 - Create: `tests/test_pdf_form_mutation.c`
 - Create: all `tests/fixtures/acroform-mutation-*.pdf` files listed above
 - Modify: `tests/CMakeLists.txt`
-- Do **not** modify: `include/`, `src/`, root `CMakeLists.txt`, or `.github/workflows/ci.yml`
+- Do not modify: `include/`, `src/`, root `CMakeLists.txt`, `.github/workflows/ci.yml`
 
 **Interfaces:**
-- Consumes: existing `extractpdf_pdf_edit`, immutable `extractpdf_form`, and current 20-test suite.
-- Produces: one new CTest target that references the final approved ABI before that ABI exists.
+- Consumes: existing `extractpdf_pdf_edit`, immutable `extractpdf_form`, current 20-test suite.
+- Produces: one new target referencing the final approved ABI before that ABI exists.
 
-- [ ] **Step 1: Add the compile-surface RED**
+- [ ] **Step 1: Write the compile-surface RED**
 
-Create the new test with the final ABI spelled exactly as approved:
+Create `tests/test_pdf_form_mutation.c` with:
 
 ```c
 #include <extractpdf/extractpdf.h>
@@ -140,9 +140,9 @@ int main(void)
 }
 ```
 
-- [ ] **Step 2: Register exactly one new test target**
+- [ ] **Step 2: Register exactly one new CTest**
 
-Append to `tests/CMakeLists.txt`:
+Append:
 
 ```cmake
 add_executable(extractpdf_test_pdf_form_mutation
@@ -163,64 +163,53 @@ add_test(NAME extractpdf.pdf_form_mutation
 set_tests_properties(extractpdf.pdf_form_mutation PROPERTIES TIMEOUT 60)
 ```
 
-- [ ] **Step 3: Create deterministic fixtures with locked object intent**
-
-Keep each PDF small, ASCII, classic-xref, and deterministic. The fixtures must encode these exact semantic cases; object numbers may differ, but the relationships may not:
+- [ ] **Step 3: Create deterministic fixtures with these exact semantic records**
 
 ```text
-acroform-mutation-basic.pdf
-  field 0: Text, no Widget, /V missing
-  field 1: Text, one Widget, /V (old-text), existing uncompressed AP marker "TEXT-OLD-AP"
-  field 2: Checkbox, two Widgets on different pages, one on-state /Yes, /V /Off
-  field 3: Radio, three Widgets, states /One and /Two with /One repeated, /V /One
+basic
+  field[0] Text: /T zero, no Widget, no /V
+  field[1] Text: /T textWidget, /V (old-text), one Widget, AP stream contains literal TEXT-OLD-AP
+  field[2] Checkbox: /T check, two Widgets on different pages, both AP/N << /Off ... /Yes ... >>, /V /Off
+  field[3] Radio: /T radio, three Widgets, on-state order /One, /Two, /One, /V /One
 
-acroform-mutation-choice.pdf
-  field 0: non-edit Combo, options [A,B], selected B
-  field 1: editable Combo, options [Tokyo,Osaka], custom /V (Kyoto)
-  field 2: single List, options [S,M,L], selected M
-  field 3: multi List, options [Red,Green,Blue], selected [Red,Blue]
-  field 4: Combo with duplicate export values [[dup First],[dup Second]] and /I [1]
+choice
+  field[0] non-edit Combo: Opt A,B; /V B; /I [1]
+  field[1] editable Combo: Opt Tokyo,Osaka; /V Kyoto; no /I
+  field[2] single List: Opt S,M,L; /V M; /I [1]
+  field[3] multi List: Opt Red,Green,Blue; /V [Red Blue]; /I [0 2]
+  field[4] non-edit Combo: Opt [[dup First] [dup Second]]; /V dup; /I [1]
 
-acroform-mutation-groups.pdf
-  parent logical field "shared" with unnamed same-group descendants
-  group-head /V plus one descendant local /V override that is semantically equal
-  choice group with same-group descendant /I override
-  separate ancestor carrying /V (external) above target logical child and sibling logical child
+groups
+  logical group g with unnamed descendants whose local /V values equal group-head /V
+  logical Choice group c with descendant local /I equal group-head /I
+  unnamed ancestor carries /V shared; named child target and named child sibling both inherit it
 
-acroform-mutation-modes.pdf
-  ordinary Text with ReadOnly
-  ordinary Text with Required
-  ordinary Text with NoExport
-  Text RichText
-  Text FileSelect
-  PushButton
-  unsigned Signature
-  valid unrecognized /FT -> UNKNOWN
+modes
+  fields: ReadOnly Text, Required Text, NoExport Text, RichText Text, FileSelect Text,
+          PushButton, unsigned Signature, valid unrecognized /FT UNKNOWN
 
-acroform-mutation-events.pdf
-  target Text Widget with /AA /K, /V, /F and activation action sentinel scripts
-  unrelated Text Widget with fixed value "UNCHANGED"
-  AcroForm /CO references a third calculated field with fixed value "CALC-SENTINEL"
-  target and unrelated Widgets contain stable existing AP markers
+events
+  target Text Widget: /AA/K, /AA/V, /AA/F and activation JS/action sentinels
+  unrelated Text field /V UNCHANGED with stable AP marker UNRELATED-AP-KEEP
+  calculated field /V CALC-SENTINEL included in AcroForm /CO
+  target Widget has stable existing AP marker TARGET-AP-BEFORE
 
-acroform-mutation-need-appearances.pdf
-  valid ordinary Text + Widget
-  /NeedAppearances true
-  existing AP marker "NEED-AP-KEEP"
+need-appearances
+  ordinary Text + Widget, /NeedAppearances true, AP marker NEED-AP-KEEP
 
-acroform-mutation-xfa.pdf
-  valid ordinary Text field plus present /XFA value
+xfa
+  ordinary Text + Widget, present /XFA
 
-acroform-mutation-bad-need-appearances.pdf
-  valid ordinary Text field plus /NeedAppearances (yes) as a PDF string
+bad-need-appearances
+  ordinary Text + Widget, /NeedAppearances (yes) as PDF string
 
-acroform-mutation-direct-field.pdf
-  /Fields contains a direct Text field dictionary with no Widget
+direct-field
+  /Fields [ << /FT /Tx /T (direct) /V (before) >> ]
 ```
 
-- [ ] **Step 4: Prove the strict RED**
+Use classic deterministic xref/trailer formatting consistent with existing hand-authored fixtures. Do not generate dates, random IDs, object streams, or compression.
 
-Use the normal Linux configuration. The authoritative CI command sequence is:
+- [ ] **Step 4: Run the strict RED**
 
 ```bash
 cmake -S . -B build \
@@ -231,18 +220,18 @@ cmake -S . -B build \
 cmake --build build --parallel 2
 ```
 
-Expected result:
+Required evidence:
 
 ```text
-ExtractPDF library builds
-extractpdf_test_* existing targets #1-#20 build
-extractpdf_test_pdf_form_mutation fails compilation
-failure names the absent approved types/functions from compile_surface()
+library builds
+existing executable targets #1-#20 build
+new extractpdf_test_pdf_form_mutation fails compilation
+compiler errors name extractpdf_form_field_ref / value input/update / three absent functions
 ```
 
-A failure in an old target is not the intended RED; fix the test/fixture registration before proceeding.
+Any old-target failure is not the intended RED.
 
-- [ ] **Step 5: Commit and open the draft PR**
+- [ ] **Step 5: Commit, push, and create the draft PR**
 
 ```bash
 git add tests/test_pdf_form_mutation.c tests/CMakeLists.txt tests/fixtures/acroform-mutation-*.pdf
@@ -250,11 +239,11 @@ git commit -m "test: lock AcroForm value mutation ABI RED"
 git push -u origin feat/acroform-value-mutation
 ```
 
-Create a **draft** PR targeting `master`, title `feat: add atomic AcroForm value mutation`, linking #46. Record the exact RED SHA/workflow in PR #47-or-current and issue #46. Keep it draft until Task 11.
+Create a draft PR targeting `master`, title `feat: add atomic AcroForm value mutation`, body linking #46 and both design/plan paths. Record the returned PR number, exact RED source SHA, and workflow run in that draft PR and issue #46. Keep it draft through Task 11.
 
 ---
 
-### Task 2: Remove `pdf_load_page()` from strict form observation
+### Task 2: Make strict form observation raw-page only
 
 **Files:**
 - Modify: `tests/test_pdf_form.c`
@@ -262,24 +251,20 @@ Create a **draft** PR targeting `master`, title `feat: add atomic AcroForm value
 - Modify: `src/pdf_form_widgets.c`
 
 **Interfaces:**
-- Consumes: current immutable `extractpdf_document_form()` behavior.
-- Produces: raw page-object Widget reconciliation using `pdf_lookup_page_obj()` and `pdf_page_obj_transform()`, with no page/annotation runtime entry.
+- Consumes: current immutable `extractpdf_document_form()`.
+- Produces: Widget reconciliation via raw page dictionaries and page-object transform only.
 
-- [ ] **Step 1: Add a read-only byte-preservation regression**
+- [ ] **Step 1: Add the NeedAppearances read-only regression**
 
-Add the NeedAppearances fixture path to the existing form test target and add helpers that compare serialized editor outputs:
+Add this fixture define to the existing `extractpdf_test_pdf_form` target:
+
+```cmake
+ACROFORM_NEED_APPEARANCES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-need-appearances.pdf"
+```
+
+Add:
 
 ```c
-static void output_bytes(const extractpdf_output *o,
-    const unsigned char **data, size_t *size)
-{
-    *data = NULL;
-    *size = 0;
-    CHECK(extractpdf_output_data(o, data, size) == EXTRACTPDF_OK);
-    CHECK(*data != NULL);
-    CHECK(*size != 0);
-}
-
 static extractpdf_output *snapshot_fresh_document(const char *path, int observe_form)
 {
     extractpdf_document *d = NULL;
@@ -290,6 +275,7 @@ static extractpdf_output *snapshot_fresh_document(const char *path, int observe_
     CHECK(extractpdf_open(path, NULL, &d) == EXTRACTPDF_OK);
     if (observe_form) {
         CHECK(extractpdf_document_form(d, &form) == EXTRACTPDF_OK);
+        CHECK(form != NULL);
         extractpdf_drop_form(form);
     }
     CHECK(extractpdf_pdf_edit_begin(d, &edit) == EXTRACTPDF_OK);
@@ -305,11 +291,13 @@ static void test_need_appearances_observation_is_byte_preserving(void)
         ACROFORM_NEED_APPEARANCES_PDF, 0);
     extractpdf_output *after = snapshot_fresh_document(
         ACROFORM_NEED_APPEARANCES_PDF, 1);
-    const unsigned char *a = NULL, *b = NULL;
-    size_t na = 0, nb = 0;
+    const unsigned char *a = NULL;
+    const unsigned char *b = NULL;
+    size_t na = 0;
+    size_t nb = 0;
 
-    output_bytes(before, &a, &na);
-    output_bytes(after, &b, &nb);
+    CHECK(extractpdf_output_data(before, &a, &na) == EXTRACTPDF_OK);
+    CHECK(extractpdf_output_data(after, &b, &nb) == EXTRACTPDF_OK);
     CHECK(na == nb);
     CHECK(memcmp(a, b, na) == 0);
     extractpdf_drop_output(before);
@@ -317,22 +305,28 @@ static void test_need_appearances_observation_is_byte_preserving(void)
 }
 ```
 
-- [ ] **Step 2: Run only the existing form target and verify the regression fails on the old implementation**
+- [ ] **Step 2: Record the forbidden-call RED in source**
 
-Because Task 1 intentionally keeps the new mutation target in compile RED, build/run only the old target:
+Before the refactor:
+
+```bash
+grep -n 'pdf_load_page' src/pdf_form_widgets.c
+```
+
+Required pre-change result: at least one match inside `extractpdf_pdf_form_reconcile_widgets()`.
+
+Build only the old form target while #21 is intentionally compile-RED:
 
 ```bash
 cmake --build build --target extractpdf_test_pdf_form --parallel 2
 ctest --test-dir build -R '^extractpdf\.pdf_form$' --output-on-failure
 ```
 
-Expected before the refactor: byte-preservation fails or otherwise demonstrates that the old `pdf_load_page()` observation path is not an acceptable invariant for NeedAppearances.
+The byte test is retained whether the old implementation visibly changes this fixture or not; the source-level forbidden-call check is the deterministic boundary required by the spec.
 
-If the old implementation happens to produce byte-identical output for this exact fixture, keep the test anyway; the implementation refactor is still required by the approved spec because `pdf_load_page()` enters form runtime by contract.
+- [ ] **Step 3: Replace loaded-page reconciliation with raw page objects**
 
-- [ ] **Step 3: Replace page loading with raw page-object lookup**
-
-In `extractpdf_pdf_form_reconcile_widgets()`, replace the page lifecycle with this shape:
+The page loop must have this complete control shape:
 
 ```c
 for (page_index = 0;
@@ -357,18 +351,58 @@ for (page_index = 0;
 
     for (ai = 0; ai < acount && status == EXTRACTPDF_OK; ++ai) {
         pdf_obj *obj = pdf_array_get(ctx, annots, ai);
-        /* Keep the existing strict Widget identity/P/Rect/F logic. */
-        /* Compare Widget /P to page_obj, not page->obj. */
-        /* Transform Rect with page_ctm. */
+        extractpdf_expected_widget *match;
+        extractpdf_pdf_form_widget_internal widget;
+        pdf_obj *p = NULL;
+        char *state = NULL;
+
+        if (!pdf_is_dict(ctx, obj) || !is_widget(ctx, obj))
+            continue;
+        if (!pdf_is_indirect(ctx, obj)) {
+            status = EXTRACTPDF_ERROR_FORMAT;
+            break;
+        }
+        match = find_expected(
+            expected, expected_count, pdf_to_num(ctx, obj), pdf_to_gen(ctx, obj));
+        if (match == NULL || match->seen != 0) {
+            status = EXTRACTPDF_ERROR_FORMAT;
+            break;
+        }
+        if (extractpdf_pdf_dict_find(ctx, obj, PDF_NAME(P), &p) &&
+            !pdf_is_null(ctx, p) &&
+            pdf_objcmp_resolve(ctx, p, page_obj) != 0) {
+            status = EXTRACTPDF_ERROR_FORMAT;
+            break;
+        }
+
+        memset(&widget, 0, sizeof(widget));
+        widget.field_index = match->field_index;
+        widget.page_index = page_index;
+        widget.button_option_index = SIZE_MAX;
+
+        status = extractpdf_pdf_read_rect_strict(
+            ctx, obj, PDF_NAME(Rect), page_ctm, &widget.bounds);
+        if (status == EXTRACTPDF_OK)
+            status = extractpdf_pdf_read_u32_default(
+                ctx, obj, PDF_NAME(F), 0, &widget.flags);
+        if (status == EXTRACTPDF_OK)
+            status = read_button_state(
+                ctx, obj, model->fields[match->field_index].type, &state);
+        if (status == EXTRACTPDF_OK)
+            status = append_widget(model, &widget, state, &states, &state_capacity);
+        free(state);
+        if (status == EXTRACTPDF_OK)
+            ++match->seen;
     }
 }
 ```
 
-Delete all `pdf_load_page()`, `page->obj`, `pdf_page_transform()`, and `fz_drop_page()` usage from `src/pdf_form_widgets.c`.
+Preserve the existing post-loop `expected[i].seen == 1` validation and button-option materialization.
 
-- [ ] **Step 4: Run all pre-existing tests that can build while #21 remains compile-RED**
+- [ ] **Step 4: Prove the forbidden page-load path is gone and old semantics stay green**
 
 ```bash
+! grep -n 'pdf_load_page' src/pdf_form_widgets.c
 cmake --build build --target \
   extractpdf_test_pdf_annotations \
   extractpdf_test_pdf_annotation_mutation \
@@ -376,7 +410,7 @@ cmake --build build --target \
 ctest --test-dir build -R 'extractpdf\.(pdf_annotations|pdf_annotation_mutation|pdf_form)$' --output-on-failure
 ```
 
-Expected: all selected existing tests pass; the NeedAppearances observation check is byte-identical.
+Required: grep has no match and all selected tests pass.
 
 - [ ] **Step 5: Commit**
 
@@ -387,7 +421,7 @@ git commit -m "refactor: make form observation raw-page only"
 
 ---
 
-### Task 3: Public ABI, reusable editor snapshots, live provenance, and form refs
+### Task 3: Add public ABI, reusable editor snapshots, live provenance, and form refs
 
 **Files:**
 - Create: `src/pdf_edit_forms.c`
@@ -402,21 +436,12 @@ git commit -m "refactor: make form observation raw-page only"
 - Modify: `tests/test_pdf_form_mutation.c`
 
 **Interfaces:**
-- Produces public:
-  - `extractpdf_form_field_ref`
-  - `extractpdf_form_value_input`
-  - `extractpdf_form_value_update`
-  - `extractpdf_pdf_edit_form_snapshot()`
-  - `extractpdf_pdf_edit_form_field_ref_at()`
-  - `extractpdf_pdf_edit_form_set_values()` (minimal unsupported mutation shell only in this task)
-- Produces private:
-  - `extractpdf_pdf_form_provenance`
-  - current-form build/drop helpers
-  - form-ref registry resolver used by later tasks.
+- Public output: approved types and three editor form functions.
+- Private output: `extractpdf_pdf_form_provenance`, reusable PDF-to-form builder, form-ref register/resolve functions.
 
-- [ ] **Step 1: Add failing identity/discovery tests before production changes**
+- [ ] **Step 1: Add failing editor snapshot/ref tests first**
 
-Extend `tests/test_pdf_form_mutation.c` with:
+Add:
 
 ```c
 static void test_editor_snapshot_and_refs(void)
@@ -435,7 +460,6 @@ static void test_editor_snapshot_and_refs(void)
     extractpdf_close(d);
 
     CHECK(extractpdf_pdf_edit_form_snapshot(edit, &a) == EXTRACTPDF_OK);
-    CHECK(a != NULL);
     CHECK(extractpdf_form_field_count(a, &count) == EXTRACTPDF_OK);
     CHECK(count == 4);
 
@@ -447,6 +471,7 @@ static void test_editor_snapshot_and_refs(void)
 
     CHECK(extractpdf_pdf_edit_form_snapshot(edit, &b) == EXTRACTPDF_OK);
     extractpdf_drop_pdf_edit(edit);
+
     CHECK(extractpdf_form_field_count(a, &count) == EXTRACTPDF_OK);
     CHECK(count == 4);
     CHECK(extractpdf_form_field_count(b, &count) == EXTRACTPDF_OK);
@@ -456,13 +481,20 @@ static void test_editor_snapshot_and_refs(void)
 }
 ```
 
-Also test zero-reset on bad output/ref arguments and direct-field repeated discovery using `FORM_MUTATION_DIRECT_FIELD_PDF`.
+Also assert:
 
-Run the new target; expected failure is still absent ABI/linkage.
+```c
+CHECK(extractpdf_pdf_edit_form_snapshot(NULL, &a) == EXTRACTPDF_ERROR_ARGUMENT);
+CHECK(a == NULL);
+memset(&r0, 0xA5, sizeof(r0));
+CHECK(extractpdf_pdf_edit_form_field_ref_at(edit, SIZE_MAX, &r0) ==
+    EXTRACTPDF_ERROR_ARGUMENT);
+CHECK(r0.opaque[0] == 0 && r0.opaque[1] == 0);
+```
+
+Run the new target and record its current absent-ABI/link failure before production edits.
 
 - [ ] **Step 2: Add the exact public ABI**
-
-In `include/extractpdf/extractpdf.h`, add exactly:
 
 ```c
 typedef struct extractpdf_form_field_ref {
@@ -499,23 +531,23 @@ EXTRACTPDF_API extractpdf_status extractpdf_pdf_edit_form_set_values(
     const extractpdf_form_value_update *update);
 ```
 
-Do not add live editor getters, Widget refs, option refs, clear/reset APIs, or mutation flags.
+Do not add editor-specific live getters, Widget refs, option refs, reset, or clear APIs.
 
-- [ ] **Step 3: Define optional private provenance**
+- [ ] **Step 3: Define optional live provenance**
 
-In `src/pdf_form_common.h`, add focused live-only structures:
+In `src/pdf_form_common.h`:
 
 ```c
 typedef struct extractpdf_pdf_form_live_widget {
-    pdf_obj *object;      /* kept by provenance */
+    pdf_obj *object;
     int page_index;
 } extractpdf_pdf_form_live_widget;
 
 typedef struct extractpdf_pdf_form_live_field {
-    pdf_obj *group_head;  /* kept by provenance */
-    pdf_obj **group_nodes;/* each kept */
+    pdf_obj *group_head;
+    pdf_obj **group_nodes;
     size_t group_node_count;
-    pdf_obj *effective_v_owner; /* kept when present */
+    pdf_obj *effective_v_owner;
     int effective_v_present;
     extractpdf_pdf_form_live_widget *widgets;
     size_t widget_count;
@@ -541,67 +573,76 @@ int extractpdf_pdf_form_same_identity(
     fz_context *ctx,
     pdf_obj *left,
     pdf_obj *right);
+
+extractpdf_status extractpdf_pdf_form_snapshot_from_pdf(
+    fz_context *ctx,
+    pdf_document *document,
+    extractpdf_form **out_form);
 ```
 
-Make the existing identity helper non-static rather than duplicating indirect/direct comparison logic.
+Make the existing indirect-num/gen-or-direct-pointer identity helper non-static; do not introduce a second identity relation.
 
-- [ ] **Step 4: Build provenance from the validated graph, not from a second permissive traversal**
+- [ ] **Step 4: Populate provenance from the validated graph before transient state is freed**
 
-In `src/pdf_form_common.c`, while validated transient `nodes[]` and `groups[]` still exist:
+For each public terminal group:
 
 ```c
-/* For each public terminal field: */
-live->group_head = pdf_keep_obj(ctx, state->nodes[group->head_node].object);
+live->group_head = pdf_keep_obj(
+    state->ctx, state->nodes[group->head_node].object);
 
-/* Append every validated node whose group_index == group_index. */
-live->group_nodes[live->group_node_count++] =
-    pdf_keep_obj(ctx, state->nodes[node_index].object);
+for (node_index = 0; node_index < state->node_count; ++node_index) {
+    if (state->nodes[node_index].group_index != group_index)
+        continue;
+    live->group_nodes[live->group_node_count++] = pdf_keep_obj(
+        state->ctx, state->nodes[node_index].object);
+}
 
-/* Resolve effective /V through the validated parent graph only. */
 effective = extractpdf_pdf_form_effective_value(
     state, group->head_node, PDF_NAME(V));
 if (effective.present) {
     live->effective_v_present = 1;
-    live->effective_v_owner =
-        pdf_keep_obj(ctx, state->nodes[effective.owner_node].object);
+    live->effective_v_owner = pdf_keep_obj(
+        state->ctx, state->nodes[effective.owner_node].object);
 }
 ```
 
-Do not use `pdf_dict_get_inheritable()` as provenance authority.
+Allocate `group_nodes` to the exact validated node count for that group. On any allocation/keep failure, drop the whole unpublished provenance and return the mapped error.
 
-- [ ] **Step 5: Capture raw Widget provenance during existing strict reconciliation**
+- [ ] **Step 5: Capture Widget provenance only after each Widget passes strict reconciliation**
 
-When a Widget has passed every current reconciliation check and `widget.field_index` is known:
-
-```c
-if (provenance != NULL) {
-    extractpdf_pdf_form_live_field *live =
-        &provenance->fields[widget.field_index];
-    /* grow live->widgets */
-    live->widgets[live->widget_count].object = pdf_keep_obj(ctx, obj);
-    live->widgets[live->widget_count].page_index = page_index;
-    ++live->widget_count;
-}
-```
-
-Provenance Widget order must match the public global Widget order restricted to that field.
-
-- [ ] **Step 6: Factor one reusable internal snapshot builder**
-
-In `src/pdf_form.c`, define an internal helper declared in `pdf_form_common.h`:
+When the public `widget.field_index` is known and the Widget has passed indirect identity, page uniqueness, `/P`, Rect, and F validation:
 
 ```c
-extractpdf_status extractpdf_pdf_form_snapshot_from_pdf(
-    fz_context *ctx,
-    pdf_document *pdf,
-    extractpdf_form **out_form);
+extractpdf_pdf_form_live_field *live =
+    &provenance->fields[widget.field_index];
+extractpdf_pdf_form_live_widget *grown = realloc(
+    live->widgets,
+    (live->widget_count + 1) * sizeof(*live->widgets));
+if (grown == NULL)
+    return EXTRACTPDF_ERROR_NOMEM;
+live->widgets = grown;
+live->widgets[live->widget_count].object = pdf_keep_obj(ctx, obj);
+live->widgets[live->widget_count].page_index = page_index;
+++live->widget_count;
 ```
 
-Its body runs `extractpdf_pdf_form_build(..., 0, ...)`, wraps the resulting model in `extractpdf_form`, and applies the same atomic publication rules as current `extractpdf_document_form()`.
+Because reconciliation scans page order then raw `/Annots`, each field's provenance Widget sequence is the public global Widget sequence filtered to that field.
 
-Then make public `extractpdf_document_form()` only validate/obtain the PDF document and delegate to this helper. This guarantees editor and document snapshots cannot drift semantically.
+- [ ] **Step 6: Factor one reusable immutable snapshot builder**
 
-- [ ] **Step 7: Add a separate form-ref registry to the editor**
+`extractpdf_pdf_form_snapshot_from_pdf()` must:
+
+```text
+reset *out_form = NULL
+call extractpdf_pdf_form_build(ctx, document, 0, &model, NULL)
+allocate extractpdf_form
+attach model
+publish only after all steps succeed
+```
+
+Make `extractpdf_document_form()` validate/obtain `pdf_document *` and delegate to it. `extractpdf_pdf_edit_form_snapshot()` calls the same helper against `edit->document`.
+
+- [ ] **Step 7: Add a separate form-ref registry**
 
 In `src/pdf_edit_internal.h`:
 
@@ -610,56 +651,67 @@ typedef struct extractpdf_pdf_edit_form_entry {
     pdf_obj *group_head;
     uint32_t tag;
 } extractpdf_pdf_edit_form_entry;
-
-struct extractpdf_pdf_edit {
-    /* existing fields unchanged */
-    extractpdf_pdf_edit_form_entry *form_entries;
-    size_t form_entry_count;
-    size_t form_entry_capacity;
-};
 ```
 
-Use a form-domain constant different from annotation-token construction, e.g.:
+Add to `extractpdf_pdf_edit`:
+
+```c
+extractpdf_pdf_edit_form_entry *form_entries;
+size_t form_entry_count;
+size_t form_entry_capacity;
+```
+
+Use:
 
 ```c
 #define EXTRACTPDF_FORM_REF_DOMAIN UINT64_C(0x464f524d5f524546)
 ```
 
-Form token rules:
+Token encoding:
 
 ```c
 out_ref->opaque[0] = edit->session_cookie ^ EXTRACTPDF_FORM_REF_DOMAIN;
-out_ref->opaque[1] = ((uint64_t)entry->tag << 32) | (uint64_t)(slot + 1);
+out_ref->opaque[1] =
+    ((uint64_t)entry->tag << 32) | (uint64_t)(slot + 1);
 ```
 
-Derive `tag` from `session_cookie ^ EXTRACTPDF_FORM_REF_DOMAIN ^ (slot + 1)` through the same mix function family, never the annotation domain.
+Tag derivation must include `EXTRACTPDF_FORM_REF_DOMAIN`, so a bitwise annotation ref fails form-token validation even when its slot number matches.
 
-- [ ] **Step 8: Implement snapshot/ref public functions and a minimal setter shell**
+- [ ] **Step 8: Implement editor snapshot/ref and minimal setter shell**
 
-`src/pdf_edit_forms.c` must:
+`extractpdf_pdf_edit_form_snapshot()`:
 
 ```c
-extractpdf_status extractpdf_pdf_edit_form_snapshot(
+if (out_form == NULL)
+    return EXTRACTPDF_ERROR_ARGUMENT;
+*out_form = NULL;
+if (edit == NULL || edit->ctx == NULL || edit->document == NULL)
+    return EXTRACTPDF_ERROR_ARGUMENT;
+return extractpdf_pdf_form_snapshot_from_pdf(
+    edit->ctx, edit->document, out_form);
+```
+
+`field_ref_at()` must zero output, build current form with provenance, bounds-check index, register/reuse `group_head`, then drop model/provenance.
+
+For this task only, the setter is:
+
+```c
+extractpdf_status extractpdf_pdf_edit_form_set_values(
     extractpdf_pdf_edit *edit,
-    extractpdf_form **out_form)
+    const extractpdf_form_field_ref *ref,
+    const extractpdf_form_value_update *update)
 {
-    if (out_form == NULL)
+    if (edit == NULL || ref == NULL || update == NULL)
         return EXTRACTPDF_ERROR_ARGUMENT;
-    *out_form = NULL;
-    if (edit == NULL || edit->ctx == NULL || edit->document == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
-    return extractpdf_pdf_form_snapshot_from_pdf(
-        edit->ctx, edit->document, out_form);
+    return EXTRACTPDF_ERROR_UNSUPPORTED;
 }
 ```
 
-For `field_ref_at()`: zero output first, build current form with provenance, bounds-check `field_index`, register/reuse `provenance->fields[field_index].group_head`, drop model/provenance, and return the stable token.
+Tasks 4-8 replace this shell; do not implement value writes in Task 3.
 
-For this task only, `extractpdf_pdf_edit_form_set_values()` may return `EXTRACTPDF_ERROR_UNSUPPORTED` after null argument checks; Tasks 4-8 replace that shell incrementally. Do not add semantic mutation yet.
+- [ ] **Step 9: Dispose retained form entries**
 
-- [ ] **Step 9: Dispose retained form identities**
-
-In `extractpdf_dispose_pdf_edit()`:
+Before dropping `edit->document`:
 
 ```c
 for (index = 0; index < edit->form_entry_count; ++index)
@@ -667,16 +719,14 @@ for (index = 0; index < edit->form_entry_count; ++index)
 free(edit->form_entries);
 ```
 
-Keep annotation registry disposal unchanged.
-
-- [ ] **Step 10: Build and run identity/discovery tests**
+- [ ] **Step 10: Run identity/discovery tests**
 
 ```bash
 cmake --build build --target extractpdf_test_pdf_form_mutation --parallel 2
 ctest --test-dir build -R '^extractpdf\.pdf_form_mutation$' --output-on-failure
 ```
 
-Expected: compile succeeds; snapshot/ref tests pass; no successful setter is asserted yet.
+Expected: compile succeeds and all snapshot/ref assertions pass.
 
 - [ ] **Step 11: Commit**
 
@@ -690,7 +740,7 @@ git commit -m "feat: add editor AcroForm snapshots and field refs"
 
 ---
 
-### Task 4: MuPDF Widget-wrapper page-load safety gate — mandatory STOP checkpoint
+### Task 4: Prove MuPDF Widget-wrapper preparation is byte-preserving
 
 **Files:**
 - Create: `src/pdf_edit_form_widgets.c`
@@ -701,13 +751,13 @@ git commit -m "feat: add editor AcroForm snapshots and field refs"
 - Modify: `tests/test_pdf_form_mutation.c`
 
 **Interfaces:**
-- Produces private `extractpdf_pdf_edit_form_widget_handles` preparation/drop helpers.
-- Produces test-only fault `EXTRACTPDF_TEST_PDF_EDIT_FAULT_FORM_AFTER_WIDGET_PREPARE`.
-- Does **not** yet perform a successful semantic mutation.
+- Produces private Widget-handle prepare/drop functions.
+- Produces fault `FORM_AFTER_WIDGET_PREPARE`.
+- Does not yet produce a successful Widget-backed mutation.
 
-- [ ] **Step 1: Add the byte-preserving safety test**
+- [ ] **Step 1: Add reusable output-copy and field-ref-by-name test helpers**
 
-Add an output-copy helper and this test shape:
+After Task 3 APIs exist:
 
 ```c
 static void copy_editor_output(
@@ -723,6 +773,7 @@ static void copy_editor_output(
     *out_size = 0;
     CHECK(extractpdf_pdf_edit_snapshot(edit, &out) == EXTRACTPDF_OK);
     CHECK(extractpdf_output_data(out, &data, &size) == EXTRACTPDF_OK);
+    CHECK(size != 0);
     *out_data = malloc(size);
     CHECK(*out_data != NULL);
     memcpy(*out_data, data, size);
@@ -730,38 +781,102 @@ static void copy_editor_output(
     extractpdf_drop_output(out);
 }
 
-static void test_widget_prepare_is_byte_preserving(void)
+static extractpdf_form_field_ref field_ref_by_name(
+    extractpdf_pdf_edit *edit,
+    const char *wanted)
 {
-    /* Open FORM_MUTATION_BASIC_PDF, discover the Widget-backed Text ref. */
-    /* Copy editor bytes to before. */
-    /* Set FORM_AFTER_WIDGET_PREPARE fault. */
-    /* Call set_values() with a valid changed Text value. */
-    /* Expect EXTRACTPDF_ERROR_MUPDF. */
-    /* Copy editor bytes to after. */
-    /* Assert same size + memcmp == 0. */
+    extractpdf_form *form = NULL;
+    extractpdf_form_field_ref ref = {{0, 0}};
+    size_t count = 0;
+    size_t i;
+
+    CHECK(extractpdf_pdf_edit_form_snapshot(edit, &form) == EXTRACTPDF_OK);
+    CHECK(extractpdf_form_field_count(form, &count) == EXTRACTPDF_OK);
+    for (i = 0; i < count; ++i) {
+        const char *name = NULL;
+        size_t size = 0;
+        CHECK(extractpdf_form_field_name(form, i, &name, &size) == EXTRACTPDF_OK);
+        if (name != NULL && size == strlen(wanted) &&
+            memcmp(name, wanted, size) == 0) {
+            CHECK(extractpdf_pdf_edit_form_field_ref_at(edit, i, &ref) == EXTRACTPDF_OK);
+            extractpdf_drop_form(form);
+            return ref;
+        }
+    }
+    extractpdf_drop_form(form);
+    CHECK(0);
+    return ref;
 }
 ```
 
-The fixture must include a stable pre-existing Text AP marker and at least one unrelated Widget on the same page so a page-wide resynthesis would be observable.
+- [ ] **Step 2: Add the safety-gate test before the helper implementation**
 
-- [ ] **Step 2: Add the test-only fault ID**
+```c
+static void test_widget_prepare_is_byte_preserving(void)
+{
+    extractpdf_document *d = NULL;
+    extractpdf_pdf_edit *edit = NULL;
+    extractpdf_form_field_ref ref;
+    extractpdf_form_value_input value = {0};
+    extractpdf_form_value_update update = {0};
+    unsigned char *before = NULL;
+    unsigned char *after = NULL;
+    size_t before_size = 0;
+    size_t after_size = 0;
 
-In `tests/pdf_edit_test_api.h` and matching internal test enum:
+    CHECK(extractpdf_open(FORM_MUTATION_BASIC_PDF, NULL, &d) == EXTRACTPDF_OK);
+    CHECK(extractpdf_pdf_edit_begin(d, &edit) == EXTRACTPDF_OK);
+    extractpdf_close(d);
+    ref = field_ref_by_name(edit, "textWidget");
+
+    value.struct_size = sizeof(value);
+    value.kind = EXTRACTPDF_FORM_VALUE_UTF8;
+    value.option_index = SIZE_MAX;
+    value.utf8 = "new-text";
+    value.utf8_size = 8;
+    update.struct_size = sizeof(update);
+    update.presence = EXTRACTPDF_FORM_VALUE_PRESENT;
+    update.values = &value;
+    update.value_count = 1;
+
+    copy_editor_output(edit, &before, &before_size);
+    extractpdf_test_pdf_edit_set_fault(
+        edit,
+        EXTRACTPDF_TEST_PDF_EDIT_FAULT_FORM_AFTER_WIDGET_PREPARE);
+    CHECK(extractpdf_pdf_edit_form_set_values(edit, &ref, &update) ==
+        EXTRACTPDF_ERROR_MUPDF);
+    copy_editor_output(edit, &after, &after_size);
+    CHECK(before_size == after_size);
+    CHECK(memcmp(before, after, before_size) == 0);
+
+    free(before);
+    free(after);
+    extractpdf_drop_pdf_edit(edit);
+}
+```
+
+- [ ] **Step 3: Add fault ID 4 without renumbering existing Annotation Mutation IDs**
+
+Test API:
 
 ```c
 EXTRACTPDF_TEST_PDF_EDIT_FAULT_FORM_AFTER_WIDGET_PREPARE = 4
 ```
 
-Keep numeric values 1-3 unchanged for Annotation Mutation tests.
+Internal enum:
 
-- [ ] **Step 3: Implement exact Widget-wrapper preparation by raw provenance identity**
+```c
+EXTRACTPDF_PDF_EDIT_TEST_FAULT_FORM_AFTER_WIDGET_PREPARE = 4
+```
+
+- [ ] **Step 4: Implement exact Widget-wrapper preparation**
 
 Private structures:
 
 ```c
 typedef struct extractpdf_pdf_edit_form_widget_handle {
-    pdf_page *page;   /* owned by handle set */
-    pdf_annot *widget;/* borrowed from page */
+    pdf_page *page;
+    pdf_annot *widget;
     int previous_editing;
 } extractpdf_pdf_edit_form_widget_handle;
 
@@ -771,66 +886,69 @@ typedef struct extractpdf_pdf_edit_form_widget_handles {
 } extractpdf_pdf_edit_form_widget_handles;
 ```
 
-Preparation algorithm:
-
-```text
-for each unique page_index in live_field.widgets:
-    pdf_load_page(edit->ctx, edit->document, page_index) exactly once
-    scan pdf_first_widget()/pdf_next_widget()
-    match raw Widget object by extractpdf_pdf_form_same_identity()
-    retain page until the whole public setter returns
-require every provenance Widget to resolve exactly once
-```
-
-Do not call `pdf_update_page()` explicitly. Do not begin a journal operation in preparation.
-
-- [ ] **Step 4: Wire only the injected pre-operation path into the setter shell**
-
-For a syntactically valid Text update on a field with Widgets:
+Preparation must group target provenance Widgets by page index so each target page is loaded exactly once. For one page:
 
 ```c
-status = extractpdf_pdf_edit_form_prepare_widget_handles(
-    edit, live_field, &handles);
-if (status != EXTRACTPDF_OK)
-    return status;
+page = pdf_load_page(edit->ctx, edit->document, page_index);
+for (widget = pdf_first_widget(edit->ctx, page);
+     widget != NULL;
+     widget = pdf_next_widget(edit->ctx, widget)) {
+    pdf_obj *candidate = pdf_annot_obj(edit->ctx, widget);
+    for (target = 0; target < live->widget_count; ++target) {
+        if (live->widgets[target].page_index != page_index)
+            continue;
+        if (!extractpdf_pdf_form_same_identity(
+                edit->ctx, candidate, live->widgets[target].object))
+            continue;
+        /* Store this borrowed widget with the owned page exactly once. */
+    }
+}
+```
 
+Require every target Widget to resolve exactly once. Drop every owned page in `extractpdf_pdf_edit_form_drop_widget_handles()`.
+
+- [ ] **Step 5: Wire only the injected preparatory path**
+
+The setter shell must validate the form ref, build current model/provenance, locate the current field, and for a syntactically valid Widget-backed Text update call prepare. Immediately after successful preparation:
+
+```c
 #if defined(EXTRACTPDF_TESTING)
 if (edit->test_fault ==
     EXTRACTPDF_PDF_EDIT_TEST_FAULT_FORM_AFTER_WIDGET_PREPARE) {
     edit->test_fault = EXTRACTPDF_PDF_EDIT_TEST_FAULT_NONE;
     extractpdf_pdf_edit_form_drop_widget_handles(edit, &handles);
+    extractpdf_pdf_form_drop_provenance(edit->ctx, provenance);
+    extractpdf_pdf_form_drop_model(model);
     return EXTRACTPDF_ERROR_MUPDF;
 }
 #endif
-
-extractpdf_pdf_edit_form_drop_widget_handles(edit, &handles);
-return EXTRACTPDF_ERROR_UNSUPPORTED; /* successful mutation comes later */
 ```
 
-The normal non-fault path still being unsupported is intentional for this gate only.
+Without the injected fault, return `EXTRACTPDF_ERROR_UNSUPPORTED` in Task 4; successful mutation begins in Task 5.
 
-- [ ] **Step 5: Run the safety test and STOP on any byte change**
+- [ ] **Step 6: Run the mandatory STOP gate**
 
 ```bash
 cmake --build build --target extractpdf_test_pdf_form_mutation --parallel 2
 ctest --test-dir build -R '^extractpdf\.pdf_form_mutation$' --output-on-failure
 ```
 
-Required result: the injected failure returns with byte-identical editor output.
+Required: injected failure returns with byte-identical output.
 
-**STOP condition:** if preparing Widget wrappers changes PDF bytes, an unrelated field, an AP marker, or any sentinel on pinned MuPDF 1.28.2, stop implementation here and return to the design. Do not attempt to hide the mutation with extra rollback, do not call private MuPDF internals, and do not weaken the no-execution contract.
+**STOP:** any byte change, sentinel change, or unrelated AP change during Widget preparation invalidates the approved design for pinned MuPDF 1.28.2. Do not hide it with an extra outer journal or private MuPDF struct construction.
 
-- [ ] **Step 6: Commit only if the gate passes**
+- [ ] **Step 7: Commit only if the gate passes**
 
 ```bash
 git add CMakeLists.txt src/pdf_edit_form_widgets.c src/pdf_edit_internal.h \
-  tests/pdf_edit_test_api.h tests/pdf_edit_fault_hook.c tests/test_pdf_form_mutation.c
+  src/pdf_edit_forms.c tests/pdf_edit_test_api.h tests/pdf_edit_fault_hook.c \
+  tests/test_pdf_form_mutation.c
 git commit -m "test: prove safe form Widget preparation"
 ```
 
 ---
 
-### Task 5: Typed validation, mutation preflight, Text semantics, group ownership, and no-op
+### Task 5: Add typed validation, mutation preflight, Text semantics, group ownership, and no-op
 
 **Files:**
 - Create: `src/pdf_edit_form_values.c`
@@ -840,72 +958,39 @@ git commit -m "test: prove safe form Widget preparation"
 - Modify: `tests/test_pdf_form_mutation.c`
 
 **Interfaces:**
-- Produces private `extractpdf_pdf_edit_form_assignment`.
-- Produces validation/no-op/canonical-write helpers used by Button and Choice tasks.
-- Makes `set_values()` fully support zero-Widget Text fields and all mutation document/error-preflight rules.
+- Produces `extractpdf_pdf_edit_form_assignment` plus validate/equal/write helpers.
+- Makes `set_values()` fully support Text, including zero-Widget and Widget-backed Text; Widget AP refresh itself remains Task 8, so Task 5 success cases use zero-Widget Text only.
 
-- [ ] **Step 1: Add failing Text/preflight/error-precedence tests**
+- [ ] **Step 1: Add failing Text, preflight, inheritance, and error-precedence tests**
 
-Add helpers that construct UTF8 and MISSING updates:
-
-```c
-static extractpdf_form_value_update text_update(
-    extractpdf_form_value_input *value,
-    const char *text,
-    size_t size)
-{
-    extractpdf_form_value_update update = {0};
-    memset(value, 0, sizeof(*value));
-    value->struct_size = sizeof(*value);
-    value->kind = EXTRACTPDF_FORM_VALUE_UTF8;
-    value->option_index = SIZE_MAX;
-    value->utf8 = text;
-    value->utf8_size = size;
-    update.struct_size = sizeof(update);
-    update.presence = EXTRACTPDF_FORM_VALUE_PRESENT;
-    update.values = value;
-    update.value_count = 1;
-    return update;
-}
-
-static extractpdf_form_value_update missing_update(void)
-{
-    extractpdf_form_value_update update = {0};
-    update.struct_size = sizeof(update);
-    update.presence = EXTRACTPDF_FORM_VALUE_MISSING;
-    return update;
-}
-```
-
-Lock these assertions before implementation:
+Add exact assertions for:
 
 ```text
-zero-Widget Text missing -> "alpha" -> MISSING
-present-empty distinct from MISSING
-valid UTF-8 round-trips
+zero-Widget Text MISSING -> alpha -> MISSING
+empty text distinct from MISSING
+valid UTF-8 round-trip
 invalid UTF-8 -> ARGUMENT
 embedded NUL -> ARGUMENT
-too-small update/value structs -> ARGUMENT
 NOT_APPLICABLE input -> ARGUMENT
+too-small outer/nested struct -> ARGUMENT
 XFA -> UNSUPPORTED
 NeedAppearances true -> UNSUPPORTED
-malformed NeedAppearances -> FORMAT
+non-Boolean NeedAppearances -> FORMAT
 RichText/FileSelect -> UNSUPPORTED
 PushButton/Signature/UNKNOWN -> UNSUPPORTED
-ReadOnly + valid Text command -> STATE
-ReadOnly + structurally invalid Text command -> ARGUMENT
-Required and NoExport do not block mutation
-same-group descendant /V overrides removed after success
-external inherited /V: PRESENT override works; MISSING -> UNSUPPORTED
-sibling value remains unchanged
-same Text value is byte-identical no-op
+ReadOnly + valid Text update -> STATE
+ReadOnly + invalid cardinality -> ARGUMENT
+Required and NoExport allow valid assignment
+same-group descendant /V overrides removed
+external inherited /V PRESENT override works
+external inherited /V MISSING -> UNSUPPORTED
+sibling remains unchanged
+same Text value -> byte-identical no-op
 ```
 
-Use `extractpdf_pdf_edit_form_snapshot()` and reopen through `extractpdf_pdf_edit_snapshot()` + `extractpdf_document_form()` as the primary oracle.
+Primary oracle for every success: editor form snapshot, `pdf_edit_snapshot()`, reopen, `extractpdf_document_form()`.
 
-- [ ] **Step 2: Define the normalized private assignment**
-
-In `src/pdf_edit_internal.h`:
+- [ ] **Step 2: Define the owned normalized assignment**
 
 ```c
 typedef struct extractpdf_pdf_edit_form_assignment {
@@ -918,138 +1003,160 @@ typedef struct extractpdf_pdf_edit_form_assignment {
 } extractpdf_pdf_edit_form_assignment;
 ```
 
-Provide drop/reset helpers that free only ExtractPDF-owned copies.
+`extractpdf_pdf_edit_form_assignment_drop()` frees `utf8` and `option_indices` and zeroes the struct.
 
-- [ ] **Step 3: Implement generic public-input validation exactly once**
+- [ ] **Step 3: Implement strict generic input validation**
 
-`src/pdf_edit_form_values.c` must validate in this order:
-
-```text
-update pointer and minimum struct_size
-presence is MISSING or PRESENT
-value_count/pointer relationship
-each nested minimum struct_size
-known value kind
-UTF8 pointer/non-NUL/strict UTF-8/option_index == SIZE_MAX
-OPTION has utf8 == NULL, utf8_size == 0
-field-specific option-index bounds/cardinality/type rules
-unsupported field mode
-ReadOnly
-external inherited missing boundary
-```
-
-Copy UTF-8 bytes and OPTION index arrays before journal mutation.
-
-- [ ] **Step 4: Implement strict mutation-document preflight before no-op detection**
-
-Read raw AcroForm dictionary keys without invoking form runtime:
+Minimum sizes:
 
 ```c
-/* XFA */
-if (extractpdf_pdf_dict_find(ctx, acroform, PDF_NAME(XFA), &obj))
+const size_t value_min =
+    offsetof(extractpdf_form_value_input, utf8_size) + sizeof(value->utf8_size);
+const size_t update_min =
+    offsetof(extractpdf_form_value_update, value_count) + sizeof(update->value_count);
+```
+
+Validation sequence:
+
+```text
+pointer/minimum size
+presence is exactly MISSING or PRESENT
+value_count/pointer relationship
+nested minimum size
+kind is UTF8 or OPTION
+UTF8: non-NULL pointer, strict UTF-8, no embedded NUL, option_index == SIZE_MAX
+OPTION: utf8 == NULL, utf8_size == 0
+field-specific cardinality and option-index range
+unsupported field mode
+ReadOnly
+external inherited MISSING boundary
+```
+
+Copy UTF8 bytes and OPTION indices before entering journal mutation.
+
+- [ ] **Step 4: Implement mutation-only raw AcroForm preflight**
+
+```c
+pdf_obj *root = pdf_dict_get(edit->ctx,
+    pdf_trailer(edit->ctx, edit->document), PDF_NAME(Root));
+pdf_obj *acroform = pdf_dict_get(edit->ctx, root, PDF_NAME(AcroForm));
+pdf_obj *obj = NULL;
+
+if (pdf_is_dict(edit->ctx, acroform) &&
+    extractpdf_pdf_dict_find(edit->ctx, acroform, PDF_NAME(XFA), &obj))
     return EXTRACTPDF_ERROR_UNSUPPORTED;
 
-/* NeedAppearances */
-if (extractpdf_pdf_dict_find(
-        ctx, acroform, PDF_NAME(NeedAppearances), &obj)) {
-    if (!pdf_is_bool(ctx, obj))
+if (pdf_is_dict(edit->ctx, acroform) &&
+    extractpdf_pdf_dict_find(
+        edit->ctx, acroform, PDF_NAME(NeedAppearances), &obj)) {
+    if (!pdf_is_bool(edit->ctx, obj))
         return EXTRACTPDF_ERROR_FORMAT;
-    if (pdf_to_bool(ctx, obj))
+    if (pdf_to_bool(edit->ctx, obj))
         return EXTRACTPDF_ERROR_UNSUPPORTED;
 }
 ```
 
-Do not silently coerce integer/string values to Boolean.
+Run this after strict parse/ref resolution and before no-op detection.
 
-- [ ] **Step 5: Resolve a ref against the current strict provenance**
+- [ ] **Step 5: Resolve a valid ref against current strict provenance**
 
-Never mutate directly through the registry's retained pointer without validating current structure. Each setter must:
+Each setter call must:
 
 ```text
-validate token -> registry entry
-build current model + provenance strictly
-find exactly one current public field whose group_head identity matches registry entry
-use that current model/provenance for all validation and writes
+validate form token -> registry entry
+extractpdf_pdf_form_build(..., want_provenance=1)
+find exactly one current field whose provenance.group_head matches entry.group_head
+use current model/provenance only
 ```
 
-If the current field cannot be found despite a valid token, return `EXTRACTPDF_ERROR_STATE` and publish no mutation.
+If a structurally valid token no longer maps to a current field, return `STATE` without mutation.
 
-- [ ] **Step 6: Implement semantic equality for no-op**
-
-For Text:
+- [ ] **Step 6: Implement Text no-op comparison**
 
 ```c
-if (requested.presence == EXTRACTPDF_FORM_VALUE_MISSING)
+if (assignment->presence == EXTRACTPDF_FORM_VALUE_MISSING) {
     equal = field->value_presence == EXTRACTPDF_FORM_VALUE_MISSING;
-else
+} else {
+    const extractpdf_pdf_form_value_internal *current =
+        &model->values[field->first_value];
+    const char *current_text = model->strings + current->utf8.offset;
     equal = field->value_presence == EXTRACTPDF_FORM_VALUE_PRESENT &&
         field->value_count == 1 &&
-        model->values[field->first_value].kind == EXTRACTPDF_FORM_VALUE_UTF8 &&
-        model->values[field->first_value].utf8.size == assignment->utf8_size &&
-        memcmp(model_string, assignment->utf8, assignment->utf8_size) == 0;
+        current->kind == EXTRACTPDF_FORM_VALUE_UTF8 &&
+        current->utf8.size == assignment->utf8_size &&
+        memcmp(current_text, assignment->utf8, assignment->utf8_size) == 0;
+}
 ```
 
-Do not inspect/repair `/AS` or `/AP` during no-op comparison.
+No-op returns before Widget preparation and before `pdf_begin_operation()`.
 
-- [ ] **Step 7: Implement group-local ownership helpers**
-
-Private helpers:
+- [ ] **Step 7: Implement group membership and canonical Text writes**
 
 ```c
-int extractpdf_pdf_edit_form_live_contains_node(
+static int live_contains(
     fz_context *ctx,
     const extractpdf_pdf_form_live_field *live,
-    pdf_obj *object);
-
-void extractpdf_pdf_edit_form_delete_group_key(
-    fz_context *ctx,
-    const extractpdf_pdf_form_live_field *live,
-    pdf_obj *key,
-    int keep_group_head);
+    pdf_obj *object)
+{
+    size_t i;
+    for (i = 0; i < live->group_node_count; ++i)
+        if (extractpdf_pdf_form_same_identity(ctx, live->group_nodes[i], object))
+            return 1;
+    return 0;
+}
 ```
 
-For successful Text PRESENT:
+PRESENT:
 
 ```c
-pdf_dict_put_text_string(ctx, live->group_head, PDF_NAME(V), assignment->utf8);
-for each same-group descendant other than group_head:
-    pdf_dict_del(ctx, node, PDF_NAME(V));
+pdf_dict_put_text_string(
+    edit->ctx, live->group_head, PDF_NAME(V), assignment->utf8);
+for (i = 0; i < live->group_node_count; ++i)
+    if (!extractpdf_pdf_form_same_identity(
+            edit->ctx, live->group_nodes[i], live->group_head))
+        pdf_dict_del(edit->ctx, live->group_nodes[i], PDF_NAME(V));
 ```
 
-For MISSING, first reject external `effective_v_owner`; then delete `/V` from every same-group node including head.
+MISSING:
 
-- [ ] **Step 8: Make zero-Widget Text mutation one journal operation**
+```c
+if (live->effective_v_present &&
+    !live_contains(edit->ctx, live, live->effective_v_owner))
+    return EXTRACTPDF_ERROR_UNSUPPORTED;
+for (i = 0; i < live->group_node_count; ++i)
+    pdf_dict_del(edit->ctx, live->group_nodes[i], PDF_NAME(V));
+```
 
-`extractpdf_pdf_edit_form_set_values()` now coordinates:
+Do not mutate `/DV`.
+
+- [ ] **Step 8: Make zero-Widget Text assignment one journal operation**
 
 ```c
 pdf_begin_operation(edit->ctx, edit->document,
     "ExtractPDF set form value");
 operation_open = 1;
-
 extractpdf_pdf_edit_form_write_semantic(...);
-
 pdf_end_operation(edit->ctx, edit->document);
 operation_open = 0;
 ```
 
-Catch path:
+Catch:
 
 ```c
-if (operation_open)
+if (operation_open) {
     pdf_abandon_operation(edit->ctx, edit->document);
+    operation_open = 0;
+}
 ```
 
-Do not dirty unrelated fields and do not set `document->recalculate`.
+Do not set `document->recalculate`.
 
-- [ ] **Step 9: Run Text/group/preflight tests plus old suites**
+- [ ] **Step 9: Run focused and regression tests**
 
 ```bash
 cmake --build build --parallel 2
 ctest --test-dir build -R 'extractpdf\.(pdf_annotation_mutation|pdf_form|pdf_form_mutation)$' --output-on-failure
 ```
-
-Expected: all selected tests pass.
 
 - [ ] **Step 10: Commit**
 
@@ -1061,7 +1168,7 @@ git commit -m "feat: add atomic Text form value mutation"
 
 ---
 
-### Task 6: Checkbox and Radio value mutation with `/AP` preservation
+### Task 6: Add Checkbox and Radio mutation while preserving `/AP`
 
 **Files:**
 - Modify: `src/pdf_edit_form_values.c`
@@ -1070,75 +1177,95 @@ git commit -m "feat: add atomic Text form value mutation"
 - Modify: `tests/test_pdf_form_mutation.c`
 
 **Interfaces:**
-- Consumes: normalized assignment + current provenance from Task 5.
-- Produces: button OPTION/Off/Missing semantics and target raw Widget `/AS` updates inside the same outer journal operation.
+- Consumes: normalized assignment/current model/current live field.
+- Produces: button `/V` + `/AS` mutation in the same outer journal operation.
 
 - [ ] **Step 1: Add failing button tests**
 
 Lock:
 
 ```text
-Checkbox /Off -> OPTION(0)
+Checkbox Off -> OPTION(0)
 Checkbox OPTION(0) -> explicit Off
-Checkbox Off -> Missing, and Missing != Off after snapshot/reopen
-Radio /One -> /Two
-repeated /One Widgets all select together when OPTION(One) selected
-NoToggleToOff still permits explicit Off and Missing
-RadiosInUnison does not alter the API's option-index semantics
-/AP marker bytes "CHECK-AP-KEEP" and "RADIO-AP-KEEP" survive unchanged
+Checkbox explicit Off -> Missing; Missing != Off after reopen
+Radio /One -> OPTION(/Two)
+repeated /One Widgets all enter /One together
+NoToggleToOff permits programmatic Off and Missing
+RadiosInUnison does not change option-index API semantics
+CHECK-AP-KEEP and RADIO-AP-KEEP fixture markers remain present exactly once after mutations
 ```
 
-Use public snapshot/reopen for semantic assertions and deterministic marker search in `extractpdf_output_data()` only for the supplementary `/AP` preservation proof.
-
-- [ ] **Step 2: Extend assignment validation for button fields**
-
-Rules:
+- [ ] **Step 2: Validate button assignments**
 
 ```text
-MISSING -> value_count must be 0
-PRESENT/0 -> explicit Off
-PRESENT/1 -> kind must be OPTION and index < option_count
+MISSING requires value_count 0
+PRESENT/0 = explicit Off
+PRESENT/1 requires OPTION and index < field.option_count
 PRESENT/>1 -> ARGUMENT
 UTF8 -> ARGUMENT
 ```
 
-Resolve the selected private button state from:
+Selected state:
 
 ```c
-model->options[field->first_option + option_index].button_state
+const char *selected_state = NULL;
+if (assignment->presence == EXTRACTPDF_FORM_VALUE_PRESENT &&
+    assignment->value_count == 1) {
+    size_t oi = assignment->option_indices[0];
+    selected_state = model->options[field->first_option + oi].button_state;
+}
 ```
-
-Create the PDF Name inside the journal operation with `pdf_new_name()`; never expose or accept the raw Name publicly.
 
 - [ ] **Step 3: Write canonical button `/V`**
 
 ```text
-MISSING   -> delete same-group /V keys
-Off       -> group-head /V /Off, delete descendant local /V
-OPTION(i) -> group-head /V /<private-state>, delete descendant local /V
+MISSING   -> delete /V on every same-group node
+Off       -> group-head /V /Off; delete descendant /V
+OPTION(i) -> group-head /V /private-state; delete descendant /V
 ```
 
-External inherited `/V` MISSING restriction remains identical to Text.
+Use `pdf_dict_put_name()` for selected private state and `pdf_dict_put(..., PDF_NAME(Off))` for Off.
 
-- [ ] **Step 4: Update every raw Widget `/AS` without loading pages**
+- [ ] **Step 4: Map each provenance Widget to its existing `button_option_index` precisely**
 
-For each `live->widgets[]`:
+Because provenance Widget order is the model's global Widget order filtered to this field:
 
 ```c
-pdf_obj *widget = live->widgets[i].object;
-const char *widget_state = /* strict private state established by model */;
+size_t live_index = 0;
+for (model_widget_index = 0;
+     model_widget_index < model->widget_count;
+     ++model_widget_index) {
+    const extractpdf_pdf_form_widget_internal *mw =
+        &model->widgets[model_widget_index];
+    size_t widget_option;
+    const char *widget_state = NULL;
+    pdf_obj *widget_obj;
 
-if (selected_state != NULL &&
-    widget_state != NULL &&
-    strcmp(selected_state, widget_state) == 0)
-    pdf_dict_put_name(ctx, widget, PDF_NAME(AS), selected_state);
-else
-    pdf_dict_put(ctx, widget, PDF_NAME(AS), PDF_NAME(Off));
+    if (mw->field_index != field_index)
+        continue;
+    if (live_index >= live->widget_count)
+        return EXTRACTPDF_ERROR_STATE;
+
+    widget_obj = live->widgets[live_index].object;
+    widget_option = mw->button_option_index;
+    if (widget_option != SIZE_MAX)
+        widget_state = model->options[
+            field->first_option + widget_option].button_state;
+
+    if (selected_state != NULL &&
+        widget_state != NULL &&
+        strcmp(selected_state, widget_state) == 0)
+        pdf_dict_put_name(edit->ctx, widget_obj, PDF_NAME(AS), widget_state);
+    else
+        pdf_dict_put(edit->ctx, widget_obj, PDF_NAME(AS), PDF_NAME(Off));
+
+    ++live_index;
+}
+if (live_index != live->widget_count)
+    return EXTRACTPDF_ERROR_STATE;
 ```
 
-Use the same normalized private button-state mapping produced during strict Widget reconciliation; do not call `pdf_button_field_on_state()` because it invents `/Yes` when no on-state exists.
-
-Do not touch `/AP` and do not request resynthesis.
+Do not call `pdf_button_field_on_state()`, which can invent `/Yes`. Do not touch `/AP` or request button resynthesis.
 
 - [ ] **Step 5: Run button tests**
 
@@ -1146,8 +1273,6 @@ Do not touch `/AP` and do not request resynthesis.
 cmake --build build --target extractpdf_test_pdf_form_mutation --parallel 2
 ctest --test-dir build -R '^extractpdf\.pdf_form_mutation$' --output-on-failure
 ```
-
-Expected: semantic round-trip passes and AP markers are unchanged.
 
 - [ ] **Step 6: Commit**
 
@@ -1159,7 +1284,7 @@ git commit -m "feat: add checkbox and radio value mutation"
 
 ---
 
-### Task 7: Combo and List semantic mutation with exact `/I`
+### Task 7: Add Combo and List semantic mutation with exact `/I`
 
 **Files:**
 - Modify: `src/pdf_edit_form_values.c`
@@ -1167,76 +1292,85 @@ git commit -m "feat: add checkbox and radio value mutation"
 - Modify: `tests/test_pdf_form_mutation.c`
 
 **Interfaces:**
-- Produces Choice semantic writes for zero-Widget and Widget-backed fields; target appearance refresh is still completed in Task 8.
+- Produces Choice validation/no-op/semantic writes. Widget AP refresh remains Task 8.
 
 - [ ] **Step 1: Add failing Choice tests**
 
-Lock exact cases:
+Lock:
 
 ```text
-non-edit Combo OPTION(0/1)
-editable Combo OPTION
+non-edit Combo OPTION assignment
+editable Combo OPTION assignment
 editable Combo UTF8 custom and UTF8 empty
 non-edit Combo UTF8 -> ARGUMENT
-duplicate export Combo OPTION(1) remains OPTION(1) after reopen via /I [1]
+duplicate export Combo OPTION(1) reopens as OPTION(1) via /I [1]
 single List OPTION
 single List MISSING
 single List PRESENT/0 -> ARGUMENT
-multi List PRESENT/0 -> explicit /V [] + /I []
-multi List one/many options
-multi duplicate indices -> ARGUMENT
-multi caller order [2,0] round-trips as [2,0]
+multi List PRESENT/0 -> PRESENT with zero values
+multi List one and multiple OPTION values
+multi duplicate option indices -> ARGUMENT
+multi order [2,0] reopens as [2,0]
 ```
 
-- [ ] **Step 2: Extend normalized assignment validation for Choice**
+- [ ] **Step 2: Validate Choice assignments**
 
 ```text
 Combo non-edit: PRESENT exactly one OPTION
-Combo edit: PRESENT exactly one OPTION or one UTF8
+Combo edit: PRESENT exactly one OPTION or exactly one UTF8
 single List: PRESENT exactly one OPTION
-multi List: PRESENT zero or more OPTION values, each unique
+multi List: PRESENT zero or more unique OPTION values
 MISSING: zero values for all Choice fields
 ```
 
-Validate every option index against the current model before unsupported/ReadOnly checks.
+Every OPTION index is checked against current `field->option_count` before unsupported/ReadOnly checks.
 
-- [ ] **Step 3: Implement exact Choice representation writes**
+- [ ] **Step 3: Write exact Choice representation**
 
 Single OPTION:
 
 ```c
-pdf_dict_put_text_string(ctx, live->group_head, PDF_NAME(V), export_text);
-pdf_obj *indices = pdf_new_array(ctx, edit->document, 1);
-pdf_array_push_int(ctx, indices, (int64_t)option_index);
-pdf_dict_put_drop(ctx, live->group_head, PDF_NAME(I), indices);
+pdf_dict_put_text_string(
+    edit->ctx, live->group_head, PDF_NAME(V), export_text);
+pdf_obj *indices = pdf_new_array(edit->ctx, edit->document, 1);
+pdf_array_push_int(edit->ctx, indices, (int64_t)option_index);
+pdf_dict_put_drop(edit->ctx, live->group_head, PDF_NAME(I), indices);
 ```
 
-Editable custom UTF8:
+Editable custom:
 
 ```c
-pdf_dict_put_text_string(ctx, live->group_head, PDF_NAME(V), assignment->utf8);
-pdf_dict_del(ctx, live->group_head, PDF_NAME(I));
+pdf_dict_put_text_string(
+    edit->ctx, live->group_head, PDF_NAME(V), assignment->utf8);
+pdf_dict_del(edit->ctx, live->group_head, PDF_NAME(I));
 ```
 
 Multi List:
 
 ```c
-pdf_obj *values = pdf_new_array(ctx, edit->document, assignment->value_count);
-pdf_obj *indices = pdf_new_array(ctx, edit->document, assignment->value_count);
-for each caller-ordered option index:
-    pdf_array_push_text_string(ctx, values, export_text);
-    pdf_array_push_int(ctx, indices, (int64_t)option_index);
-pdf_dict_put_drop(ctx, live->group_head, PDF_NAME(V), values);
-pdf_dict_put_drop(ctx, live->group_head, PDF_NAME(I), indices);
+pdf_obj *values = pdf_new_array(
+    edit->ctx, edit->document, (int)assignment->value_count);
+pdf_obj *indices = pdf_new_array(
+    edit->ctx, edit->document, (int)assignment->value_count);
+for (i = 0; i < assignment->value_count; ++i) {
+    size_t oi = assignment->option_indices[i];
+    const extractpdf_pdf_form_option_internal *option =
+        &model->options[field->first_option + oi];
+    const char *export_text = model->strings + option->export_text.offset;
+    pdf_array_push_text_string(edit->ctx, values, export_text);
+    pdf_array_push_int(edit->ctx, indices, (int64_t)oi);
+}
+pdf_dict_put_drop(edit->ctx, live->group_head, PDF_NAME(V), values);
+pdf_dict_put_drop(edit->ctx, live->group_head, PDF_NAME(I), indices);
 ```
 
-For explicit empty multi-selection, create and store two empty arrays. For MISSING, delete same-group `/V` and `/I` after external-provider check.
+For explicit empty multi-selection, write two empty arrays. For MISSING, apply external `/V` provider rule, then delete same-group `/V` and `/I`.
 
-Always delete descendant same-group local `/V` and `/I` overrides after a successful canonical write.
+After any successful Choice write, delete descendant same-group local `/V` and `/I` overrides.
 
-- [ ] **Step 4: Extend semantic no-op comparison to Choice**
+- [ ] **Step 4: Compare Choice no-op by normalized option identity**
 
-OPTION selections compare normalized option indices, not export strings. Editable custom UTF8 compares bytes. Multi-list compares exact count **and exact caller order**.
+OPTION values compare option indices, not export strings. Editable custom compares UTF8 bytes. Multi-list compares count and exact ordered option-index sequence.
 
 - [ ] **Step 5: Run Choice tests**
 
@@ -1254,7 +1388,7 @@ git commit -m "feat: add Combo and List value mutation"
 
 ---
 
-### Task 8: Text/Combo/List target Widget appearance refresh with no form-runtime execution
+### Task 8: Refresh Text/Combo/List target Widget appearances without form-runtime execution
 
 **Files:**
 - Modify: `src/pdf_edit_form_widgets.c`
@@ -1262,23 +1396,21 @@ git commit -m "feat: add Combo and List value mutation"
 - Modify: `tests/test_pdf_form_mutation.c`
 
 **Interfaces:**
-- Consumes: Task 4 proven-safe wrapper preparation and Tasks 5/7 semantic writes.
-- Produces: targeted Widget AP refresh inside the same public setter journal operation.
+- Consumes: Task 4 proven-safe wrapper preparation; Tasks 5/7 semantic writes.
+- Produces: target-only AP resynthesis inside the same public setter operation.
 
-- [ ] **Step 1: Add failing Widget/AP/no-execution tests**
+- [ ] **Step 1: Add failing appearance/no-execution tests**
 
-For Text and Combo Widget-backed fields:
+For Widget-backed Text and Combo, use public rendering to avoid depending on MuPDF private AP object structure:
 
 ```text
-snapshot/render target region before mutation
-snapshot unrelated Widget region before mutation
-mutate target
-snapshot/render target region after reopen
-assert target bitmap bytes differ
-assert unrelated field value unchanged
-assert unrelated Widget region bytes unchanged
-assert event sentinel fields remain unchanged
-assert historical output object captured before mutation remains byte-identical
+render a fixed clip around target Widget before mutation
+render the same clip after mutation/reopen; bytes must differ
+render a fixed clip around unrelated Widget before/after; bytes must match
+unrelated field value stays UNCHANGED
+CALC-SENTINEL stays unchanged
+all event/action sentinel values stay unchanged
+historical extractpdf_output captured before mutation stays byte-identical
 ```
 
 For List:
@@ -1286,63 +1418,71 @@ For List:
 ```text
 setter succeeds
 /V + /I round-trip exactly
-Widget resynthesis completes and reopened PDF remains valid
-no pixel-level selected-row highlight assertion
+reopened PDF renders/loads successfully
+no selected-row pixel-highlight assertion
 ```
 
-For `FORM_MUTATION_EVENTS_PDF`, mutate the target Text and assert Keystroke/Validate/Format/Calculate/activation/`/CO` sentinel values remain exactly their fixture values.
+- [ ] **Step 2: Prepare every target Widget before journal begin**
 
-- [ ] **Step 2: Prepare all target Widget wrappers before opening the journal operation**
+Call Task 4 prepare helper after no-op detection and before `pdf_begin_operation()`. Any missing or duplicate wrapper -> `STATE` with no mutation.
 
-Use Task 4 helper. If any expected raw Widget cannot be resolved exactly once, return `STATE` before mutation.
-
-No successful mutation may begin until all wrappers for the field are ready.
-
-- [ ] **Step 3: Add exception-safe editing-state handling**
-
-For each target Widget:
+- [ ] **Step 3: Enable editing state before each target resynthesis**
 
 ```c
-item->previous_editing = pdf_get_widget_editing_state(edit->ctx, item->widget);
-pdf_set_widget_editing_state(edit->ctx, item->widget, 1);
+for (i = 0; i < handles.count; ++i) {
+    handles.items[i].previous_editing = pdf_get_widget_editing_state(
+        edit->ctx, handles.items[i].widget);
+    pdf_set_widget_editing_state(edit->ctx, handles.items[i].widget, 1);
+}
 ```
 
-Restore in cleanup regardless of success/failure:
+Cleanup always restores:
 
 ```c
-pdf_set_widget_editing_state(
-    edit->ctx, item->widget, item->previous_editing);
+for (i = 0; i < handles.count; ++i)
+    pdf_set_widget_editing_state(
+        edit->ctx,
+        handles.items[i].widget,
+        handles.items[i].previous_editing);
 ```
 
-The editor already has JavaScript globally disabled; editing state is the additional target-local guarantee that appearance synthesis uses raw value semantics and does not run Format behavior.
-
-- [ ] **Step 4: Refresh only target Widgets after semantic write**
-
-Inside the same outer journal operation created by the public setter:
+- [ ] **Step 4: Refresh target Widgets after semantic write, inside the same outer operation**
 
 ```c
-pdf_annot_request_resynthesis(edit->ctx, item->widget);
-(void)pdf_update_widget(edit->ctx, item->widget);
+for (i = 0; i < handles.count; ++i) {
+    pdf_annot_request_resynthesis(edit->ctx, handles.items[i].widget);
+    (void)pdf_update_widget(edit->ctx, handles.items[i].widget);
+}
 ```
 
-Do not call `pdf_update_page()` or `pdf_update_open_pages()`.
+Never call `pdf_update_page()` or `pdf_update_open_pages()`.
 
-After every target Widget is refreshed successfully, end the outer operation. On any exception, abandon the outer operation before dropping prepared pages.
-
-- [ ] **Step 5: Prove no hidden second-pass dependency**
-
-After a successful setter:
+Outer transaction order is exactly:
 
 ```text
-call extractpdf_pdf_edit_snapshot twice
-both snapshots must parse via extractpdf_document_form after reopen
-second snapshot must not require page loading/update to become semantically correct
-unrelated field/AP sentinel remains unchanged
+prepare wrappers
+begin operation
+write semantic /V,/I
+refresh each target Widget
+end operation
+restore editing states
+release loaded pages
 ```
 
-This catches residual `doc->recalculate` or deferred page-wide update dependencies.
+Exception order is:
 
-- [ ] **Step 6: Run mutation + rendering/no-execution tests**
+```text
+abandon outer operation if open
+restore editing states
+release loaded pages
+return mapped error
+```
+
+- [ ] **Step 5: Prove no hidden deferred page-wide pass is required**
+
+After one successful setter, call `extractpdf_pdf_edit_snapshot()` twice. Reopen both outputs and assert identical normalized field values. No extra page load/update call is allowed between setter and snapshots.
+
+- [ ] **Step 6: Run render + form regression tests**
 
 ```bash
 cmake --build build --parallel 2
@@ -1358,7 +1498,7 @@ git commit -m "feat: refresh mutated form Widget appearances"
 
 ---
 
-### Task 9: Fault-injected journal rollback, ref stability, and editor reuse
+### Task 9: Lock fault-injected rollback, ref stability, and editor reuse
 
 **Files:**
 - Modify: `src/pdf_edit_internal.h`
@@ -1369,24 +1509,21 @@ git commit -m "feat: refresh mutated form Widget appearances"
 - Modify: `tests/test_pdf_form_mutation.c`
 
 **Interfaces:**
-- Adds three final form-specific fault points without changing public production ABI.
+- Adds test-only fault IDs 5-7; production public ABI is unchanged.
 
-- [ ] **Step 1: Add exact fault IDs without renumbering existing IDs**
+- [ ] **Step 1: Add exact fault IDs**
 
-Use:
+Keep existing IDs 1-4 unchanged:
 
 ```c
-EXTRACTPDF_TEST_PDF_EDIT_FAULT_FORM_AFTER_WIDGET_PREPARE = 4,
 EXTRACTPDF_TEST_PDF_EDIT_FAULT_FORM_AFTER_SEMANTIC_WRITE = 5,
 EXTRACTPDF_TEST_PDF_EDIT_FAULT_FORM_AFTER_FIRST_WIDGET_STATE = 6,
 EXTRACTPDF_TEST_PDF_EDIT_FAULT_FORM_AFTER_FIRST_AP_REFRESH = 7
 ```
 
-Mirror these in the internal `EXTRACTPDF_PDF_EDIT_TEST_FAULT_*` enum.
+Mirror internal names with `EXTRACTPDF_PDF_EDIT_TEST_FAULT_...`.
 
-- [ ] **Step 2: Add a reusable rollback assertion helper**
-
-Test shape:
+- [ ] **Step 2: Add a byte-level rollback helper**
 
 ```c
 static void expect_failed_mutation_atomic(
@@ -1395,8 +1532,10 @@ static void expect_failed_mutation_atomic(
     const extractpdf_form_value_update *update,
     extractpdf_test_pdf_edit_fault fault)
 {
-    unsigned char *before = NULL, *after = NULL;
-    size_t before_size = 0, after_size = 0;
+    unsigned char *before = NULL;
+    unsigned char *after = NULL;
+    size_t before_size = 0;
+    size_t after_size = 0;
     extractpdf_form *form = NULL;
 
     copy_editor_output(edit, &before, &before_size);
@@ -1406,19 +1545,19 @@ static void expect_failed_mutation_atomic(
     copy_editor_output(edit, &after, &after_size);
     CHECK(before_size == after_size);
     CHECK(memcmp(before, after, before_size) == 0);
-
     CHECK(extractpdf_pdf_edit_form_snapshot(edit, &form) == EXTRACTPDF_OK);
     extractpdf_drop_form(form);
+
     free(before);
     free(after);
 }
 ```
 
-After every injected failure, immediately reuse the **same ref** for one valid mutation and assert success.
+Every fault test then immediately reuses the same `ref` for one valid assignment and asserts success.
 
 - [ ] **Step 3: Inject after semantic write**
 
-Immediately after canonical `/V`/`/I` and descendant-override deletion, before Widget work:
+Immediately after canonical `/V`/`/I` plus descendant override deletion:
 
 ```c
 #if defined(EXTRACTPDF_TESTING)
@@ -1431,23 +1570,29 @@ if (edit->test_fault ==
 #endif
 ```
 
-Required: catch executes `pdf_abandon_operation()` and output bytes equal pre-call.
+- [ ] **Step 4: Inject after the first button Widget `/AS` write**
 
-- [ ] **Step 4: Inject after first button `/AS` update**
+Count actual target `/AS` writes inside the operation. After write #1, throw the same way. Required rollback: canonical `/V` and every `/AS` return to pre-call bytes.
 
-After the first raw Widget state write, throw inside the same operation. Required: field `/V` and every `/AS` revert.
+- [ ] **Step 5: Inject after the first successful Text/Choice AP refresh**
 
-- [ ] **Step 5: Inject after first Text/Choice AP refresh**
-
-After one successful `pdf_update_widget()` and before operation end, throw. Required: generated AP/xref changes and semantic `/V`/`/I` all revert.
+After first `pdf_update_widget()` and before `pdf_end_operation()`, throw. Required rollback: generated AP/xref changes and semantic `/V`/`/I` all revert.
 
 - [ ] **Step 6: Prove direct-field ref stability across rollback**
 
-Use `FORM_MUTATION_DIRECT_FIELD_PDF`: discover the ref, inject `FORM_AFTER_SEMANTIC_WRITE`, assert rollback bytes equal, then use the same ref for a valid mutation and assert the reopened semantic value changed. This is the mandatory proof that retained direct group-head identity remains usable inside one editor session.
+On `FORM_MUTATION_DIRECT_FIELD_PDF`:
 
-If this direct-field stability test fails because MuPDF journal rollback replaces direct-object identity, stop and revise the private ref locator design before proceeding; do not special-case the test away.
+```text
+discover direct field ref
+inject AFTER_SEMANTIC_WRITE on value "failed"
+assert byte-identical rollback
+reuse same ref to assign "after"
+editor snapshot and reopened document both read "after"
+```
 
-- [ ] **Step 7: Run atomicity tests under static and sanitizer builds**
+**STOP:** if direct-field ref fails solely because journal rollback replaced the direct object identity, return to the private identity design. Do not reject direct fields or weaken the public ref contract.
+
+- [ ] **Step 7: Run static and sanitizer fault tests**
 
 ```bash
 cmake --build build --parallel 2
@@ -1474,65 +1619,62 @@ git commit -m "test: lock atomic form mutation rollback"
 
 ---
 
-### Task 10: Complete public contract matrix and Linux 21/21 feature GREEN
+### Task 10: Complete the public contract matrix and establish Linux 21/21 GREEN
 
 **Files:**
 - Modify: `tests/test_pdf_form_mutation.c`
-- Modify only if a failing contract requires it: `src/pdf_edit_forms.c`, `src/pdf_edit_form_values.c`, `src/pdf_edit_form_widgets.c`, `src/pdf_form_*`
+- Modify only when a new assertion finds a real defect: the form/edit files already listed in this plan
 
 **Interfaces:**
-- Produces: complete V1 functional test surface and one frozen Linux feature candidate.
+- Produces: complete V1 tests and one frozen Linux feature candidate.
 
 - [ ] **Step 1: Add final API/reset/error-domain assertions**
 
-Lock all of these explicitly:
+Lock exactly:
 
 ```text
-form_snapshot(NULL, &form) -> ARGUMENT and form == NULL
-form_snapshot(edit, NULL) -> ARGUMENT
-field_ref_at bad index -> ARGUMENT and zero ref
+form_snapshot(NULL,&out) -> ARGUMENT and out NULL
+form_snapshot(edit,NULL) -> ARGUMENT
+field_ref_at invalid index -> ARGUMENT and zero ref
 field_ref_at NULL output -> ARGUMENT
 forged form ref -> ARGUMENT
 form ref from another editor -> ARGUMENT
-bitwise annotation ref used as form ref -> ARGUMENT
-old form ref used after editor drop/reopen -> ARGUMENT
+bitwise annotation ref passed as form ref -> ARGUMENT
+old form ref used with reopened editor -> ARGUMENT
 unknown value kind -> ARGUMENT
-OPTION with non-NULL utf8 or nonzero utf8_size -> ARGUMENT
+OPTION with utf8 != NULL or utf8_size != 0 -> ARGUMENT
 UTF8 with option_index != SIZE_MAX -> ARGUMENT
 out-of-range option -> ARGUMENT
 multi duplicate option -> ARGUMENT
-larger struct_size accepted; trailing bytes untouched/ignored
+larger struct_size accepted and trailing bytes ignored
 ```
 
-- [ ] **Step 2: Add final no-op coverage for every supported value family**
-
-Required byte-identical no-op tests:
+- [ ] **Step 2: Add byte-identical no-op tests for every supported family**
 
 ```text
-same Text value
-same Checkbox/Radio state
+same Text
+same Checkbox state
+same Radio state
 same Combo OPTION
 same editable Combo custom UTF8
 same single List OPTION
-same multi-list exact ordered sequence
+same multi-list ordered sequence
 ```
 
-For each: copy editor output before and after, assert equal size and `memcmp == 0`.
+For each: `copy_editor_output()` before/after and require equal size + `memcmp == 0`.
 
 - [ ] **Step 3: Add ref-survival integration assertions**
 
-One field ref must remain usable across:
+One form ref must remain valid across:
 
 ```text
 multiple editor form snapshots
-multiple editor PDF output snapshots
-annotation create/update/delete on another page/object
-another field's form value mutation
+multiple editor output snapshots
+annotation create/update/delete on an unrelated annotation
+another field's successful form mutation
 ```
 
-Do not compare refs across editor sessions.
-
-- [ ] **Step 4: Run the complete strict static suite**
+- [ ] **Step 4: Run fresh complete static suite**
 
 ```bash
 rm -rf build
@@ -1547,7 +1689,7 @@ ctest --test-dir build --output-on-failure
 
 Required: **100% / 21 tests passed**.
 
-- [ ] **Step 5: Run the complete sanitizer suite**
+- [ ] **Step 5: Run fresh complete ASan/UBSan suite**
 
 ```bash
 rm -rf build-asan
@@ -1562,9 +1704,9 @@ cmake --build build-asan --parallel 2
 ctest --test-dir build-asan --output-on-failure
 ```
 
-Required: **100% / 21 tests passed** under ASan/UBSan.
+Required: **100% / 21 tests passed**.
 
-- [ ] **Step 6: Commit only contract-driven fixes and freeze a candidate SHA**
+- [ ] **Step 6: Commit only contract-driven fixes and freeze the feature candidate**
 
 ```bash
 git add include/extractpdf/extractpdf.h CMakeLists.txt src tests
@@ -1572,40 +1714,36 @@ git commit -m "feat: complete AcroForm value mutation V1"
 git push origin feat/acroform-value-mutation
 ```
 
-Do not add opportunistic refactors after the first 21/21 static+sanitizer candidate unless a review or platform proof exposes a real defect.
+After the first 21/21 static+sanitizer candidate, no opportunistic refactor is allowed unless review/platform proof identifies a real defect.
 
 ---
 
-### Task 11: Exact-head same-SHA full CI, scope review, evidence, and STOP
+### Task 11: Exact-head full CI, scope/review gate, evidence, and STOP
 
 **Files:**
-- No code changes expected.
-- Metadata only: draft PR, issue #46, roadmap #2.
+- No code changes expected
+- GitHub metadata only: draft PR, #46, roadmap #2
 
 **Interfaces:**
 - Consumes: frozen feature SHA from Task 10.
-- Produces: same-SHA Linux/macOS/Windows evidence and merge-readiness decision; does **not** merge.
+- Produces: same-SHA cross-platform evidence and merge-readiness decision; does not merge.
 
-- [ ] **Step 1: Verify the draft PR head is exactly the frozen feature SHA**
+- [ ] **Step 1: Fresh-read the draft PR source SHA**
 
-Fresh-read PR metadata and branch ref. If the branch advanced unexpectedly, do not force or merge; investigate the new commits first.
+Require PR target `master` and source head exactly equal to the frozen feature SHA. If the branch advanced unexpectedly, investigate before any proof or integration action; never force-reset shared history.
 
-- [ ] **Step 2: Require normal PR Linux proof on the frozen SHA**
-
-The PR workflow must show:
+- [ ] **Step 2: Require normal PR Linux proof on that exact source SHA**
 
 ```text
-Linux strict static: 21/21
-Linux ASan/UBSan:    21/21
+Linux static 21/21
+Linux ASan/UBSan 21/21
 ```
 
-Do not accept a workflow on a merge-base-only or stale source SHA.
+Reject stale-source proof.
 
-- [ ] **Step 3: Apply `full-ci` to the same SHA**
+- [ ] **Step 3: Apply `full-ci` without workflow edits**
 
-The workflow is already configured so labeling a PR `full-ci` enables macOS and Windows without modifying `.github/workflows/ci.yml`.
-
-Required same-SHA result:
+The existing workflow enables macOS/Windows when a PR is labeled `full-ci`. Required same-SHA result:
 
 ```text
 Linux static + sanitizer 21/21
@@ -1613,25 +1751,25 @@ macOS 21/21
 Windows DLL 21/21
 ```
 
-Windows logs must explicitly show both `extractpdf.dll` and `extractpdf_test_pdf_form_mutation.exe` built and `extractpdf.pdf_form_mutation` executed.
+Windows log must show `extractpdf.dll`, `extractpdf_test_pdf_form_mutation.exe`, and `extractpdf.pdf_form_mutation` test 21/21.
 
-- [ ] **Step 4: Perform the final base-to-head scope review**
+- [ ] **Step 4: Review exact base-to-head scope**
 
-Compare exactly:
+Compare:
 
 ```text
-base: fdcb2f6cd489de34802d09989ab61a1af8cd1861
-head: <frozen feature SHA>
+fdcb2f6cd489de34802d09989ab61a1af8cd1861...<frozen-feature-sha>
 ```
 
-Allowed paths are limited to:
+Allowed paths only:
 
 ```text
 docs/superpowers/specs/2026-08-29-extractpdf-acroform-value-mutation-design.md
 docs/superpowers/plans/2026-08-29-extractpdf-acroform-value-mutation.md
 include/extractpdf/extractpdf.h
 CMakeLists.txt
-src/pdf_form_common.[ch]
+src/pdf_form_common.h
+src/pdf_form_common.c
 src/pdf_form_widgets.c
 src/pdf_form.c
 src/pdf_edit_internal.h
@@ -1647,86 +1785,87 @@ tests/pdf_edit_fault_hook.c
 tests/fixtures/acroform-mutation-*.pdf
 ```
 
-Reject unrelated workflow, render, text, image, link, outline, metadata, composition, or public mutation-surface changes.
+No workflow/render/text/image/link/outline/metadata/composition changes are allowed.
 
 - [ ] **Step 5: Fresh Critical/Important review against the spec**
 
-Review specifically:
+Explicit review checklist:
 
 ```text
-ref domain separation and wrong-session handling
-raw observation never loading pages
-provenance ownership/drop correctness
-direct-field ref stability proof
+form token domain separation
+wrong-editor/forged token rejection
+raw observation contains no pdf_load_page
+provenance drop/ownership correctness
+direct-field ref rollback stability
 error precedence
-external inherited /V Missing boundary
-same-group override removal
-button AP preservation
-choice /I exactness and duplicate export handling
-page-load safety gate evidence
-editing-state restoration on exceptions
+external inherited /V MISSING boundary
+same-group /V,/I override removal
+button /AP preservation and /AS mapping
+choice /I exactness and duplicate export identity
+Task 4 page-load safety proof
+editing-state restoration on every exception
 no pdf_update_page/recalculate path
-one outer operation + abandon on every failure
+one outer operation + abandon on every post-begin failure
 byte-identical no-op
-previous outputs/snapshots remain immutable
+previous outputs/forms remain immutable
 ```
 
 No Critical or Important blocker may remain.
 
 - [ ] **Step 6: Record evidence and STOP**
 
-Comment on draft PR, #46, and roadmap #2 with:
+Comment on the draft PR, #46, and roadmap #2 with:
 
 ```text
 strict compile RED SHA/workflow
-raw-observation regression proof
-page-load safety gate proof
+raw observation source/byte proof
+Task 4 Widget preparation safety proof
 final feature SHA
 Linux static 21/21
 Linux ASan/UBSan 21/21
 same-SHA full-ci Linux/macOS/Windows 21/21
-final changed-path count/scope review
-review result
+base-to-head changed-path count
+final review result
 ```
 
-Keep #46 open and PR draft/open. **STOP here.** Do not ready, merge, close #46, or start a follow-up Forms slice without explicit user integration authorization.
+Keep #46 open and PR draft/open. **STOP.** Do not mark ready, merge, close #46, or start another Forms slice until explicit user integration authorization.
 
 ---
 
 ### Task 12: Integration only after explicit authorization
 
 **Files:**
-- No planned source changes.
-- GitHub state/evidence only.
+- No planned source changes
+- GitHub state/evidence only
 
 **Interfaces:**
-- Consumes: frozen proven feature SHA and explicit user authorization.
-- Produces: integrated master proof and completed #46.
+- Consumes: frozen proven feature SHA + explicit user authorization.
+- Produces: integrated-master proof and completed #46.
 
 - [ ] **Step 1: Fresh-read the integration gate**
 
-Confirm immediately before merge:
+Immediately before integration require:
 
 ```text
 PR still targets master
 source head == frozen proven feature SHA
-all required exact-head workflows successful
+required exact-head workflows all successful
 no new review blocker
-master has not moved incompatibly
+master compatibility rechecked
 ```
 
-If master moved, rebase/merge only through a new proven SHA; never claim the old proof covers changed content.
+If master moved incompatibly, produce and prove a new feature SHA; old proof never covers new content automatically.
 
-- [ ] **Step 2: Mark ready and merge with expected-head protection**
+- [ ] **Step 2: Ready and merge with an exact-head guard**
 
-Use the canonical PR when possible. If the known connector draft->ready GraphQL `fullDatabaseId` bug recurs, create an exact-SHA non-draft carrier PR whose head points to the already-proven feature commit and contains **no new commits/content**, then merge that carrier with an expected-head guard. Record the workaround in the canonical PR and #46.
+Use the canonical PR if draft->ready works. If the known connector GraphQL `fullDatabaseId` failure recurs, create a non-draft exact-SHA carrier branch/PR pointing to the already-proven feature commit with **zero new content commits**, then merge that carrier with expected-head protection. Record the workaround on canonical PR and #46.
 
 - [ ] **Step 3: Require integrated-master push proof on the exact merge commit**
 
-The push workflow must run on the new `master` merge SHA and pass:
+Required:
 
 ```text
-Linux strict static 21/21
+Linux static 21/21
 Linux ASan/UBSan 21/21
 macOS 21/21
 Windows DLL 21/21
@@ -1734,15 +1873,15 @@ Windows DLL 21/21
 
 Do not close #46 on feature-branch proof alone.
 
-- [ ] **Step 4: Close the slice only after master proof**
+- [ ] **Step 4: Close only after master proof**
 
 After integrated-master success:
 
 ```text
 close #46 as completed
 update roadmap #2: Form Value Mutation V1 integrated
-record feature SHA, merge SHA, feature full-ci, and master-push workflow
-leave all deferred form-structure/signature/XFA/flattening work unchecked
+record feature SHA, merge SHA, feature full-ci, master-push workflow
+leave deferred structure/signature/XFA/flattening work unchecked
 ```
 
-Do not create or implement another Forms mutation slice unless separately requested.
+Do not create or implement another Forms slice unless separately requested.
