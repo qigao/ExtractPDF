@@ -205,6 +205,14 @@ extractpdf_status extractpdf_pdf_edit_form_apply_button(
                         edit->ctx, live->group_nodes[i], live->group_head))
                     pdf_dict_del(edit->ctx, live->group_nodes[i], PDF_NAME(V));
         }
+#if defined(EXTRACTPDF_TESTING)
+        if (edit->test_fault ==
+            EXTRACTPDF_PDF_EDIT_TEST_FAULT_FORM_AFTER_SEMANTIC_WRITE) {
+            edit->test_fault = EXTRACTPDF_PDF_EDIT_TEST_FAULT_NONE;
+            fz_throw(edit->ctx, FZ_ERROR_GENERIC,
+                "injected form failure after semantic write");
+        }
+#endif
 
         live_index = 0;
         for (model_widget_index = 0;
@@ -230,6 +238,14 @@ extractpdf_status extractpdf_pdf_edit_form_apply_button(
                     live->widgets[live_index].object,
                     PDF_NAME(AS), PDF_NAME(Off));
             ++live_index;
+#if defined(EXTRACTPDF_TESTING)
+            if (edit->test_fault ==
+                EXTRACTPDF_PDF_EDIT_TEST_FAULT_FORM_AFTER_FIRST_WIDGET_STATE) {
+                edit->test_fault = EXTRACTPDF_PDF_EDIT_TEST_FAULT_NONE;
+                fz_throw(edit->ctx, FZ_ERROR_GENERIC,
+                    "injected form failure after first Widget state");
+            }
+#endif
         }
 
         pdf_end_operation(edit->ctx, edit->document);

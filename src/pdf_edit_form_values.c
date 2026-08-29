@@ -276,6 +276,14 @@ extractpdf_status extractpdf_pdf_edit_form_apply_text(
             edit->ctx, edit->document, "ExtractPDF set form value");
         operation_open = 1;
         extractpdf_pdf_edit_form_write_text(edit, live, missing, text);
+#if defined(EXTRACTPDF_TESTING)
+        if (edit->test_fault ==
+            EXTRACTPDF_PDF_EDIT_TEST_FAULT_FORM_AFTER_SEMANTIC_WRITE) {
+            edit->test_fault = EXTRACTPDF_PDF_EDIT_TEST_FAULT_NONE;
+            fz_throw(edit->ctx, FZ_ERROR_GENERIC,
+                "injected form failure after semantic write");
+        }
+#endif
         extractpdf_pdf_edit_form_refresh_widget_handles(edit, &handles);
         if (extractpdf_pdf_edit_form_restore_widget_editing(edit, &handles) !=
             EXTRACTPDF_OK)

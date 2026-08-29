@@ -191,5 +191,13 @@ void extractpdf_pdf_edit_form_refresh_widget_handles(
     for (i = 0; i < handles->count; ++i) {
         pdf_annot_request_resynthesis(edit->ctx, handles->items[i].widget);
         (void)pdf_update_widget(edit->ctx, handles->items[i].widget);
+#if defined(EXTRACTPDF_TESTING)
+        if (edit->test_fault ==
+            EXTRACTPDF_PDF_EDIT_TEST_FAULT_FORM_AFTER_FIRST_AP_REFRESH) {
+            edit->test_fault = EXTRACTPDF_PDF_EDIT_TEST_FAULT_NONE;
+            fz_throw(edit->ctx, FZ_ERROR_GENERIC,
+                "injected form failure after first AP refresh");
+        }
+#endif
     }
 }
