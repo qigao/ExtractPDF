@@ -133,6 +133,58 @@ static extractpdf_form_field_ref field_ref_by_name(
     return ref;
 }
 
+static size_t form_field_index_by_name(const extractpdf_form *form, const char *wanted)
+{
+    size_t count = 0;
+    size_t index;
+
+    CHECK(extractpdf_form_field_count(form, &count) == EXTRACTPDF_OK);
+    for (index = 0; index < count; ++index) {
+        const char *name = NULL;
+        size_t size = 0;
+        CHECK(extractpdf_form_field_name(form, index, &name, &size) == EXTRACTPDF_OK);
+        if (name != NULL && size == strlen(wanted) &&
+            memcmp(name, wanted, size) == 0)
+            return index;
+    }
+    CHECK(0);
+    return SIZE_MAX;
+}
+
+static void expect_text_field(
+    const extractpdf_form *form,
+    const char *name,
+    extractpdf_form_value_presence presence,
+    const char *expected)
+{
+    size_t index = form_field_index_by_name(form, name);
+    extractpdf_form_field_info info = {0};
+
+    info.struct_size = sizeof(info);
+    CHECK(extractpdf_form_field_get_info(form, index, &info) == EXTRACTPDF_OK);
+    CHECK(info.type == EXTRACTPDF_FORM_FIELD_TEXT);
+    CHECK(info.value_presence == presence);
+    if (presence == EXTRACTPDF_FORM_VALUE_MISSING) {
+        CHECK(info.value_count == 0);
+    } else {
+        extractpdf_form_value_info value_info = {0};
+        const char *text = NULL;
+        size_t size = 0;
+
+        CHECK(presence == EXTRACTPDF_FORM_VALUE_PRESENT);
+        CHECK(info.value_count == 1);
+        value_info.struct_size = sizeof(value_info);
+        CHECK(extractpdf_form_field_value_get_info(form, index, 0, &value_info) ==
+            EXTRACTPDF_OK);
+        CHECK(value_info.kind == EXTRACTPDF_FORM_VALUE_UTF8);
+        CHECK(extractpdf_form_field_value_utf8(form, index, 0, &text, &size) ==
+            EXTRACTPDF_OK);
+        CHECK(text != NULL);
+        CHECK(size == strlen(expected));
+        CHECK(memcmp(text, expected, size) == 0);
+    }
+}
+
 static void test_editor_snapshot_and_refs(void)
 {
     extractpdf_document *document = NULL;
@@ -268,6 +320,64 @@ static void test_widget_prepare_is_byte_preserving(void)
     extractpdf_drop_pdf_edit(edit);
 }
 
+static void test_zero_widget_text_roundtrip(void)
+{
+    extractpdf_document *document = NULL;
+    extractpdf_pdf_edit *edit = NULL;
+    extractpdf_form_field_ref ref;
+    extractpdf_form_value_input value = {0};
+    extractpdf_form_value_update update = {0};
+    extractpdf_form *form = NULL;
+    extractpdf_output *output = NULL;
+    const unsigned char *bytes = NULL;
+    size_t byte_count = 0;
+    extractpdf_document *reopened = NULL;
+
+    CHECK(extractpdf_open(FORM_MUTATION_BASIC_PDF, NULL, &document) == EXTRACTPDF_OK);
+    CHECK(extractpdf_pdf_edit_begin(document, &edit) == EXTRACTPDF_OK);
+    extractpdf_close(document);
+    ref = field_ref_by_name(edit, "zero");
+
+    CHECK(extractpdf_pdf_edit_form_snapshot(edit, &form) == EXTRACTPDF_OK);
+    expect_text_field(form, "zero", EXTRACTPDF_FORM_VALUE_MISSING, "");
+    extractpdf_drop_form(form);
+    form = NULL;
+
+    value.struct_size = sizeof(value);
+    value.kind = EXTRACTPDF_FORM_VALUE_UTF8;
+    value.option_index = SIZE_MAX;
+    value.utf8 = "alpha";
+    value.utf8_size = 5;
+    update.struct_size = sizeof(update);
+    update.presence = EXTRACTPDF_FORM_VALUE_PRESENT;
+    update.values = &value;
+    update.value_count = 1;
+    CHECK(extractpdf_pdf_edit_form_set_values(edit, &ref, &update) == EXTRACTPDF_OK);
+
+    CHECK(extractpdf_pdf_edit_form_snapshot(edit, &form) == EXTRACTPDF_OK);
+    expect_text_field(form, "zero", EXTRACTPDF_FORM_VALUE_PRESENT, "alpha");
+    extractpdf_drop_form(form);
+    form = NULL;
+
+    CHECK(extractpdf_pdf_edit_snapshot(edit, &output) == EXTRACTPDF_OK);
+    CHECK(extractpdf_output_data(output, &bytes, &byte_count) == EXTRACTPDF_OK);
+    CHECK(extractpdf_open_memory(bytes, byte_count, NULL, &reopened) == EXTRACTPDF_OK);
+    CHECK(extractpdf_document_form(reopened, &form) == EXTRACTPDF_OK);
+    expect_text_field(form, "zero", EXTRACTPDF_FORM_VALUE_PRESENT, "alpha");
+    extractpdf_drop_form(form);
+    extractpdf_close(reopened);
+    extractpdf_drop_output(output);
+
+    update.presence = EXTRACTPDF_FORM_VALUE_MISSING;
+    update.values = NULL;
+    update.value_count = 0;
+    CHECK(extractpdf_pdf_edit_form_set_values(edit, &ref, &update) == EXTRACTPDF_OK);
+    CHECK(extractpdf_pdf_edit_form_snapshot(edit, &form) == EXTRACTPDF_OK);
+    expect_text_field(form, "zero", EXTRACTPDF_FORM_VALUE_MISSING, "");
+    extractpdf_drop_form(form);
+    extractpdf_drop_pdf_edit(edit);
+}
+
 static void test_api_reset(void)
 {
     extractpdf_form *form = (extractpdf_form *)(uintptr_t)1;
@@ -291,5 +401,6 @@ int main(void)
     test_editor_snapshot_and_refs();
     test_need_appearances_observation_is_byte_preserving();
     test_widget_prepare_is_byte_preserving();
+    test_zero_widget_text_roundtrip();
     return EXIT_SUCCESS;
 }
