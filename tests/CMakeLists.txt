@@ -333,3 +333,10 @@ if(WIN32 AND BUILD_SHARED_LIBS)
       $<TARGET_FILE_DIR:extractpdf_test_pdf_crop>
     VERBATIM)
 endif()
+
+add_executable(extractpdf_test_pdf_trim test_pdf_trim.c)
+target_link_libraries(extractpdf_test_pdf_trim PRIVATE ExtractPDF::ExtractPDF)
+target_compile_definitions(extractpdf_test_pdf_trim PRIVATE
+  TRIM_INTERACTIVE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/trim-interactive.pdf")
+add_test(NAME extractpdf.pdf_trim COMMAND extractpdf_test_pdf_trim)
+set_tests_properties(extractpdf.pdf_trim PROPERTIES TIMEOUT 60)
