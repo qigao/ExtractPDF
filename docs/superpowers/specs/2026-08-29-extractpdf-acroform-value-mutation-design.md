@@ -1,6 +1,6 @@
 # ExtractPDF AcroForm Value Mutation V1 Design
 
-Status: approved architecture for issue #46 under roadmap #2.
+Status: approved architecture, self-reviewed design for issue #46 under roadmap #2.
 
 Base integrated master: `fdcb2f6cd489de34802d09989ab61a1af8cd1861`.
 
@@ -130,6 +130,8 @@ typedef struct extractpdf_pdf_edit_form_entry {
 
 `group_head` is the canonical logical-group head established by the strict form parser. It may be an indirect object or a retained direct dictionary. The registry retains it with the editor context and releases it when the editor is dropped.
 
+Registry reuse compares the current parser's canonical group-head identity with existing entries using the same indirect-num/gen-or-direct-object identity relation as the strict parser. Direct logical group heads are permitted by the read model and therefore must be covered by ref-stability and rollback tests; V1 must not silently require all fields to be indirect.
+
 The registry does not cache:
 
 - field value;
@@ -150,7 +152,8 @@ A successfully issued form ref remains valid while the owning editor remains ali
 - annotation create/update/delete;
 - editor form snapshots;
 - editor PDF output snapshots;
-- repeated output serialization.
+- repeated output serialization;
+- failed form mutations that journal-abandon.
 
 V1 does not create/delete/reparent fields, so form refs have no public tombstone lifecycle. The namespace ends when `extractpdf_drop_pdf_edit()` is called.
 
@@ -222,11 +225,51 @@ Rules:
 
 All public field types may receive a ref, including PushButton, Signature, and UNKNOWN. Mutation capability is decided by the setter.
 
-### 4.3 Mutation-only restrictions do not block observation
+### 4.3 Observation must be raw-page-object only
+
+Self-review against pinned MuPDF 1.28.2 establishes an important implementation boundary: `pdf_load_page()` preloads annotations through `pdf_load_annots()`, and that path invokes `pdf_update_page()`. With `/NeedAppearances true`, page load can therefore synthesize Widget appearances and mutate document state.
+
+Accordingly, **strict AcroForm observation, ref discovery, and pre-mutation reconciliation must never use `pdf_load_page()` or `fz_load_page()`**.
+
+The shared private Widget reconciliation layer must scan pages using raw PDF page objects:
+
+```text
+pdf_lookup_page_obj(document, page_index)
+    -> raw page dictionary
+    -> raw /Annots scan
+    -> pdf_page_obj_transform(...)
+    -> Fitz geometry
+```
+
+Pinned MuPDF exposes both `pdf_lookup_page_obj()` and `pdf_page_obj_transform()` specifically for page-object lookup and coordinate transformation without requiring a loaded `pdf_page`.
+
+This V1 therefore includes a targeted refactor of the already-integrated `extractpdf_pdf_form_reconcile_widgets()` implementation so both:
+
+```text
+extractpdf_document_form()
+extractpdf_pdf_edit_form_snapshot() / field_ref_at()
+```
+
+use raw page objects for Widget reconciliation. The semantic contract of AcroForm Snapshot V1 does not change; this refactor closes a latent side-effect risk in its implementation.
+
+Observation must not invoke:
+
+```text
+pdf_load_page
+fz_load_page
+pdf_load_annots
+pdf_update_page
+pdf_update_open_pages
+form event APIs
+```
+
+### 4.4 Mutation-only restrictions do not block observation
 
 `extractpdf_pdf_edit_form_snapshot()` and `extractpdf_pdf_edit_form_field_ref_at()` continue to use normal AcroForm Snapshot V1 read semantics.
 
 The mutation-only restrictions on `/XFA` and `/NeedAppearances` apply only to `extractpdf_pdf_edit_form_set_values()`.
+
+A `/NeedAppearances true` document may therefore be observed and have field refs discovered without changing editor output bytes; mutation on that same document is unsupported.
 
 ## 5. Public typed assignment ABI
 
@@ -541,7 +584,7 @@ Boolean true  -> UNSUPPORTED
 non-Boolean   -> FORMAT
 ```
 
-NeedAppearances true is unsupported because V1 must not enter document-wide appearance-rewrite or page-wide recalculation paths.
+NeedAppearances true is unsupported because V1 must not perform document-wide appearance rewriting or mutate the document as a side effect of page loading.
 
 Mutation capability preflight occurs before semantic no-op detection. Therefore a same-value assignment still returns `UNSUPPORTED` when the current document is outside V1 mutation capability.
 
@@ -557,11 +600,11 @@ Form Value Mutation V1 must not execute or simulate:
 - SubmitForm / ResetForm actions;
 - JavaScript;
 - AcroForm calculation order `/CO`;
-- page-wide form recalculation.
+- page-wide recalculation after the requested semantic value has changed.
 
-The existing editor already disables JavaScript when the private PDF document is opened. Form V1 adds stricter local behavior: it must not call MuPDF setters or page-update entry points that opt into form events/recalculation.
+The existing editor already disables JavaScript when the private PDF document is opened. Form V1 additionally avoids MuPDF setters that opt into form events/recalculation.
 
-Forbidden implementation paths include:
+Forbidden direct implementation calls include:
 
 ```text
 pdf_set_field_value
@@ -576,32 +619,63 @@ pdf_calculate_form
 pdf_reset_form
 ```
 
-The setter writes normalized raw PDF state directly according to the already-validated ExtractPDF semantic model.
+Strict parser/discovery code is additionally forbidden from calling `pdf_load_page()` because page load itself enters annotation/page update logic in pinned MuPDF.
 
-## 16. Widget reconciliation for mutation
+The setter writes normalized raw PDF semantic state directly according to the already-validated ExtractPDF model.
 
-The strict parser/provenance layer must identify all Widgets owned by the target logical field using the same tree/page reconciliation contract as immutable AcroForm Snapshot V1.
+## 16. Widget reconciliation for observation and mutation
 
-A setter must not mutate a field unless current Widget reconciliation succeeds completely. Orphan/missing/duplicate/multi-page/direct/P-mismatched Widget structures remain `FORMAT` before journal mutation.
+The shared strict parser/provenance layer identifies all Widgets using raw page dictionaries and the same tree/page reconciliation contract as AcroForm Snapshot V1.
+
+For each page:
+
+```text
+page_obj = pdf_lookup_page_obj(...)
+annots = raw page_obj /Annots
+page_ctm = inverse/appropriate transform from pdf_page_obj_transform(...)
+scan raw Widget dictionaries
+```
+
+The implementation must preserve the existing public Widget order, page index, Rect transform, annotation flags, field ownership, button option mapping, `/P` validation, and all malformed-case behavior.
+
+A setter must not mutate a field unless current raw Widget reconciliation succeeds completely. Orphan/missing/duplicate/multi-page/direct/P-mismatched Widget structures remain `FORMAT` before journal mutation.
 
 No partial field or Widget publication/mutation is allowed.
+
+This targeted raw-page refactor is part of #46 because it is required to make editor form observation and mutation preflight genuinely side-effect-free. Existing `extractpdf.pdf_form` tests remain mandatory regressions.
 
 ## 17. Appearance behavior
 
 ### 17.1 Checkbox / Radio
 
-Checkbox and Radio value changes update semantic `/V` and every owned Widget `/AS` but preserve the existing `/AP` dictionary and appearance streams.
+Checkbox and Radio value changes update semantic `/V` and every owned Widget `/AS` directly on raw Widget dictionaries while preserving the existing `/AP` dictionary and appearance streams.
 
-The setter does not use MuPDF button appearance synthesis.
+No `pdf_page` or `pdf_annot` wrapper is required for button value mutation, and the setter does not use MuPDF button appearance synthesis.
 
-### 17.2 Text / Combo / List
+### 17.2 Text / Combo / List: safe wrapper acquisition
 
-After normalized `/V` and `/I` assignment, each owned Text/Combo/List Widget is refreshed individually.
+MuPDF appearance synthesis requires a `pdf_annot` Widget wrapper. The public API provides such wrappers through loaded pages, but pinned MuPDF `pdf_load_page()` internally performs an annotation/page update pass.
 
-The intended path is:
+To keep this bounded and deterministic, V1 permits `pdf_load_page()` only in one narrowly defined preparation phase for a **non-noop Text/Combo/List mutation**, after all of the following are already true:
 
 ```text
-load the Widget as pdf_annot
+strict raw parser/reconciliation succeeded
+/XFA absent
+/NeedAppearances absent or false
+assignment/type/options/state validation succeeded
+semantic no-op check failed (a real change is required)
+no semantic PDF object has yet been mutated
+```
+
+The setter then loads only the pages that contain target Widgets, resolves the exact Widget wrappers by their already-validated indirect num/gen identity, and retains the required page/widget handles.
+
+No page is loaded for form observation, ref discovery, button mutation, unsupported mutation, rejected mutation, or semantic no-op.
+
+This preparation is allowed only because the target document is still clean with respect to the requested change and NeedAppearances is false. Deterministic tests must prove that this preparatory page load does **not** change editor output bytes, field semantics, Widget `/AP`/`/AS`, or unrelated objects. If pinned MuPDF 1.28.2 fails that proof, implementation must stop and return to design rather than silently accepting page-load side effects.
+
+After safe wrapper acquisition, the outer mutation operation begins. For each target Text/Combo/List Widget:
+
+```text
 remember current widget editing state
 set widget editing state = true
 request target Widget resynthesis
@@ -609,7 +683,9 @@ call pdf_update_widget / pdf_update_annot for that Widget only
 restore previous editing state in exception-safe cleanup
 ```
 
-The editing/ignore-trigger-events state prevents appearance synthesis from running form trigger behavior. The implementation must never call `pdf_update_page()` as a shortcut.
+The editing/ignore-trigger-events state suppresses Form/Format trigger behavior during target appearance synthesis.
+
+No `pdf_load_page()` or page-wide update is permitted **after** `/V` or `/I` has been changed. ExtractPDF code never directly invokes `pdf_update_page()` or `pdf_update_open_pages()`.
 
 ### 17.3 ListBox renderer limitation
 
@@ -617,7 +693,7 @@ MuPDF 1.28.2 can resynthesize ListBox appearance text but does not guarantee pix
 
 ```text
 /V + /I semantic selection correct
-Widget resynthesis attempted successfully
+Widget resynthesis performed successfully
 ```
 
 but does not guarantee or test pixel-perfect selected-row highlight rendering.
@@ -626,19 +702,23 @@ A future custom List appearance slice may improve this without changing the V1 v
 
 ## 18. Journal transaction and atomicity
 
-Each successful non-noop public setter is exactly one outer MuPDF journal operation.
+Each successful non-noop public setter is exactly one outer MuPDF journal operation for the requested PDF mutations.
 
 The order is:
 
 ```text
 validate all public inputs
 resolve form ref
-strictly parse current form/provenance
+strictly parse current form/provenance with raw page objects
 mutation capability preflight
 validate assignment against actual type/options/state
 prepare ExtractPDF-owned allocations
 compare normalized current/requested value
-if semantic no-op -> return OK without journal operation
+if semantic no-op -> return OK without page load or journal operation
+
+for Text/Combo/List only:
+    safely acquire target page/widget wrappers before mutation
+    prove this path by deterministic no-side-effect tests
 
 pdf_begin_operation
     write canonical /V and /I state
@@ -656,7 +736,7 @@ A failed setter must leave:
 - current editor semantic form state identical to pre-call;
 - newly serialized editor output semantically identical to pre-call;
 - previously published outputs unchanged;
-- field ref still valid;
+- field ref still valid, including direct logical group-head refs;
 - editor reusable for subsequent snapshots and mutations.
 
 Private transient loaded pages/widgets are always dropped in exception-safe cleanup.
@@ -669,6 +749,7 @@ If equal:
 
 ```text
 return EXTRACTPDF_OK
+no pdf_load_page
 no pdf_begin_operation
 no /V rewrite
 no /I rewrite
@@ -693,7 +774,7 @@ The public setter applies errors in this order:
 2. form-ref token domain/session/tag/slot
       -> ARGUMENT
 
-3. strict current-form parse
+3. strict current-form parse using raw page objects
       -> FORMAT / UNSUPPORTED(depth)
 
 4. mutation-only document preflight
@@ -713,7 +794,7 @@ The public setter applies errors in this order:
 8. MISSING cannot defeat external inherited /V
       -> UNSUPPORTED
 
-9. journal mutation / appearance engine / allocation failure
+9. target wrapper acquisition / journal mutation / appearance engine / allocation failure
       -> NOMEM or mapped MuPDF error
 ```
 
@@ -752,6 +833,8 @@ Target progression:
 
 Read-only AcroForm tests remain in `extractpdf.pdf_form`; mutation tests do not enlarge that target.
 
+The existing read-only Form target must also gain or reuse a deterministic `/NeedAppearances true` fixture proving that `extractpdf_document_form()` is byte-preserving after the raw-page reconciliation refactor.
+
 ## 23. Strict first RED boundary
 
 The first implementation commit contains only:
@@ -773,6 +856,8 @@ failure is caused by absent approved mutation ABI
 
 No production header/source scaffold may be added before this RED is proven.
 
+The raw-page observation regression is added only after the strict compile RED commit, so the first RED remains attributable solely to the missing approved ABI.
+
 ## 24. Required identity/discovery tests
 
 The mutation suite must lock:
@@ -780,9 +865,12 @@ The mutation suite must lock:
 - editor form snapshot matches ordinary snapshot semantics;
 - editor form snapshot survives editor drop;
 - historical snapshot is unchanged after later mutation;
+- editor form snapshot and field-ref discovery on `/NeedAppearances true` are byte-preserving;
 - valid field-ref discovery;
 - repeated discovery of same field returns same ref;
 - different fields return different refs;
+- direct logical field group can receive a stable ref;
+- direct logical group ref survives successful and abandoned mutations;
 - wrong editor ref -> `ARGUMENT`;
 - forged ref -> `ARGUMENT`;
 - annotation-ref bits passed as form ref -> `ARGUMENT`;
@@ -821,7 +909,8 @@ Lock:
 - NoToggleToOff does not block programmatic Off/Missing;
 - RadiosInUnison does not redefine API semantics;
 - raw `/AP` objects/bytes remain unchanged;
-- `/AS` exactly follows selected field option.
+- `/AS` exactly follows selected field option;
+- no page load is required for button mutation.
 
 ## 27. Required Combo/List tests
 
@@ -846,6 +935,8 @@ List:
 - caller selection order preserved in `/V`;
 - `/I` exactly matches option indices.
 
+For Text/Combo/List, successful non-noop tests must additionally prove that preparatory target-page loading did not mutate bytes before the outer setter operation and did not alter unrelated Widget appearances.
+
 ## 28. Required group/inheritance tests
 
 Lock:
@@ -869,8 +960,9 @@ Lock:
 - Signature -> `UNSUPPORTED`;
 - UNKNOWN -> `UNSUPPORTED`;
 - XFA present -> `UNSUPPORTED`;
-- NeedAppearances true -> `UNSUPPORTED`;
-- malformed NeedAppearances -> `FORMAT`.
+- NeedAppearances true -> `UNSUPPORTED` for setter;
+- NeedAppearances true remains observable without byte changes;
+- malformed NeedAppearances -> `FORMAT` for setter.
 
 ## 30. Required no-execution tests
 
@@ -891,7 +983,9 @@ sentinel state unchanged
 unrelated field unchanged
 ```
 
-Tests must not need `pdf_update_page()` or an equivalent page-wide form-runtime pass to make the mutation correct.
+Observation and ref discovery must not load pages or enter annotation/form runtime.
+
+For Text/Combo/List, the only allowed page-load path is pre-mutation target-wrapper acquisition under `/NeedAppearances false`; tests must prove that this preparatory load itself has zero observable PDF-byte changes. No page-wide update may occur after semantic mutation.
 
 ## 31. Required appearance tests
 
@@ -928,7 +1022,7 @@ For each injected failure:
 - editor form snapshot equals pre-call semantic state;
 - new editor output represents pre-call state;
 - previously published output is unchanged;
-- field ref remains valid;
+- field ref remains valid, including a direct group-head ref case;
 - editor remains reusable;
 - a subsequent valid mutation succeeds.
 
@@ -941,7 +1035,7 @@ At minimum:
 - same Combo option;
 - same multi-list sequence.
 
-Each returns `OK` and produces byte-identical editor output before and after.
+Each returns `OK`, performs no page load, and produces byte-identical editor output before and after.
 
 ## 34. Round-trip correctness oracle
 
@@ -1012,7 +1106,7 @@ After design approval, the next artifact is a separate TDD implementation plan c
 
 ```text
 compile RED
--> incremental GREEN slices
+-> raw-page observation regression + incremental GREEN slices
 -> Linux static + ASan/UBSan 21/21
 -> same-SHA macOS + Windows DLL full-ci
 -> fresh scope/review gate
