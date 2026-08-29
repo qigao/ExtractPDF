@@ -195,6 +195,26 @@ int trim_raw_expect_preserved_cropbox(
     return ok;
 }
 
+static int compare_dict_keys(
+    fz_context *ctx,
+    pdf_obj *left,
+    pdf_obj *right,
+    pdf_obj *const *keys)
+{
+    int index;
+
+    if (!pdf_is_dict(ctx, left) || !pdf_is_dict(ctx, right))
+        return 0;
+    for (index = 0; keys[index] != NULL; ++index) {
+        if (!obj_equal_deep_or_both_missing(
+                ctx,
+                pdf_dict_get(ctx, left, keys[index]),
+                pdf_dict_get(ctx, right, keys[index])))
+            return 0;
+    }
+    return 1;
+}
+
 static int compare_page_payload(
     fz_context *ctx,
     pdf_document *before,
@@ -203,6 +223,10 @@ static int compare_page_payload(
 {
     pdf_obj *left = pdf_lookup_page_obj(ctx, before, page_index);
     pdf_obj *right = pdf_lookup_page_obj(ctx, after, page_index);
+    pdf_obj *left_annots;
+    pdf_obj *right_annots;
+    int count;
+    int index;
 
     if (!pdf_is_dict(ctx, left) || !pdf_is_dict(ctx, right))
         return 0;
@@ -217,34 +241,87 @@ static int compare_page_payload(
             pdf_dict_get(ctx, right, PDF_NAME(Resources))))
         return 0;
 
-    {
-        pdf_obj *left_annots = pdf_dict_get(ctx, left, PDF_NAME(Annots));
-        pdf_obj *right_annots = pdf_dict_get(ctx, right, PDF_NAME(Annots));
-        int left_count = pdf_array_len(ctx, left_annots);
-        int right_count = pdf_array_len(ctx, right_annots);
-        int index;
+    left_annots = pdf_dict_get(ctx, left, PDF_NAME(Annots));
+    right_annots = pdf_dict_get(ctx, right, PDF_NAME(Annots));
+    if ((left_annots == NULL) != (right_annots == NULL))
+        return 0;
+    if (left_annots == NULL)
+        return 1;
+    count = pdf_array_len(ctx, left_annots);
+    if (count != pdf_array_len(ctx, right_annots))
+        return 0;
 
-        if (left_count != right_count)
+    for (index = 0; index < count; ++index) {
+        static pdf_obj *keys[] = {
+            PDF_NAME(Subtype), PDF_NAME(Rect), PDF_NAME(F),
+            PDF_NAME(Contents), PDF_NAME(A), PDF_NAME(Dest),
+            PDF_NAME(AS), PDF_NAME(T), PDF_NAME(FT), PDF_NAME(V), NULL
+        };
+        pdf_obj *left_annot = pdf_array_get(ctx, left_annots, index);
+        pdf_obj *right_annot = pdf_array_get(ctx, right_annots, index);
+        if (!compare_dict_keys(ctx, left_annot, right_annot, keys))
             return 0;
-        for (index = 0; index < left_count; ++index) {
-            pdf_obj *left_annot = pdf_array_get(ctx, left_annots, index);
-            pdf_obj *right_annot = pdf_array_get(ctx, right_annots, index);
-            static pdf_obj *keys[] = {
-                PDF_NAME(Subtype), PDF_NAME(Rect), PDF_NAME(F),
-                PDF_NAME(Contents), PDF_NAME(A), PDF_NAME(Dest),
-                PDF_NAME(AS), NULL
-            };
-            int key_index;
+    }
+    return 1;
+}
 
-            if (!pdf_is_dict(ctx, left_annot) || !pdf_is_dict(ctx, right_annot))
+static int compare_acroform(
+    fz_context *ctx,
+    pdf_obj *left_root,
+    pdf_obj *right_root)
+{
+    pdf_obj *left_form = pdf_dict_get(ctx, left_root, PDF_NAME(AcroForm));
+    pdf_obj *right_form = pdf_dict_get(ctx, right_root, PDF_NAME(AcroForm));
+    pdf_obj *left_fields;
+    pdf_obj *right_fields;
+    int count;
+    int index;
+
+    if ((left_form == NULL) != (right_form == NULL))
+        return 0;
+    if (left_form == NULL)
+        return 1;
+    if (!obj_equal_deep_or_both_missing(
+            ctx,
+            pdf_dict_get(ctx, left_form, PDF_NAME(NeedAppearances)),
+            pdf_dict_get(ctx, right_form, PDF_NAME(NeedAppearances))))
+        return 0;
+
+    left_fields = pdf_dict_get(ctx, left_form, PDF_NAME(Fields));
+    right_fields = pdf_dict_get(ctx, right_form, PDF_NAME(Fields));
+    count = pdf_array_len(ctx, left_fields);
+    if (count != pdf_array_len(ctx, right_fields))
+        return 0;
+
+    for (index = 0; index < count; ++index) {
+        static pdf_obj *field_keys[] = {
+            PDF_NAME(FT), PDF_NAME(T), PDF_NAME(V), PDF_NAME(Ff), NULL
+        };
+        pdf_obj *left_field = pdf_array_get(ctx, left_fields, index);
+        pdf_obj *right_field = pdf_array_get(ctx, right_fields, index);
+        pdf_obj *left_kids;
+        pdf_obj *right_kids;
+        int kid_count;
+        int kid_index;
+
+        if (!compare_dict_keys(ctx, left_field, right_field, field_keys))
+            return 0;
+        left_kids = pdf_dict_get(ctx, left_field, PDF_NAME(Kids));
+        right_kids = pdf_dict_get(ctx, right_field, PDF_NAME(Kids));
+        kid_count = pdf_array_len(ctx, left_kids);
+        if (kid_count != pdf_array_len(ctx, right_kids))
+            return 0;
+        for (kid_index = 0; kid_index < kid_count; ++kid_index) {
+            static pdf_obj *kid_keys[] = {
+                PDF_NAME(Subtype), PDF_NAME(Rect), PDF_NAME(F),
+                PDF_NAME(FT), PDF_NAME(T), PDF_NAME(V), PDF_NAME(Ff), NULL
+            };
+            if (!compare_dict_keys(
+                    ctx,
+                    pdf_array_get(ctx, left_kids, kid_index),
+                    pdf_array_get(ctx, right_kids, kid_index),
+                    kid_keys))
                 return 0;
-            for (key_index = 0; keys[key_index] != NULL; ++key_index) {
-                if (!obj_equal_deep_or_both_missing(
-                        ctx,
-                        pdf_dict_get(ctx, left_annot, keys[key_index]),
-                        pdf_dict_get(ctx, right_annot, keys[key_index])))
-                    return 0;
-            }
         }
     }
     return 1;
@@ -259,53 +336,28 @@ static int compare_root_semantics(
         ctx, pdf_trailer(ctx, before), PDF_NAME(Root));
     pdf_obj *right_root = pdf_dict_get(
         ctx, pdf_trailer(ctx, after), PDF_NAME(Root));
-    pdf_obj *left_acroform;
-    pdf_obj *right_acroform;
     pdf_obj *left_outlines;
     pdf_obj *right_outlines;
 
     if (!pdf_is_dict(ctx, left_root) || !pdf_is_dict(ctx, right_root))
         return 0;
-
-    left_acroform = pdf_dict_get(ctx, left_root, PDF_NAME(AcroForm));
-    right_acroform = pdf_dict_get(ctx, right_root, PDF_NAME(AcroForm));
-    if (!obj_equal_deep_or_both_missing(ctx, left_acroform, right_acroform)) {
-        if ((left_acroform == NULL) != (right_acroform == NULL))
-            return 0;
-        if (left_acroform != NULL) {
-            pdf_obj *left_fields = pdf_dict_get(
-                ctx, left_acroform, PDF_NAME(Fields));
-            pdf_obj *right_fields = pdf_dict_get(
-                ctx, right_acroform, PDF_NAME(Fields));
-            if (pdf_array_len(ctx, left_fields) !=
-                pdf_array_len(ctx, right_fields))
-                return 0;
-        }
-    }
+    if (!compare_acroform(ctx, left_root, right_root))
+        return 0;
 
     left_outlines = pdf_dict_get(ctx, left_root, PDF_NAME(Outlines));
     right_outlines = pdf_dict_get(ctx, right_root, PDF_NAME(Outlines));
     if ((left_outlines == NULL) != (right_outlines == NULL))
         return 0;
     if (left_outlines != NULL) {
+        static pdf_obj *keys[] = {
+            PDF_NAME(Title), PDF_NAME(Dest), PDF_NAME(A), NULL
+        };
         pdf_obj *left_first = pdf_dict_get(
             ctx, left_outlines, PDF_NAME(First));
         pdf_obj *right_first = pdf_dict_get(
             ctx, right_outlines, PDF_NAME(First));
-        static pdf_obj *keys[] = {
-            PDF_NAME(Title), PDF_NAME(Dest), PDF_NAME(A), NULL
-        };
-        int index;
-
-        if (!pdf_is_dict(ctx, left_first) || !pdf_is_dict(ctx, right_first))
+        if (!compare_dict_keys(ctx, left_first, right_first, keys))
             return 0;
-        for (index = 0; keys[index] != NULL; ++index) {
-            if (!obj_equal_deep_or_both_missing(
-                    ctx,
-                    pdf_dict_get(ctx, left_first, keys[index]),
-                    pdf_dict_get(ctx, right_first, keys[index])))
-                return 0;
-        }
     }
     return 1;
 }
