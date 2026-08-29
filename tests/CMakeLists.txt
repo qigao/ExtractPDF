@@ -272,7 +272,11 @@ if(WIN32 AND BUILD_SHARED_LIBS)
 endif()
 
 add_executable(extractpdf_test_pdf_form_mutation
-  test_pdf_form_mutation.c)
+  test_pdf_form_mutation.c
+  test_pdf_form_appearance.c
+  test_pdf_form_mutation_main.c)
+set_source_files_properties(test_pdf_form_mutation.c PROPERTIES
+  COMPILE_DEFINITIONS "main=extractpdf_pdf_form_mutation_base_main")
 target_link_libraries(extractpdf_test_pdf_form_mutation PRIVATE ExtractPDF::ExtractPDF)
 target_compile_definitions(extractpdf_test_pdf_form_mutation PRIVATE
   FORM_MUTATION_BASIC_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-basic.pdf"
