@@ -8,6 +8,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define FORM_MUTATION_ROUNDTRIP_PDF "acroform-mutation-roundtrip-output.pdf"
+
 static void check_impl(int ok, const char *expr, int line)
 {
     if (!ok) {
@@ -329,10 +331,9 @@ static void test_zero_widget_text_roundtrip(void)
     extractpdf_form_value_update update = {0};
     extractpdf_form *form = NULL;
     extractpdf_output *output = NULL;
-    const unsigned char *bytes = NULL;
-    size_t byte_count = 0;
     extractpdf_document *reopened = NULL;
 
+    remove(FORM_MUTATION_ROUNDTRIP_PDF);
     CHECK(extractpdf_open(FORM_MUTATION_BASIC_PDF, NULL, &document) == EXTRACTPDF_OK);
     CHECK(extractpdf_pdf_edit_begin(document, &edit) == EXTRACTPDF_OK);
     extractpdf_close(document);
@@ -360,13 +361,15 @@ static void test_zero_widget_text_roundtrip(void)
     form = NULL;
 
     CHECK(extractpdf_pdf_edit_snapshot(edit, &output) == EXTRACTPDF_OK);
-    CHECK(extractpdf_output_data(output, &bytes, &byte_count) == EXTRACTPDF_OK);
-    CHECK(extractpdf_open_memory(bytes, byte_count, NULL, &reopened) == EXTRACTPDF_OK);
+    CHECK(extractpdf_output_save_file(output, FORM_MUTATION_ROUNDTRIP_PDF) ==
+        EXTRACTPDF_OK);
+    CHECK(extractpdf_open(FORM_MUTATION_ROUNDTRIP_PDF, NULL, &reopened) == EXTRACTPDF_OK);
     CHECK(extractpdf_document_form(reopened, &form) == EXTRACTPDF_OK);
     expect_text_field(form, "zero", EXTRACTPDF_FORM_VALUE_PRESENT, "alpha");
     extractpdf_drop_form(form);
     extractpdf_close(reopened);
     extractpdf_drop_output(output);
+    remove(FORM_MUTATION_ROUNDTRIP_PDF);
 
     update.presence = EXTRACTPDF_FORM_VALUE_MISSING;
     update.values = NULL;
