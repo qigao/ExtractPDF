@@ -83,6 +83,7 @@ if(EXTRACTPDF_BUILD_TESTS)
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_trim_boxes.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_trim_transforms.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_trim_policy.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_trim_batch.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_trim_main.c")
   target_link_libraries(extractpdf_test_pdf_trim PRIVATE
     unofficial::libmupdf::libmupdf)
