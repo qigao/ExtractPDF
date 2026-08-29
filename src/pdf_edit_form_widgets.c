@@ -17,6 +17,7 @@ void extractpdf_pdf_edit_form_drop_widget_handles(
             if (handles->pages[i] != NULL)
                 fz_drop_page(edit->ctx, (fz_page *)handles->pages[i]);
     }
+    free(handles->page_indices);
     free(handles->pages);
     free(handles->items);
     memset(handles, 0, sizeof(*handles));
@@ -39,14 +40,18 @@ extractpdf_status extractpdf_pdf_edit_form_prepare_widget_handles(
     if (live->widget_count == 0)
         return EXTRACTPDF_OK;
     if (live->widget_count > SIZE_MAX / sizeof(*out_handles->items) ||
-        live->widget_count > SIZE_MAX / sizeof(*out_handles->pages))
+        live->widget_count > SIZE_MAX / sizeof(*out_handles->pages) ||
+        live->widget_count > SIZE_MAX / sizeof(*out_handles->page_indices))
         return EXTRACTPDF_ERROR_NOMEM;
 
     out_handles->items = (extractpdf_pdf_edit_form_widget_handle *)calloc(
         live->widget_count, sizeof(*out_handles->items));
     out_handles->pages = (pdf_page **)calloc(
         live->widget_count, sizeof(*out_handles->pages));
-    if (out_handles->items == NULL || out_handles->pages == NULL) {
+    out_handles->page_indices = (int *)calloc(
+        live->widget_count, sizeof(*out_handles->page_indices));
+    if (out_handles->items == NULL || out_handles->pages == NULL ||
+        out_handles->page_indices == NULL) {
         extractpdf_pdf_edit_form_drop_widget_handles(edit, out_handles);
         return EXTRACTPDF_ERROR_NOMEM;
     }
@@ -64,9 +69,7 @@ extractpdf_status extractpdf_pdf_edit_form_prepare_widget_handles(
             size_t matches = 0;
 
             for (pi = 0; pi < out_handles->page_count; ++pi) {
-                if (out_handles->pages[pi] != NULL &&
-                    pdf_lookup_page_number(edit->ctx, edit->document,
-                        out_handles->pages[pi]->obj) == page_index) {
+                if (out_handles->page_indices[pi] == page_index) {
                     page = out_handles->pages[pi];
                     break;
                 }
@@ -77,7 +80,9 @@ extractpdf_status extractpdf_pdf_edit_form_prepare_widget_handles(
                     status = EXTRACTPDF_ERROR_STATE;
                     break;
                 }
-                out_handles->pages[out_handles->page_count++] = page;
+                out_handles->pages[out_handles->page_count] = page;
+                out_handles->page_indices[out_handles->page_count] = page_index;
+                ++out_handles->page_count;
             }
 
             for (widget = pdf_first_widget(edit->ctx, page);
