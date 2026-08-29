@@ -87,4 +87,11 @@ if(EXTRACTPDF_BUILD_TESTS)
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_trim_main.c")
   target_link_libraries(extractpdf_test_pdf_trim PRIVATE
     unofficial::libmupdf::libmupdf)
+  if(WIN32 AND BUILD_SHARED_LIBS)
+    add_custom_command(TARGET extractpdf_test_pdf_trim POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:extractpdf>
+        $<TARGET_FILE_DIR:extractpdf_test_pdf_trim>
+      VERBATIM)
+  endif()
 endif()
