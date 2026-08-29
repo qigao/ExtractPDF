@@ -299,3 +299,10 @@ if(WIN32 AND BUILD_SHARED_LIBS)
       $<TARGET_FILE_DIR:extractpdf_test_pdf_form_mutation>
     VERBATIM)
 endif()
+
+add_executable(extractpdf_test_pdf_crop test_pdf_crop.c)
+target_link_libraries(extractpdf_test_pdf_crop PRIVATE ExtractPDF::ExtractPDF)
+target_compile_definitions(extractpdf_test_pdf_crop PRIVATE
+  CROP_INTERACTIVE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/crop-interactive.pdf")
+add_test(NAME extractpdf.pdf_crop COMMAND extractpdf_test_pdf_crop)
+set_tests_properties(extractpdf.pdf_crop PROPERTIES TIMEOUT 60)
