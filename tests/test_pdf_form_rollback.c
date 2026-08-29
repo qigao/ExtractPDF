@@ -64,6 +64,15 @@ static extractpdf_form_field_ref rollback_field_ref(
     return ref;
 }
 
+static void rollback_expect_same_ref(
+    const extractpdf_form_field_ref *left,
+    const extractpdf_form_field_ref *right)
+{
+    ROLLBACK_CHECK(left != NULL);
+    ROLLBACK_CHECK(right != NULL);
+    ROLLBACK_CHECK(memcmp(left, right, sizeof(*left)) == 0);
+}
+
 static void rollback_make_text(
     extractpdf_form_value_input *value,
     extractpdf_form_value_update *update,
@@ -121,6 +130,7 @@ static void rollback_copy_editor_output(
 
 static void rollback_expect_failed_atomic(
     extractpdf_pdf_edit *edit,
+    const char *field_name,
     const extractpdf_form_field_ref *ref,
     const extractpdf_form_value_update *update,
     extractpdf_test_pdf_edit_fault fault)
@@ -130,6 +140,7 @@ static void rollback_expect_failed_atomic(
     size_t before_size = 0;
     size_t after_size = 0;
     extractpdf_form *form = NULL;
+    extractpdf_form_field_ref rediscovered;
 
     rollback_copy_editor_output(edit, &before, &before_size);
     extractpdf_test_pdf_edit_set_fault(edit, fault);
@@ -140,6 +151,8 @@ static void rollback_expect_failed_atomic(
     ROLLBACK_CHECK(memcmp(before, after, before_size) == 0);
     ROLLBACK_CHECK(extractpdf_pdf_edit_form_snapshot(edit, &form) == EXTRACTPDF_OK);
     extractpdf_drop_form(form);
+    rediscovered = rollback_field_ref(edit, field_name);
+    rollback_expect_same_ref(ref, &rediscovered);
     free(before);
     free(after);
 }
@@ -207,7 +220,7 @@ static void test_direct_field_ref_survives_semantic_rollback(void)
     extractpdf_form_value_update update;
 
     rollback_make_text(&value, &update, "failed");
-    rollback_expect_failed_atomic(edit, &ref, &update,
+    rollback_expect_failed_atomic(edit, "direct", &ref, &update,
         EXTRACTPDF_TEST_PDF_EDIT_FAULT_FORM_AFTER_SEMANTIC_WRITE);
     rollback_expect_text(edit, "direct", "before");
 
@@ -226,7 +239,7 @@ static void test_button_first_state_rollback_and_reuse(void)
     extractpdf_form_value_update update;
 
     rollback_make_option(&value, &update, 0);
-    rollback_expect_failed_atomic(edit, &ref, &update,
+    rollback_expect_failed_atomic(edit, "check", &ref, &update,
         EXTRACTPDF_TEST_PDF_EDIT_FAULT_FORM_AFTER_FIRST_WIDGET_STATE);
     ROLLBACK_CHECK(extractpdf_pdf_edit_form_set_values(edit, &ref, &update) ==
         EXTRACTPDF_OK);
@@ -242,7 +255,7 @@ static void test_first_ap_refresh_rollback_and_reuse(void)
     extractpdf_form_value_update update;
 
     rollback_make_text(&value, &update, "AFTER");
-    rollback_expect_failed_atomic(edit, &ref, &update,
+    rollback_expect_failed_atomic(edit, "target", &ref, &update,
         EXTRACTPDF_TEST_PDF_EDIT_FAULT_FORM_AFTER_FIRST_AP_REFRESH);
     rollback_expect_text(edit, "target", "BEFORE");
     rollback_expect_text(edit, "unrelated", "UNCHANGED");
