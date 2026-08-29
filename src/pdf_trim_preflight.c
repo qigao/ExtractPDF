@@ -137,6 +137,17 @@ static int extractpdf_pdf_trim_raw_equal(fz_rect left, fz_rect right)
         left.x1 == right.x1 && left.y1 == right.y1;
 }
 
+static fz_rect extractpdf_pdf_trim_normalize(fz_rect rect)
+{
+    fz_rect result;
+
+    result.x0 = fminf(rect.x0, rect.x1);
+    result.y0 = fminf(rect.y0, rect.y1);
+    result.x1 = fmaxf(rect.x0, rect.x1);
+    result.y1 = fmaxf(rect.y0, rect.y1);
+    return result;
+}
+
 static fz_rect extractpdf_pdf_trim_intersection(fz_rect left, fz_rect right)
 {
     fz_rect result;
@@ -206,15 +217,8 @@ extractpdf_status extractpdf_pdf_trim_build_plan(
         public_rect.x1 = trims[index].bounds.x1;
         public_rect.y1 = trims[index].bounds.y1;
         public_to_pdf = fz_invert_matrix(view.pdf_to_public);
-        requested_media_pdf = fz_transform_rect(public_rect, public_to_pdf);
-        requested_media_pdf.x0 = fminf(
-            requested_media_pdf.x0, requested_media_pdf.x1);
-        requested_media_pdf.y0 = fminf(
-            requested_media_pdf.y0, requested_media_pdf.y1);
-        requested_media_pdf.x1 = fmaxf(
-            requested_media_pdf.x0, requested_media_pdf.x1);
-        requested_media_pdf.y1 = fmaxf(
-            requested_media_pdf.y0, requested_media_pdf.y1);
+        requested_media_pdf = extractpdf_pdf_trim_normalize(
+            fz_transform_rect(public_rect, public_to_pdf));
 
         if (!extractpdf_pdf_trim_positive_raw(requested_media_pdf) ||
             !extractpdf_pdf_trim_raw_inside(
