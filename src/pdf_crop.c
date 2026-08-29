@@ -48,7 +48,7 @@ static extractpdf_status extractpdf_pdf_crop_transform_changed(
 {
     extractpdf_output *seed = NULL;
     extractpdf_pdf_crop_plan *private_plans = NULL;
-    extractpdf_pdf_crop_page_view *private_views = NULL;
+    extractpdf_pdf_page_box_view *private_views = NULL;
     fz_context *private_ctx = NULL;
     fz_stream *stream = NULL;
     pdf_document *private_document = NULL;
@@ -111,7 +111,7 @@ static extractpdf_status extractpdf_pdf_crop_transform_changed(
     }
     private_plans = (extractpdf_pdf_crop_plan *)calloc(
         crop_count, sizeof(*private_plans));
-    private_views = (extractpdf_pdf_crop_page_view *)calloc(
+    private_views = (extractpdf_pdf_page_box_view *)calloc(
         crop_count, sizeof(*private_views));
     if (private_plans == NULL || private_views == NULL) {
         status = EXTRACTPDF_ERROR_NOMEM;
@@ -133,7 +133,7 @@ static extractpdf_status extractpdf_pdf_crop_transform_changed(
     }
 
     for (index = 0; index < crop_count; ++index) {
-        status = extractpdf_pdf_crop_resolve_page(
+        status = extractpdf_pdf_page_box_resolve(
             private_ctx,
             private_document,
             private_plans[index].page_index,
