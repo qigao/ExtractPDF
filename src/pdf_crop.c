@@ -140,12 +140,6 @@ static extractpdf_status extractpdf_pdf_crop_transform_changed(
             &private_views[index]);
         if (status != EXTRACTPDF_OK)
             goto cleanup;
-        if (private_plans[index].changed &&
-            (private_views[index].rotate_degrees != 0 ||
-             private_views[index].user_unit != 1.0f)) {
-            status = EXTRACTPDF_ERROR_UNSUPPORTED;
-            goto cleanup;
-        }
     }
 
     caught_code = FZ_ERROR_NONE;
