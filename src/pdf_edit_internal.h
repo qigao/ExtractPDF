@@ -18,6 +18,7 @@ typedef struct extractpdf_pdf_edit_form_entry {
 typedef struct extractpdf_pdf_edit_form_widget_handle {
     pdf_annot *widget;
     int previous_editing;
+    int editing_active;
 } extractpdf_pdf_edit_form_widget_handle;
 
 typedef struct extractpdf_pdf_edit_form_widget_handles {
@@ -35,12 +36,21 @@ extractpdf_status extractpdf_pdf_edit_form_prepare_widget_handles(
     extractpdf_pdf_edit *edit,
     const struct extractpdf_pdf_form_live_field *live,
     extractpdf_pdf_edit_form_widget_handles *out_handles);
+extractpdf_status extractpdf_pdf_edit_form_begin_widget_editing(
+    extractpdf_pdf_edit *edit,
+    extractpdf_pdf_edit_form_widget_handles *handles);
+extractpdf_status extractpdf_pdf_edit_form_restore_widget_editing(
+    extractpdf_pdf_edit *edit,
+    extractpdf_pdf_edit_form_widget_handles *handles);
+void extractpdf_pdf_edit_form_refresh_widget_handles(
+    extractpdf_pdf_edit *edit,
+    extractpdf_pdf_edit_form_widget_handles *handles);
 void extractpdf_pdf_edit_form_drop_widget_handles(
     extractpdf_pdf_edit *edit,
     extractpdf_pdf_edit_form_widget_handles *handles);
 extractpdf_status extractpdf_pdf_edit_form_mutation_preflight(
     extractpdf_pdf_edit *edit);
-extractpdf_status extractpdf_pdf_edit_form_apply_zero_widget_text(
+extractpdf_status extractpdf_pdf_edit_form_apply_text(
     extractpdf_pdf_edit *edit,
     const struct extractpdf_pdf_form_model *model,
     size_t field_index,

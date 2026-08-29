@@ -4,6 +4,39 @@
 #include <stdlib.h>
 #include <string.h>
 
+extractpdf_status extractpdf_pdf_edit_form_restore_widget_editing(
+    extractpdf_pdf_edit *edit,
+    extractpdf_pdf_edit_form_widget_handles *handles)
+{
+    extractpdf_status status = EXTRACTPDF_OK;
+    size_t i;
+
+    if (edit == NULL || edit->ctx == NULL || handles == NULL)
+        return EXTRACTPDF_ERROR_ARGUMENT;
+    for (i = 0; i < handles->count; ++i) {
+        int caught_code = FZ_ERROR_NONE;
+        if (!handles->items[i].editing_active)
+            continue;
+        fz_var(caught_code);
+        fz_try(edit->ctx)
+        {
+            pdf_set_widget_editing_state(
+                edit->ctx,
+                handles->items[i].widget,
+                handles->items[i].previous_editing);
+        }
+        fz_catch(edit->ctx)
+        {
+            caught_code = fz_caught(edit->ctx);
+            fz_report_error(edit->ctx);
+        }
+        handles->items[i].editing_active = 0;
+        if (caught_code != FZ_ERROR_NONE && status == EXTRACTPDF_OK)
+            status = extractpdf_status_from_mupdf(caught_code);
+    }
+    return status;
+}
+
 void extractpdf_pdf_edit_form_drop_widget_handles(
     extractpdf_pdf_edit *edit,
     extractpdf_pdf_edit_form_widget_handles *handles)
@@ -13,6 +46,7 @@ void extractpdf_pdf_edit_form_drop_widget_handles(
     if (handles == NULL)
         return;
     if (edit != NULL && edit->ctx != NULL) {
+        (void)extractpdf_pdf_edit_form_restore_widget_editing(edit, handles);
         for (i = 0; i < handles->page_count; ++i)
             if (handles->pages[i] != NULL)
                 fz_drop_page(edit->ctx, (fz_page *)handles->pages[i]);
@@ -111,4 +145,51 @@ extractpdf_status extractpdf_pdf_edit_form_prepare_widget_handles(
     if (status != EXTRACTPDF_OK)
         extractpdf_pdf_edit_form_drop_widget_handles(edit, out_handles);
     return status;
+}
+
+extractpdf_status extractpdf_pdf_edit_form_begin_widget_editing(
+    extractpdf_pdf_edit *edit,
+    extractpdf_pdf_edit_form_widget_handles *handles)
+{
+    int caught_code = FZ_ERROR_NONE;
+    extractpdf_status restore_status;
+    size_t i;
+
+    if (edit == NULL || edit->ctx == NULL || handles == NULL)
+        return EXTRACTPDF_ERROR_ARGUMENT;
+    fz_var(caught_code);
+    fz_try(edit->ctx)
+    {
+        for (i = 0; i < handles->count; ++i) {
+            if (handles->items[i].widget == NULL)
+                fz_throw(edit->ctx, FZ_ERROR_GENERIC,
+                    "missing prepared form Widget");
+            handles->items[i].previous_editing =
+                pdf_get_widget_editing_state(edit->ctx, handles->items[i].widget);
+            pdf_set_widget_editing_state(edit->ctx, handles->items[i].widget, 1);
+            handles->items[i].editing_active = 1;
+        }
+    }
+    fz_catch(edit->ctx)
+    {
+        caught_code = fz_caught(edit->ctx);
+        fz_report_error(edit->ctx);
+    }
+    if (caught_code == FZ_ERROR_NONE)
+        return EXTRACTPDF_OK;
+    restore_status = extractpdf_pdf_edit_form_restore_widget_editing(edit, handles);
+    (void)restore_status;
+    return extractpdf_status_from_mupdf(caught_code);
+}
+
+void extractpdf_pdf_edit_form_refresh_widget_handles(
+    extractpdf_pdf_edit *edit,
+    extractpdf_pdf_edit_form_widget_handles *handles)
+{
+    size_t i;
+
+    for (i = 0; i < handles->count; ++i) {
+        pdf_annot_request_resynthesis(edit->ctx, handles->items[i].widget);
+        (void)pdf_update_widget(edit->ctx, handles->items[i].widget);
+    }
 }

@@ -133,6 +133,8 @@ static extractpdf_status extractpdf_pdf_edit_form_validate_text_update(
             return EXTRACTPDF_ERROR_ARGUMENT;
         if (!extractpdf_pdf_edit_form_utf8_valid(value->utf8, value->utf8_size))
             return EXTRACTPDF_ERROR_ARGUMENT;
+        if (value->utf8_size == SIZE_MAX)
+            return EXTRACTPDF_ERROR_NOMEM;
         copy = (char *)malloc(value->utf8_size + 1);
         if (copy == NULL)
             return EXTRACTPDF_ERROR_NOMEM;
@@ -182,7 +184,27 @@ static int extractpdf_pdf_edit_form_text_is_noop(
     return memcmp(current, text, text_size) == 0;
 }
 
-extractpdf_status extractpdf_pdf_edit_form_apply_zero_widget_text(
+static void extractpdf_pdf_edit_form_write_text(
+    extractpdf_pdf_edit *edit,
+    const extractpdf_pdf_form_live_field *live,
+    int missing,
+    const char *text)
+{
+    size_t i;
+
+    if (missing) {
+        for (i = 0; i < live->group_node_count; ++i)
+            pdf_dict_del(edit->ctx, live->group_nodes[i], PDF_NAME(V));
+        return;
+    }
+    pdf_dict_put_text_string(edit->ctx, live->group_head, PDF_NAME(V), text);
+    for (i = 0; i < live->group_node_count; ++i)
+        if (!extractpdf_pdf_form_same_identity(
+                edit->ctx, live->group_nodes[i], live->group_head))
+            pdf_dict_del(edit->ctx, live->group_nodes[i], PDF_NAME(V));
+}
+
+extractpdf_status extractpdf_pdf_edit_form_apply_text(
     extractpdf_pdf_edit *edit,
     const extractpdf_pdf_form_model *model,
     size_t field_index,
@@ -190,19 +212,20 @@ extractpdf_status extractpdf_pdf_edit_form_apply_zero_widget_text(
     const extractpdf_form_value_update *update)
 {
     const extractpdf_pdf_form_field_internal *field;
+    extractpdf_pdf_edit_form_widget_handles handles;
     char *text = NULL;
     size_t text_size = 0;
     int missing = 0;
     int operation_open = 0;
     int caught_code = FZ_ERROR_NONE;
     extractpdf_status status;
-    size_t i;
 
+    memset(&handles, 0, sizeof(handles));
     if (edit == NULL || model == NULL || live == NULL || update == NULL ||
         field_index >= model->field_count)
         return EXTRACTPDF_ERROR_ARGUMENT;
     field = &model->fields[field_index];
-    if (field->type != EXTRACTPDF_FORM_FIELD_TEXT || live->widget_count != 0)
+    if (field->type != EXTRACTPDF_FORM_FIELD_TEXT)
         return EXTRACTPDF_ERROR_UNSUPPORTED;
 
     status = extractpdf_pdf_edit_form_text_preflight(edit);
@@ -224,6 +247,27 @@ extractpdf_status extractpdf_pdf_edit_form_apply_zero_widget_text(
         return EXTRACTPDF_OK;
     }
 
+    status = extractpdf_pdf_edit_form_prepare_widget_handles(edit, live, &handles);
+    if (status != EXTRACTPDF_OK) {
+        free(text);
+        return status;
+    }
+#if defined(EXTRACTPDF_TESTING)
+    if (edit->test_fault ==
+        EXTRACTPDF_PDF_EDIT_TEST_FAULT_FORM_AFTER_WIDGET_PREPARE) {
+        edit->test_fault = EXTRACTPDF_PDF_EDIT_TEST_FAULT_NONE;
+        extractpdf_pdf_edit_form_drop_widget_handles(edit, &handles);
+        free(text);
+        return EXTRACTPDF_ERROR_MUPDF;
+    }
+#endif
+    status = extractpdf_pdf_edit_form_begin_widget_editing(edit, &handles);
+    if (status != EXTRACTPDF_OK) {
+        extractpdf_pdf_edit_form_drop_widget_handles(edit, &handles);
+        free(text);
+        return status;
+    }
+
     fz_var(operation_open);
     fz_var(caught_code);
     fz_try(edit->ctx)
@@ -231,17 +275,12 @@ extractpdf_status extractpdf_pdf_edit_form_apply_zero_widget_text(
         pdf_begin_operation(
             edit->ctx, edit->document, "ExtractPDF set form value");
         operation_open = 1;
-        if (missing) {
-            for (i = 0; i < live->group_node_count; ++i)
-                pdf_dict_del(edit->ctx, live->group_nodes[i], PDF_NAME(V));
-        } else {
-            pdf_dict_put_text_string(
-                edit->ctx, live->group_head, PDF_NAME(V), text);
-            for (i = 0; i < live->group_node_count; ++i)
-                if (!extractpdf_pdf_form_same_identity(
-                        edit->ctx, live->group_nodes[i], live->group_head))
-                    pdf_dict_del(edit->ctx, live->group_nodes[i], PDF_NAME(V));
-        }
+        extractpdf_pdf_edit_form_write_text(edit, live, missing, text);
+        extractpdf_pdf_edit_form_refresh_widget_handles(edit, &handles);
+        if (extractpdf_pdf_edit_form_restore_widget_editing(edit, &handles) !=
+            EXTRACTPDF_OK)
+            fz_throw(edit->ctx, FZ_ERROR_GENERIC,
+                "failed to restore form Widget editing state");
         pdf_end_operation(edit->ctx, edit->document);
         operation_open = 0;
     }
@@ -252,9 +291,11 @@ extractpdf_status extractpdf_pdf_edit_form_apply_zero_widget_text(
             pdf_abandon_operation(edit->ctx, edit->document);
             operation_open = 0;
         }
+        (void)extractpdf_pdf_edit_form_restore_widget_editing(edit, &handles);
         fz_report_error(edit->ctx);
     }
 
+    extractpdf_pdf_edit_form_drop_widget_handles(edit, &handles);
     free(text);
     if (caught_code != FZ_ERROR_NONE)
         return extractpdf_status_from_mupdf(caught_code);

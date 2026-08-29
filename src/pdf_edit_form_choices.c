@@ -352,10 +352,12 @@ extractpdf_status extractpdf_pdf_edit_form_apply_choice(
 {
     const extractpdf_pdf_form_field_internal *field;
     extractpdf_pdf_edit_choice_assignment assignment;
+    extractpdf_pdf_edit_form_widget_handles handles;
     extractpdf_status status;
     int operation_open = 0;
     int caught_code = FZ_ERROR_NONE;
 
+    memset(&handles, 0, sizeof(handles));
     if (edit == NULL || model == NULL || live == NULL || update == NULL ||
         field_index >= model->field_count)
         return EXTRACTPDF_ERROR_ARGUMENT;
@@ -383,6 +385,18 @@ extractpdf_status extractpdf_pdf_edit_form_apply_choice(
         return EXTRACTPDF_OK;
     }
 
+    status = extractpdf_pdf_edit_form_prepare_widget_handles(edit, live, &handles);
+    if (status != EXTRACTPDF_OK) {
+        extractpdf_pdf_edit_choice_assignment_drop(&assignment);
+        return status;
+    }
+    status = extractpdf_pdf_edit_form_begin_widget_editing(edit, &handles);
+    if (status != EXTRACTPDF_OK) {
+        extractpdf_pdf_edit_form_drop_widget_handles(edit, &handles);
+        extractpdf_pdf_edit_choice_assignment_drop(&assignment);
+        return status;
+    }
+
     fz_var(operation_open);
     fz_var(caught_code);
     fz_try(edit->ctx)
@@ -392,6 +406,11 @@ extractpdf_status extractpdf_pdf_edit_form_apply_choice(
         operation_open = 1;
         extractpdf_pdf_edit_choice_write(
             edit, model, field, live, &assignment);
+        extractpdf_pdf_edit_form_refresh_widget_handles(edit, &handles);
+        if (extractpdf_pdf_edit_form_restore_widget_editing(edit, &handles) !=
+            EXTRACTPDF_OK)
+            fz_throw(edit->ctx, FZ_ERROR_GENERIC,
+                "failed to restore form Widget editing state");
         pdf_end_operation(edit->ctx, edit->document);
         operation_open = 0;
     }
@@ -402,9 +421,11 @@ extractpdf_status extractpdf_pdf_edit_form_apply_choice(
             pdf_abandon_operation(edit->ctx, edit->document);
             operation_open = 0;
         }
+        (void)extractpdf_pdf_edit_form_restore_widget_editing(edit, &handles);
         fz_report_error(edit->ctx);
     }
 
+    extractpdf_pdf_edit_form_drop_widget_handles(edit, &handles);
     extractpdf_pdf_edit_choice_assignment_drop(&assignment);
     if (caught_code != FZ_ERROR_NONE)
         return extractpdf_status_from_mupdf(caught_code);
