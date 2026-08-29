@@ -165,7 +165,6 @@ static extractpdf_status extractpdf_pdf_crop_resolve_page_imp(
     pdf_obj *rotate_obj = NULL;
     pdf_obj *user_unit_obj;
     fz_rect public_visible;
-    fz_matrix pdf_to_public;
     int page_count;
     int rotate = 0;
     float user_unit = 1.0f;
@@ -262,20 +261,22 @@ static extractpdf_status extractpdf_pdf_crop_resolve_page_imp(
     }
 
     pdf_page_obj_transform(
-        ctx, page_obj, NULL, &out_view->public_to_pdf);
-    pdf_to_public = fz_invert_matrix(out_view->public_to_pdf);
-    public_visible = fz_transform_rect(out_view->visible_pdf, pdf_to_public);
+        ctx, page_obj, NULL, &out_view->pdf_to_public);
+    public_visible = fz_transform_rect(
+        out_view->visible_pdf, out_view->pdf_to_public);
     if (!isfinite(public_visible.x0) || !isfinite(public_visible.y0) ||
-        !isfinite(public_visible.x1) || !isfinite(public_visible.y1) ||
-        !(public_visible.x0 < public_visible.x1) ||
-        !(public_visible.y0 < public_visible.y1))
+        !isfinite(public_visible.x1) || !isfinite(public_visible.y1))
         return EXTRACTPDF_ERROR_FORMAT;
 
     out_view->page_obj = page_obj;
-    out_view->visible_public.x0 = public_visible.x0;
-    out_view->visible_public.y0 = public_visible.y0;
-    out_view->visible_public.x1 = public_visible.x1;
-    out_view->visible_public.y1 = public_visible.y1;
+    out_view->visible_public.x0 = fminf(public_visible.x0, public_visible.x1);
+    out_view->visible_public.y0 = fminf(public_visible.y0, public_visible.y1);
+    out_view->visible_public.x1 = fmaxf(public_visible.x0, public_visible.x1);
+    out_view->visible_public.y1 = fmaxf(public_visible.y0, public_visible.y1);
+    if (!(out_view->visible_public.x0 < out_view->visible_public.x1) ||
+        !(out_view->visible_public.y0 < out_view->visible_public.y1))
+        return EXTRACTPDF_ERROR_FORMAT;
+
     out_view->rotate_degrees = rotate;
     out_view->user_unit = user_unit;
     return EXTRACTPDF_OK;
@@ -361,6 +362,8 @@ extractpdf_status extractpdf_pdf_crop_build_plan(
         for (index = 0; index < crop_count && status == EXTRACTPDF_OK; ++index) {
             extractpdf_pdf_crop_page_view view;
             fz_rect public_rect;
+            fz_rect requested_pdf;
+            fz_matrix public_to_pdf;
             size_t prior;
 
             if (crops[index].struct_size < minimum_size) {
@@ -401,13 +404,25 @@ extractpdf_status extractpdf_pdf_crop_build_plan(
             public_rect.y0 = crops[index].bounds.y0;
             public_rect.x1 = crops[index].bounds.x1;
             public_rect.y1 = crops[index].bounds.y1;
-            plans[index].requested_pdf = fz_transform_rect(
-                public_rect, view.public_to_pdf);
+            public_to_pdf = fz_invert_matrix(view.pdf_to_public);
+            requested_pdf = fz_transform_rect(public_rect, public_to_pdf);
+            if (!isfinite(requested_pdf.x0) || !isfinite(requested_pdf.y0) ||
+                !isfinite(requested_pdf.x1) || !isfinite(requested_pdf.y1)) {
+                status = EXTRACTPDF_ERROR_ARGUMENT;
+                break;
+            }
 
-            if (!isfinite(plans[index].requested_pdf.x0) ||
-                !isfinite(plans[index].requested_pdf.y0) ||
-                !isfinite(plans[index].requested_pdf.x1) ||
-                !isfinite(plans[index].requested_pdf.y1) ||
+            plans[index].requested_pdf.x0 = fminf(
+                requested_pdf.x0, requested_pdf.x1);
+            plans[index].requested_pdf.y0 = fminf(
+                requested_pdf.y0, requested_pdf.y1);
+            plans[index].requested_pdf.x1 = fmaxf(
+                requested_pdf.x0, requested_pdf.x1);
+            plans[index].requested_pdf.y1 = fmaxf(
+                requested_pdf.y0, requested_pdf.y1);
+
+            if (!(plans[index].requested_pdf.x0 < plans[index].requested_pdf.x1) ||
+                !(plans[index].requested_pdf.y0 < plans[index].requested_pdf.y1) ||
                 plans[index].requested_pdf.x0 < view.visible_pdf.x0 ||
                 plans[index].requested_pdf.y0 < view.visible_pdf.y0 ||
                 plans[index].requested_pdf.x1 > view.visible_pdf.x1 ||
