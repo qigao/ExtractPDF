@@ -28,6 +28,7 @@ typedef struct extractpdf_output extractpdf_output;
 typedef struct extractpdf_outline extractpdf_outline;
 typedef struct extractpdf_annotation_page extractpdf_annotation_page;
 typedef struct extractpdf_pdf_edit extractpdf_pdf_edit;
+typedef struct extractpdf_form extractpdf_form;
 
 typedef struct extractpdf_point {
     float x;
@@ -192,6 +193,65 @@ typedef struct extractpdf_annotation_update {
     size_t contents_size;
 } extractpdf_annotation_update;
 
+typedef enum extractpdf_form_field_type {
+    EXTRACTPDF_FORM_FIELD_UNKNOWN = 0,
+    EXTRACTPDF_FORM_FIELD_PUSH_BUTTON = 1,
+    EXTRACTPDF_FORM_FIELD_CHECKBOX = 2,
+    EXTRACTPDF_FORM_FIELD_RADIO_BUTTON = 3,
+    EXTRACTPDF_FORM_FIELD_TEXT = 4,
+    EXTRACTPDF_FORM_FIELD_COMBO_BOX = 5,
+    EXTRACTPDF_FORM_FIELD_LIST_BOX = 6,
+    EXTRACTPDF_FORM_FIELD_SIGNATURE = 7
+} extractpdf_form_field_type;
+
+typedef enum extractpdf_form_value_presence {
+    EXTRACTPDF_FORM_VALUE_NOT_APPLICABLE = 0,
+    EXTRACTPDF_FORM_VALUE_MISSING = 1,
+    EXTRACTPDF_FORM_VALUE_PRESENT = 2
+} extractpdf_form_value_presence;
+
+typedef enum extractpdf_form_value_kind {
+    EXTRACTPDF_FORM_VALUE_UTF8 = 1,
+    EXTRACTPDF_FORM_VALUE_OPTION = 2
+} extractpdf_form_value_kind;
+
+typedef struct extractpdf_form_value_info {
+    size_t struct_size;
+    extractpdf_form_value_kind kind;
+    size_t option_index;
+} extractpdf_form_value_info;
+
+typedef enum extractpdf_form_option_kind {
+    EXTRACTPDF_FORM_OPTION_BUTTON_STATE = 1,
+    EXTRACTPDF_FORM_OPTION_CHOICE = 2
+} extractpdf_form_option_kind;
+
+typedef struct extractpdf_form_option_info {
+    size_t struct_size;
+    extractpdf_form_option_kind kind;
+} extractpdf_form_option_info;
+
+typedef struct extractpdf_form_field_info {
+    size_t struct_size;
+    extractpdf_form_field_type type;
+    uint32_t flags;
+    extractpdf_form_value_presence value_presence;
+    size_t value_count;
+    size_t option_count;
+    size_t widget_count;
+    int is_multiselect;
+    int is_signed;
+} extractpdf_form_field_info;
+
+typedef struct extractpdf_form_widget_info {
+    size_t struct_size;
+    size_t field_index;
+    int page_index;
+    extractpdf_rect bounds;
+    uint32_t flags;
+    size_t button_option_index;
+} extractpdf_form_widget_info;
+
 typedef enum extractpdf_metadata_field {
     EXTRACTPDF_METADATA_TITLE = 1,
     EXTRACTPDF_METADATA_AUTHOR = 2,
@@ -223,6 +283,73 @@ EXTRACTPDF_API extractpdf_status extractpdf_open(
 EXTRACTPDF_API extractpdf_status extractpdf_page_count(
     extractpdf_document *document,
     int *out_page_count);
+
+EXTRACTPDF_API extractpdf_status extractpdf_document_form(
+    extractpdf_document *document,
+    extractpdf_form **out_form);
+
+EXTRACTPDF_API extractpdf_status extractpdf_form_field_count(
+    const extractpdf_form *form,
+    size_t *out_count);
+
+EXTRACTPDF_API extractpdf_status extractpdf_form_field_get_info(
+    const extractpdf_form *form,
+    size_t field_index,
+    extractpdf_form_field_info *out_info);
+
+EXTRACTPDF_API extractpdf_status extractpdf_form_field_name(
+    const extractpdf_form *form,
+    size_t field_index,
+    const char **out_utf8,
+    size_t *out_size);
+
+EXTRACTPDF_API extractpdf_status extractpdf_form_field_label(
+    const extractpdf_form *form,
+    size_t field_index,
+    const char **out_utf8,
+    size_t *out_size);
+
+EXTRACTPDF_API extractpdf_status extractpdf_form_field_value_get_info(
+    const extractpdf_form *form,
+    size_t field_index,
+    size_t value_index,
+    extractpdf_form_value_info *out_info);
+
+EXTRACTPDF_API extractpdf_status extractpdf_form_field_value_utf8(
+    const extractpdf_form *form,
+    size_t field_index,
+    size_t value_index,
+    const char **out_utf8,
+    size_t *out_size);
+
+EXTRACTPDF_API extractpdf_status extractpdf_form_field_option_get_info(
+    const extractpdf_form *form,
+    size_t field_index,
+    size_t option_index,
+    extractpdf_form_option_info *out_info);
+
+EXTRACTPDF_API extractpdf_status extractpdf_form_field_option_export(
+    const extractpdf_form *form,
+    size_t field_index,
+    size_t option_index,
+    const char **out_utf8,
+    size_t *out_size);
+
+EXTRACTPDF_API extractpdf_status extractpdf_form_field_option_display(
+    const extractpdf_form *form,
+    size_t field_index,
+    size_t option_index,
+    const char **out_utf8,
+    size_t *out_size);
+
+EXTRACTPDF_API extractpdf_status extractpdf_form_widget_count(
+    const extractpdf_form *form,
+    size_t *out_count);
+
+EXTRACTPDF_API extractpdf_status extractpdf_form_widget_get_info(
+    const extractpdf_form *form,
+    size_t widget_index,
+    extractpdf_form_widget_info *out_info);
 
 EXTRACTPDF_API extractpdf_status extractpdf_document_metadata(
     extractpdf_document *document,
@@ -491,6 +618,9 @@ EXTRACTPDF_API void extractpdf_drop_output(
 
 EXTRACTPDF_API void extractpdf_drop_pdf_edit(
     extractpdf_pdf_edit *edit);
+
+EXTRACTPDF_API void extractpdf_drop_form(
+    extractpdf_form *form);
 
 EXTRACTPDF_API void extractpdf_drop_text_page(
     extractpdf_text_page *text);

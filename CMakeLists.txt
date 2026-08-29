@@ -29,6 +29,8 @@ add_library(extractpdf
   src/pdf_object_common.c
   src/pdf_annotation_common.c
   src/pdf_annotations.c
+  src/pdf_form_common.c
+  src/pdf_form.c
   src/pdf_edit.c
   src/pdf_edit_annotations.c)
 add_library(ExtractPDF::ExtractPDF ALIAS extractpdf)
