@@ -48,6 +48,12 @@ typedef struct extractpdf_page_crop {
     extractpdf_rect bounds;
 } extractpdf_page_crop;
 
+typedef struct extractpdf_page_trim {
+    size_t struct_size;
+    int page_index;
+    extractpdf_rect bounds;
+} extractpdf_page_trim;
+
 typedef struct extractpdf_quad {
     extractpdf_point ul;
     extractpdf_point ur;
@@ -428,6 +434,12 @@ EXTRACTPDF_API extractpdf_status extractpdf_crop_pages(
     extractpdf_document *document,
     const extractpdf_page_crop *crops,
     size_t crop_count,
+    extractpdf_output **out_output);
+
+EXTRACTPDF_API extractpdf_status extractpdf_trim_pages(
+    extractpdf_document *document,
+    const extractpdf_page_trim *trims,
+    size_t trim_count,
     extractpdf_output **out_output);
 
 EXTRACTPDF_API extractpdf_status extractpdf_output_data(

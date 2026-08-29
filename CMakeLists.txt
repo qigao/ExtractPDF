@@ -19,8 +19,11 @@ add_library(extractpdf
   src/images.c
   src/image_bitmap.c
   src/links.c
+  src/pdf_page_box_common.c
   src/pdf_crop.c
   src/pdf_crop_preflight.c
+  src/pdf_trim.c
+  src/pdf_trim_preflight.c
   src/pdf_export.c
   src/pdf_output.c
   src/pdf_range.c
@@ -72,4 +75,17 @@ if(EXTRACTPDF_BUILD_TESTS)
   add_subdirectory(tests)
   target_sources(extractpdf_test_pdf_form_mutation PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_form_rollback.c")
+  set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_trim.c"
+    TARGET_DIRECTORY extractpdf_test_pdf_trim
+    PROPERTY COMPILE_DEFINITIONS "main=extractpdf_pdf_trim_base_main")
+  target_sources(extractpdf_test_pdf_trim PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_trim_raw.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_trim_boxes.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_trim_transforms.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_trim_policy.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_trim_batch.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_trim_outside_crop.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_trim_main.c")
+  target_link_libraries(extractpdf_test_pdf_trim PRIVATE
+    unofficial::libmupdf::libmupdf)
 endif()
