@@ -646,6 +646,7 @@ static void test_choice_mutation(void)
     const size_t option1[] = {1};
     const size_t option2[] = {2};
     const size_t multi10[] = {1};
+    const size_t multi02[] = {0, 2};
     const size_t multi20[] = {2, 0};
     const size_t duplicate[] = {1, 1};
     static const char custom[] = "Nagoya";
@@ -659,7 +660,7 @@ static void test_choice_mutation(void)
     expect_choice_options(form, "single", EXTRACTPDF_FORM_FIELD_LIST_BOX,
         EXTRACTPDF_FORM_VALUE_PRESENT, option1, 1);
     expect_choice_options(form, "multi", EXTRACTPDF_FORM_FIELD_LIST_BOX,
-        EXTRACTPDF_FORM_VALUE_PRESENT, multi20, 2);
+        EXTRACTPDF_FORM_VALUE_PRESENT, multi02, 2);
     expect_choice_options(form, "dup", EXTRACTPDF_FORM_FIELD_COMBO_BOX,
         EXTRACTPDF_FORM_VALUE_PRESENT, option1, 1);
     extractpdf_drop_form(form); form = NULL;
