@@ -237,6 +237,13 @@ static extractpdf_status extractpdf_pdf_edit_form_find_current_field(
         extractpdf_pdf_form_drop_model(model);
         return EXTRACTPDF_ERROR_FORMAT;
     }
+    status = extractpdf_pdf_form_capture_provenance_widgets(
+        edit->ctx, edit->document, model, provenance);
+    if (status != EXTRACTPDF_OK) {
+        extractpdf_pdf_form_drop_provenance(edit->ctx, provenance);
+        extractpdf_pdf_form_drop_model(model);
+        return status;
+    }
     for (i = 0; i < provenance->field_count; ++i) {
         if (!extractpdf_pdf_form_same_identity(
                 edit->ctx, entry->group_head, provenance->fields[i].group_head))
