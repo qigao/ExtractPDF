@@ -6,5 +6,7 @@ int main(void)
 {
     if (!trim_run_frame_mode_tests())
         return 1;
+    if (!trim_run_policy_tests())
+        return 1;
     return extractpdf_pdf_trim_base_main();
 }
