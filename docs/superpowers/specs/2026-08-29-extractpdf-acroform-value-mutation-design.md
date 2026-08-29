@@ -1,6 +1,6 @@
 # ExtractPDF AcroForm Value Mutation V1 Design
 
-Status: approved architecture, self-reviewed design for issue #46 under roadmap #2.
+Status: architecture correction after workflow #266, self-reviewed and pending committed-spec review for issue #46 under roadmap #2.
 
 Base integrated master: `fdcb2f6cd489de34802d09989ab61a1af8cd1861`.
 
@@ -38,7 +38,7 @@ The V1 mutation surface covers semantic value assignment only:
 - target Widget `/AS` state updates for buttons;
 - target Widget appearance refresh for Text/Combo/List;
 - immutable editor-form snapshots for observation;
-- journal-atomic rollback on any mutation or appearance failure.
+- observable-atomic rollback on any mutation or appearance failure, including preservation of session-local field refs.
 
 The API is a deterministic data-assignment surface. It is **not** an Acrobat form-runtime emulator and does not simulate typing, clicking, validation, calculation, submission, reset, or JavaScript execution.
 
@@ -68,9 +68,10 @@ current editor PDF
       |      +-- immutable semantic model -> extractpdf_form
       |      |
       |      +-- optional live provenance sidecar
-      |             field[i] -> canonical logical group head
+      |             field[i] -> canonical structural locator
+      |                      -> current logical group head
       |
-      +-- form-field registry -> session-local opaque refs
+      +-- locator-backed form-field registry -> session-local opaque refs
 ```
 
 The public `extractpdf_form` remains deep-owned, document-independent, and free of MuPDF pointers.
@@ -115,11 +116,11 @@ annotation token as form ref -> ARGUMENT
 old token after reopen       -> ARGUMENT
 ```
 
-### 3.3 Registry entry
+### 3.3 Registry entry: journal-independent structural identity
 
-The registry stores identity only, not cached semantic state.
+The registry stores identity only, not cached semantic state, and that identity must be independent of any particular MuPDF object incarnation.
 
-Conceptually:
+Workflow #266 at source SHA `8a8f2a0c5a9e2f78fe10227dad734bc85c40e3c9` invalidates the original registry assumption. The rejected model was conceptually:
 
 ```c
 typedef struct extractpdf_pdf_edit_form_entry {
@@ -128,18 +129,98 @@ typedef struct extractpdf_pdf_edit_form_entry {
 } extractpdf_pdf_edit_form_entry;
 ```
 
-`group_head` is the canonical logical-group head established by the strict form parser. It may be an indirect object or a retained direct dictionary. The registry retains it with the editor context and releases it when the editor is dropped.
+with direct-object identity defined by `left == right` pointer equality. That is valid only inside one live object graph. It is **not** a session-stable identity across MuPDF journal abandon.
 
-Registry reuse compares the current parser's canonical group-head identity with existing entries using the same indirect-num/gen-or-direct-object identity relation as the strict parser. Direct logical group heads are permitted by the read model and therefore must be covered by ref-stability and rollback tests; V1 must not silently require all fields to be indirect.
+The #266 counterexample is:
+
+```text
+issue ref for a direct logical field
+    -> registry retains direct pdf_obj *A
+
+begin mutation
+    -> mutate semantic /V
+    -> injected failure
+    -> pdf_abandon_operation()
+
+PDF state is restored
+    -> deterministic bytes/semantics can return to pre-call state
+    -> current direct field may now be represented by pdf_obj *B
+
+registry still retains *A
+current strict parse yields *B
+A != B
+    -> old public ref no longer resolves
+```
+
+This is a split-brain failure: the PDF transaction rolled back, but the editor's identity registry did not describe the restored current object graph. Therefore **no session-stable form ref may derive durable identity from a direct `pdf_obj *` address, retained object pointer, loaded page/Widget wrapper, or other journal-sensitive MuPDF object incarnation**.
+
+The corrected registry stores an immutable structural locator produced by the strict AcroForm traversal:
+
+```c
+typedef struct extractpdf_pdf_edit_form_locator {
+    size_t step_count;
+    uint32_t *steps;
+} extractpdf_pdf_edit_form_locator;
+
+typedef struct extractpdf_pdf_edit_form_entry {
+    extractpdf_pdf_edit_form_locator locator;
+    uint32_t tag;
+} extractpdf_pdf_edit_form_entry;
+```
+
+Conceptually, the locator is the canonical route from the AcroForm field-tree root to the logical group head:
+
+```text
+/AcroForm /Fields[top_index]
+    -> /Kids[child_index]
+    -> /Kids[child_index]
+    -> ...
+    -> logical group head
+```
+
+The first step identifies an entry in `/AcroForm/Fields`; each later step identifies the child ordinal in the current node's `/Kids` array. The exact private representation may be packed differently, but it must preserve this structural meaning.
+
+The locator is:
+
+- private to the editor;
+- independent of field name;
+- independent of public snapshot `field_index`;
+- independent of direct-object pointer address;
+- independent of indirect object num/gen as the durable key;
+- copied into registry-owned memory;
+- valid only while the editor session is alive.
+
+Indirect num/gen identity may still be used as a **current-parse validation witness** where useful. Pointer equality may still be used **within one strict parse/reconciliation lifetime** to reason about direct objects and cycles. Neither is allowed to become the durable registry key across public calls or journal boundaries.
+
+The strict parser's private provenance sidecar must expose the structural locator for every public logical terminal field together with the current live group head and same-group nodes. Ref discovery registers or reuses a registry slot by locator equality.
+
+Every setter resolves identity in two stages:
+
+```text
+public ref token
+    -> validate session/domain/slot/tag
+    -> immutable registry locator
+
+strictly reparse current PDF
+    -> resolve that locator in the current validated field tree
+    -> obtain fresh current group_head / group nodes / Widgets
+    -> perform this call using only those fresh live objects
+```
+
+V1 does not create, delete, reorder, or reparent AcroForm field-tree nodes and does not mutate `/Fields`, `/Kids`, `/Parent`, or `/T`. Structural-locator stability is therefore an explicit V1 invariant, not an accidental implementation property.
+
+If a syntactically valid session ref cannot resolve its locator to exactly one current logical terminal field after a successful strict parse, the editor returns `EXTRACTPDF_ERROR_STATE`. It must not guess by field name, scan for an equivalent value, silently register a replacement identity, or repair the registry after the fact.
 
 The registry does not cache:
 
+- a durable `pdf_obj *` group head;
 - field value;
 - field flags;
 - options;
 - name or label;
 - Widget list;
-- appearance state.
+- appearance state;
+- page or annotation wrappers.
 
 Every observation or setter re-parses the current private PDF state strictly.
 
@@ -154,6 +235,20 @@ A successfully issued form ref remains valid while the owning editor remains ali
 - editor PDF output snapshots;
 - repeated output serialization;
 - failed form mutations that journal-abandon.
+
+The lifetime invariant is:
+
+```text
+ref token
+    -> editor session + registry slot/tag
+    -> immutable structural locator
+    -> strict reparse of current document
+    -> fresh current logical field objects
+```
+
+A public ref never points directly or indirectly at one journal incarnation of a direct field object. After a failed mutation, the registry needs no rollback repair: the locator remains unchanged and resolves against the restored current field tree.
+
+Repeated discovery of the same structural field in the same editor returns the same ref before and after successful mutations, snapshots, and abandoned mutations.
 
 V1 does not create/delete/reparent fields, so form refs have no public tombstone lifecycle. The namespace ends when `extractpdf_drop_pdf_edit()` is called.
 
@@ -219,9 +314,9 @@ Rules:
 - out-of-range `field_index` -> `ARGUMENT`;
 - malformed form -> `FORMAT`;
 - valid depth greater than 256 -> `UNSUPPORTED`;
-- success registers or reuses the canonical logical group head and returns a stable ref.
+- success registers or reuses the current field's canonical structural locator and returns a stable ref.
 
-`field_index` is only the current snapshot-order discovery coordinate. It is never mutation identity.
+`field_index` is only the current snapshot-order discovery coordinate. It is never mutation identity and is not stored as the durable locator.
 
 All public field types may receive a ref, including PushButton, Signature, and UNKNOWN. Mutation capability is decided by the setter.
 
@@ -625,7 +720,7 @@ The setter writes normalized raw PDF semantic state directly according to the al
 
 ## 16. Widget reconciliation for observation and mutation
 
-The shared strict parser/provenance layer identifies all Widgets using raw page dictionaries and the same tree/page reconciliation contract as AcroForm Snapshot V1.
+The shared strict parser/provenance layer identifies all Widgets using raw page dictionaries and the same tree/page reconciliation contract as AcroForm Snapshot V1. The same validated field-tree traversal also emits the private structural locator used by the form-ref registry; Widget reconciliation does not create a second identity model.
 
 For each page:
 
@@ -667,7 +762,7 @@ semantic no-op check failed (a real change is required)
 no semantic PDF object has yet been mutated
 ```
 
-The setter then loads only the pages that contain target Widgets, resolves the exact Widget wrappers by their already-validated indirect num/gen identity, and retains the required page/widget handles.
+The setter then loads only the pages that contain target Widgets, resolves the exact Widget wrappers by their already-validated current-object identity, and retains the required page/widget handles only for this call.
 
 No page is loaded for form observation, ref discovery, button mutation, unsupported mutation, rejected mutation, or semantic no-op.
 
@@ -687,6 +782,8 @@ The editing/ignore-trigger-events state suppresses Form/Format trigger behavior 
 
 No `pdf_load_page()` or page-wide update is permitted **after** `/V` or `/I` has been changed. ExtractPDF code never directly invokes `pdf_update_page()` or `pdf_update_open_pages()`.
 
+Page and Widget wrappers are transient mutation resources. They are never stored in the form-ref registry, and after any failed setter they must be dropped so a later public call resolves fresh wrappers from the restored current document.
+
 ### 17.3 ListBox renderer limitation
 
 MuPDF 1.28.2 can resynthesize ListBox appearance text but does not guarantee pixel-level selected-row highlighting. V1 therefore guarantees:
@@ -700,7 +797,7 @@ but does not guarantee or test pixel-perfect selected-row highlight rendering.
 
 A future custom List appearance slice may improve this without changing the V1 value API.
 
-## 18. Journal transaction and atomicity
+## 18. Journal transaction and observable atomicity
 
 Each successful non-noop public setter is exactly one outer MuPDF journal operation for the requested PDF mutations.
 
@@ -708,8 +805,9 @@ The order is:
 
 ```text
 validate all public inputs
-resolve form ref
+validate form-ref token and obtain immutable structural locator
 strictly parse current form/provenance with raw page objects
+resolve locator to the fresh current logical field
 mutation capability preflight
 validate assignment against actual type/options/state
 prepare ExtractPDF-owned allocations
@@ -731,15 +829,35 @@ pdf_end_operation
 
 Any exception or failure after `pdf_begin_operation` and before successful `pdf_end_operation` must execute `pdf_abandon_operation`.
 
-A failed setter must leave:
+Workflow #266 strengthens the contract: **journal abandon is necessary but not sufficient for public API atomicity**. MuPDF's journal owns PDF-object mutations, but it does not automatically make ExtractPDF's C registries, retained object pointers, page wrappers, Widget editing flags, or resynthesis bookkeeping transactionally valid.
 
-- current editor semantic form state identical to pre-call;
-- newly serialized editor output semantically identical to pre-call;
-- previously published outputs unchanged;
-- field ref still valid, including direct logical group-head refs;
-- editor reusable for subsequent snapshots and mutations.
+Therefore the failure path is conceptually:
 
-Private transient loaded pages/widgets are always dropped in exception-safe cleanup.
+```text
+catch mutation/appearance failure
+    -> if operation is open: pdf_abandon_operation()
+    -> restore any transient Widget editing state
+    -> drop all page/Widget handles acquired for this call
+    -> drop current parse/provenance objects
+    -> keep only journal-independent locator-backed registry state
+```
+
+A failed setter must leave **all public observable editor state** as if the call never committed:
+
+- `extractpdf_pdf_edit_form_snapshot()` observes the same semantic form state as before the call;
+- a newly produced deterministic `extractpdf_pdf_edit_snapshot()` has exactly the same size and bytes as a snapshot taken immediately before the failed call, when no intervening successful mutation occurred;
+- previously published immutable outputs remain unchanged;
+- every previously issued valid form ref remains valid and reusable, including direct logical group-head cases;
+- repeated discovery of the same field still returns the same ref;
+- unrelated field values, calculation sentinels, `/AP`, `/AS`, and other unrelated PDF state remain unchanged unless they were part of a successful committed mutation;
+- no page/Widget wrapper, editing state, resynthesis flag, or stale live object retained by ExtractPDF can affect a later public operation;
+- the editor remains reusable for subsequent snapshots and mutations.
+
+The byte-identical requirement is intentionally stronger than “semantically equivalent.” The current serializer is deterministic enough for the existing rollback oracle, and #266 locks the failure boundary at that observable level.
+
+The implementation must not attempt post-abandon application-level “repair writes” to make bytes or refs look right. Such repair creates a second mutation transaction and can itself fail. Correctness comes from keeping durable identity outside journal-sensitive object incarnations and ensuring every transient mutation resource is either journal-owned or discarded/restored on failure.
+
+If a fault after semantic write, after the first button Widget state update, or during the first Text/Choice appearance refresh cannot satisfy these postconditions with the pinned MuPDF journal boundary, implementation must stop and return to design rather than weaken the atomicity contract.
 
 ## 19. Semantic no-op contract
 
@@ -774,8 +892,8 @@ The public setter applies errors in this order:
 2. form-ref token domain/session/tag/slot
       -> ARGUMENT
 
-3. strict current-form parse using raw page objects
-      -> FORMAT / UNSUPPORTED(depth)
+3. strict current-form parse using raw page objects + structural locator resolution
+      -> FORMAT / UNSUPPORTED(depth) / STATE(valid token no longer resolves)
 
 4. mutation-only document preflight
    XFA / NeedAppearances
@@ -801,11 +919,13 @@ The public setter applies errors in this order:
 This preserves stable meanings:
 
 ```text
-ARGUMENT    caller command/ref is invalid
+ARGUMENT    caller command/ref token is invalid
 FORMAT      current PDF structure/value metadata is malformed
 UNSUPPORTED valid input/model outside V1 capability
-STATE       valid supported assignment blocked by current field state
+STATE       valid session ref/assignment cannot be applied to current editor state
 ```
+
+Under V1's non-topology-mutating contract, a previously valid locator becoming unresolved is itself an invariant violation exposed as `STATE`; it must never be papered over by name-based rebinding.
 
 ## 21. Output reset and ownership
 
@@ -835,17 +955,17 @@ Read-only AcroForm tests remain in `extractpdf.pdf_form`; mutation tests do not 
 
 The existing read-only Form target must also gain or reuse a deterministic `/NeedAppearances true` fixture proving that `extractpdf_document_form()` is byte-preserving after the raw-page reconciliation refactor.
 
-## 23. Strict first RED boundary
+## 23. Historical strict first RED boundary
 
-The first implementation commit contains only:
+The original feature implementation began with only:
 
 - `tests/test_pdf_form_mutation.c`;
 - deterministic mutation-specific fixtures;
 - `tests/CMakeLists.txt` registration.
 
-It references the final approved public ABI while production/header declarations remain absent.
+It referenced the final approved public ABI while production/header declarations remained absent.
 
-Required RED evidence:
+Required RED evidence was:
 
 ```text
 ExtractPDF library builds
@@ -854,9 +974,7 @@ only new #21 form-mutation target fails compilation
 failure is caused by absent approved mutation ABI
 ```
 
-No production header/source scaffold may be added before this RED is proven.
-
-The raw-page observation regression is added only after the strict compile RED commit, so the first RED remains attributable solely to the missing approved ABI.
+That boundary was proven at source SHA `506eab8d0aeba45f665b952df251401292e810a6` by workflow #225. It remains historical TDD evidence; it is not authorization to continue production work after the later #266 architecture correction gate.
 
 ## 24. Required identity/discovery tests
 
@@ -871,6 +989,9 @@ The mutation suite must lock:
 - different fields return different refs;
 - direct logical field group can receive a stable ref;
 - direct logical group ref survives successful and abandoned mutations;
+- a direct logical group ref issued before an injected post-write failure is immediately reusable for a later successful mutation;
+- repeated discovery after an abandoned mutation returns the same ref token for the same structural field;
+- ref identity remains correct without relying on persistent direct `pdf_obj *` pointer equality across journal boundaries;
 - wrong editor ref -> `ARGUMENT`;
 - forged ref -> `ARGUMENT`;
 - annotation-ref bits passed as form ref -> `ARGUMENT`;
@@ -1020,11 +1141,16 @@ For each injected failure:
 
 - setter returns failure;
 - editor form snapshot equals pre-call semantic state;
-- new editor output represents pre-call state;
+- a new deterministic editor output is **byte-for-byte identical** to the output captured immediately before the call, including size and `memcmp` equality;
 - previously published output is unchanged;
-- field ref remains valid, including a direct group-head ref case;
+- every pre-existing field ref remains valid;
+- repeated discovery of the target field returns the same ref;
 - editor remains reusable;
-- a subsequent valid mutation succeeds.
+- the same pre-existing ref can drive a subsequent valid mutation successfully.
+
+At least one semantic-write fault must use a **direct logical group-head fixture**. This is the workflow #266 regression case that prevents a registry from storing direct `pdf_obj *` pointer identity as the durable ref key.
+
+The Widget-state fault must prove button `/AS` changes abandon completely. The appearance-refresh fault must prove target, unrelated, and calculation-sentinel values return to the exact pre-call observable state and that no stale Widget wrapper state breaks the next mutation.
 
 ## 33. Required no-op tests
 
@@ -1098,15 +1224,19 @@ Form Value Mutation V1 does not add:
 - public option refs;
 - persistent field identity across editor sessions.
 
-## 37. Implementation boundary
+## 37. Architecture-correction gate
 
-This document defines architecture only. No implementation or RED may begin until this committed design is reviewed and approved.
+This document defines the corrected architecture after workflow #266. The current failing branch head is diagnostic evidence for the rollback/ref invariant; it must not be “fixed” by production changes before this committed correction is reviewed and approved.
 
-After design approval, the next artifact is a separate TDD implementation plan created with the project planning workflow. The plan must preserve the strict sequence:
+The existing implementation plan predates this correction and is superseded wherever it conflicts with Sections 3.3, 3.4, 18, 20, 24, and 32. Do **not** patch the plan or production code as part of this spec-only correction.
+
+After this committed design correction is approved, the next step is to revise the TDD implementation plan before touching production. The corrected sequence is:
 
 ```text
-compile RED
--> raw-page observation regression + incremental GREEN slices
+committed #266 architecture-correction spec review
+-> revise implementation plan around locator-backed ref identity + observable rollback
+-> preserve #265/#266 rollback/ref tests as RED evidence
+-> minimal production GREEN for the corrected invariant
 -> Linux static + ASan/UBSan 21/21
 -> same-SHA macOS + Windows DLL full-ci
 -> fresh scope/review gate
