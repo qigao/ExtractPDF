@@ -310,6 +310,15 @@ extractpdf_status extractpdf_pdf_edit_form_set_values(
         return status;
 
     if (model->fields[field_index].type == EXTRACTPDF_FORM_FIELD_TEXT &&
+        provenance->fields[field_index].widget_count == 0) {
+        status = extractpdf_pdf_edit_form_apply_zero_widget_text(
+            edit, model, field_index, &provenance->fields[field_index], update);
+        extractpdf_pdf_form_drop_provenance(edit->ctx, provenance);
+        extractpdf_pdf_form_drop_model(model);
+        return status;
+    }
+
+    if (model->fields[field_index].type == EXTRACTPDF_FORM_FIELD_TEXT &&
         provenance->fields[field_index].widget_count != 0 &&
         extractpdf_pdf_edit_form_task4_text_shape_valid(update)) {
         status = extractpdf_pdf_edit_form_prepare_widget_handles(
