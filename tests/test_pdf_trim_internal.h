@@ -37,5 +37,6 @@ int trim_raw_expect_production_boxes(
 int trim_run_frame_mode_tests(void);
 int trim_run_policy_tests(void);
 int trim_run_batch_tests(void);
+int trim_run_outside_crop_test(void);
 
 #endif
