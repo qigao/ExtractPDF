@@ -44,7 +44,7 @@ endobj
 << /Title (Crop target) /Parent 11 0 R /Dest [4 0 R /XYZ 100 200 0] >>
 endobj
 13 0 obj
-<< /FT /Tx /T (crop.text) /V (CROP-VALUE) /Kids [15 0 R] >>
+<< /FT /Tx /T (crop_text) /V (CROP-VALUE) /Kids [15 0 R] >>
 endobj
 14 0 obj
 << /Fields [13 0 R] /NeedAppearances false >>
