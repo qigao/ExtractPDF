@@ -1,6 +1,7 @@
 #include "pdf_edit_internal.h"
 #include "pdf_form_common.h"
 
+#include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -211,19 +212,120 @@ extractpdf_status extractpdf_pdf_edit_form_field_ref_at(
     return status;
 }
 
+static extractpdf_status extractpdf_pdf_edit_form_find_current_field(
+    extractpdf_pdf_edit *edit,
+    extractpdf_pdf_edit_form_entry *entry,
+    extractpdf_pdf_form_model **out_model,
+    extractpdf_pdf_form_provenance **out_provenance,
+    size_t *out_field_index)
+{
+    extractpdf_pdf_form_model *model = NULL;
+    extractpdf_pdf_form_provenance *provenance = NULL;
+    extractpdf_status status;
+    size_t i;
+    size_t match = SIZE_MAX;
+
+    *out_model = NULL;
+    *out_provenance = NULL;
+    *out_field_index = SIZE_MAX;
+    status = extractpdf_pdf_form_build(
+        edit->ctx, edit->document, 1, &model, &provenance);
+    if (status != EXTRACTPDF_OK)
+        return status;
+    if (provenance == NULL || provenance->field_count != model->field_count) {
+        extractpdf_pdf_form_drop_provenance(edit->ctx, provenance);
+        extractpdf_pdf_form_drop_model(model);
+        return EXTRACTPDF_ERROR_FORMAT;
+    }
+    for (i = 0; i < provenance->field_count; ++i) {
+        if (!extractpdf_pdf_form_same_identity(
+                edit->ctx, entry->group_head, provenance->fields[i].group_head))
+            continue;
+        if (match != SIZE_MAX) {
+            extractpdf_pdf_form_drop_provenance(edit->ctx, provenance);
+            extractpdf_pdf_form_drop_model(model);
+            return EXTRACTPDF_ERROR_STATE;
+        }
+        match = i;
+    }
+    if (match == SIZE_MAX) {
+        extractpdf_pdf_form_drop_provenance(edit->ctx, provenance);
+        extractpdf_pdf_form_drop_model(model);
+        return EXTRACTPDF_ERROR_STATE;
+    }
+    *out_model = model;
+    *out_provenance = provenance;
+    *out_field_index = match;
+    return EXTRACTPDF_OK;
+}
+
+static int extractpdf_pdf_edit_form_task4_text_shape_valid(
+    const extractpdf_form_value_update *update)
+{
+    const extractpdf_form_value_input *value;
+    size_t update_min = offsetof(extractpdf_form_value_update, value_count) +
+        sizeof(update->value_count);
+    size_t value_min;
+
+    if (update->struct_size < update_min ||
+        update->presence != EXTRACTPDF_FORM_VALUE_PRESENT ||
+        update->value_count != 1 || update->values == NULL)
+        return 0;
+    value = &update->values[0];
+    value_min = offsetof(extractpdf_form_value_input, utf8_size) +
+        sizeof(value->utf8_size);
+    return value->struct_size >= value_min &&
+        value->kind == EXTRACTPDF_FORM_VALUE_UTF8 &&
+        value->option_index == SIZE_MAX && value->utf8 != NULL;
+}
+
 extractpdf_status extractpdf_pdf_edit_form_set_values(
     extractpdf_pdf_edit *edit,
     const extractpdf_form_field_ref *ref,
     const extractpdf_form_value_update *update)
 {
     extractpdf_pdf_edit_form_entry *entry = NULL;
+    extractpdf_pdf_form_model *model = NULL;
+    extractpdf_pdf_form_provenance *provenance = NULL;
+    extractpdf_pdf_edit_form_widget_handles handles;
     extractpdf_status status;
+    size_t field_index = SIZE_MAX;
 
+    memset(&handles, 0, sizeof(handles));
     if (edit == NULL || ref == NULL || update == NULL)
         return EXTRACTPDF_ERROR_ARGUMENT;
     status = extractpdf_pdf_edit_form_resolve_ref(edit, ref, &entry);
     if (status != EXTRACTPDF_OK)
         return status;
-    (void)entry;
+    status = extractpdf_pdf_edit_form_find_current_field(
+        edit, entry, &model, &provenance, &field_index);
+    if (status != EXTRACTPDF_OK)
+        return status;
+
+    if (model->fields[field_index].type == EXTRACTPDF_FORM_FIELD_TEXT &&
+        provenance->fields[field_index].widget_count != 0 &&
+        extractpdf_pdf_edit_form_task4_text_shape_valid(update)) {
+        status = extractpdf_pdf_edit_form_prepare_widget_handles(
+            edit, &provenance->fields[field_index], &handles);
+        if (status != EXTRACTPDF_OK) {
+            extractpdf_pdf_form_drop_provenance(edit->ctx, provenance);
+            extractpdf_pdf_form_drop_model(model);
+            return status;
+        }
+#if defined(EXTRACTPDF_TESTING)
+        if (edit->test_fault ==
+            EXTRACTPDF_PDF_EDIT_TEST_FAULT_FORM_AFTER_WIDGET_PREPARE) {
+            edit->test_fault = EXTRACTPDF_PDF_EDIT_TEST_FAULT_NONE;
+            extractpdf_pdf_edit_form_drop_widget_handles(edit, &handles);
+            extractpdf_pdf_form_drop_provenance(edit->ctx, provenance);
+            extractpdf_pdf_form_drop_model(model);
+            return EXTRACTPDF_ERROR_MUPDF;
+        }
+#endif
+        extractpdf_pdf_edit_form_drop_widget_handles(edit, &handles);
+    }
+
+    extractpdf_pdf_form_drop_provenance(edit->ctx, provenance);
+    extractpdf_pdf_form_drop_model(model);
     return EXTRACTPDF_ERROR_UNSUPPORTED;
 }
