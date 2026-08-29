@@ -37,6 +37,7 @@ add_library(extractpdf
   src/pdf_form.c
   src/pdf_edit.c
   src/pdf_edit_forms.c
+  src/pdf_edit_form_preflight.c
   src/pdf_edit_form_values.c
   src/pdf_edit_form_widgets.c
   src/pdf_edit_annotations.c)
