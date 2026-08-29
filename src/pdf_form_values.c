@@ -65,7 +65,10 @@ static extractpdf_status append_string(
     if (required > model->string_capacity) {
         capacity = model->string_capacity ? model->string_capacity : 64;
         while (capacity < required) {
-            if (capacity > SIZE_MAX / 2) { capacity = required; break; }
+            if (capacity > SIZE_MAX / 2) {
+                capacity = required;
+                break;
+            }
             capacity *= 2;
         }
         if (capacity < required)
@@ -176,5 +179,5 @@ extractpdf_status extractpdf_pdf_form_materialize_scalar_values(
             break;
         }
     }
-    return EXTRACTPDF_OK;
+    return extractpdf_pdf_form_materialize_choice_values(ctx, document, model);
 }
