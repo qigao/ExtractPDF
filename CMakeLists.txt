@@ -75,4 +75,8 @@ if(EXTRACTPDF_BUILD_TESTS)
   add_subdirectory(tests)
   target_sources(extractpdf_test_pdf_form_mutation PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_form_rollback.c")
+  target_sources(extractpdf_test_pdf_trim PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_trim_raw.c")
+  target_link_libraries(extractpdf_test_pdf_trim PRIVATE
+    unofficial::libmupdf::libmupdf)
 endif()
