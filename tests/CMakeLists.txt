@@ -196,6 +196,51 @@ add_test(NAME extractpdf.pdf_annotation_mutation
   COMMAND extractpdf_test_pdf_annotation_mutation)
 set_tests_properties(extractpdf.pdf_annotation_mutation PROPERTIES TIMEOUT 60)
 
+add_executable(extractpdf_test_pdf_form test_pdf_form.c)
+target_link_libraries(extractpdf_test_pdf_form PRIVATE ExtractPDF::ExtractPDF)
+target_compile_definitions(extractpdf_test_pdf_form PRIVATE
+  ACROFORM_STRUCTURE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-structure.pdf"
+  ACROFORM_WIDGETS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-widgets.pdf"
+  ACROFORM_SCALARS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-scalars.pdf"
+  ACROFORM_CHOICE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-choice.pdf"
+  ACROFORM_MAIN_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-main.pdf"
+  ACROFORM_NO_FIELDS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-no-fields.pdf"
+  ACROFORM_EMPTY_FIELDS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-empty-fields.pdf"
+  ACROFORM_ANNOTS_NONARRAY_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-annots-nonarray.pdf"
+  ACROFORM_JS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-js.pdf"
+  ACROFORM_STREAM_VALUE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-stream-value.pdf"
+  ACROFORM_BAD_ROOT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-bad-root.pdf"
+  ACROFORM_BAD_FIELDS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-bad-fields.pdf"
+  ACROFORM_BAD_KID_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-bad-kid.pdf"
+  ACROFORM_CYCLE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-cycle.pdf"
+  ACROFORM_REPEATED_NODE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-repeated-node.pdf"
+  ACROFORM_PARENT_MISMATCH_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-parent-mismatch.pdf"
+  ACROFORM_ROOT_PARENT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-root-parent.pdf"
+  ACROFORM_DEPTH_257_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-depth-257.pdf"
+  ACROFORM_MIXED_GROUP_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mixed-group.pdf"
+  ACROFORM_GROUP_CONFLICT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-group-conflict.pdf"
+  ACROFORM_DUPLICATE_NAME_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-duplicate-name.pdf"
+  ACROFORM_PERIOD_NAME_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-period-name.pdf"
+  ACROFORM_BAD_FT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-bad-ft.pdf"
+  ACROFORM_BAD_FF_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-bad-ff.pdf"
+  ACROFORM_BAD_VALUE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-bad-value.pdf"
+  ACROFORM_BAD_OPT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-bad-opt.pdf"
+  ACROFORM_BAD_I_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-bad-i.pdf"
+  ACROFORM_BAD_BUTTON_AP_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-bad-button-ap.pdf"
+  ACROFORM_ORPHAN_WIDGET_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-orphan-widget.pdf"
+  ACROFORM_MISSING_WIDGET_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-missing-widget.pdf"
+  ACROFORM_DUPLICATE_WIDGET_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-duplicate-widget.pdf"
+  ACROFORM_P_MISMATCH_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-p-mismatch.pdf"
+  ACROFORM_DIRECT_WIDGET_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-direct-widget.pdf"
+  ACROFORM_BAD_WIDGET_RECT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-bad-widget-rect.pdf"
+  ACROFORM_BAD_WIDGET_FLAGS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-bad-widget-flags.pdf"
+  ACROFORM_BAD_SIGNATURE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-bad-signature.pdf"
+  ACROFORM_LATE_MALFORMED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-late-malformed.pdf"
+  NON_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-non-pdf.txt"
+  NO_ACROFORM_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf")
+add_test(NAME extractpdf.pdf_form COMMAND extractpdf_test_pdf_form)
+set_tests_properties(extractpdf.pdf_form PROPERTIES TIMEOUT 60)
+
 if(WIN32 AND BUILD_SHARED_LIBS)
   foreach(test_target IN ITEMS
       extractpdf_test_status
@@ -216,7 +261,8 @@ if(WIN32 AND BUILD_SHARED_LIBS)
       extractpdf_test_pdf_metadata
       extractpdf_test_pdf_outline
       extractpdf_test_pdf_annotations
-      extractpdf_test_pdf_annotation_mutation)
+      extractpdf_test_pdf_annotation_mutation
+      extractpdf_test_pdf_form)
     add_custom_command(TARGET ${test_target} POST_BUILD
       COMMAND ${CMAKE_COMMAND} -E copy_if_different
         $<TARGET_FILE:extractpdf>
