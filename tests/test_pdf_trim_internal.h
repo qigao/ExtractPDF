@@ -23,4 +23,6 @@ int trim_raw_expect_preserved_graph(
     const unsigned char *after,
     size_t after_size);
 
+int trim_run_frame_mode_tests(void);
+
 #endif
