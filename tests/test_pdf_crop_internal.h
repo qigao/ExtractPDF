@@ -15,13 +15,6 @@ int crop_raw_expect_no_local_default_boxes(
     size_t size,
     int page_index);
 
-int crop_raw_expect_page_local_geometry_equal(
-    const unsigned char *before,
-    size_t before_size,
-    const unsigned char *after,
-    size_t after_size,
-    int page_index);
-
 int crop_raw_expect_preserved_graph(
     const unsigned char *before,
     size_t before_size,
