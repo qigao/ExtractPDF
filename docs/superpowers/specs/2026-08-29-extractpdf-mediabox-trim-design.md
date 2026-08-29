@@ -194,6 +194,8 @@ output visible page origin     = (0,0)
 
 subject to Rotate/UserUnit orientation and scaling.
 
+The source request rectangle is expressed in the **source** page frame. Its x0/y0 coordinates are therefore not required to survive as output public coordinates in this fallback case. Only the requested physical region and its public dimensions survive; reopening establishes the new page frame at `(0,0)`.
+
 Existing content/annotation/link/widget/destination geometry is **not rewritten in PDF space**; its public coordinates change because the page transform changed.
 
 ### 5.2 Local or inherited CropBox exists
@@ -219,6 +221,8 @@ normalize(transform(output_visible_pdf, existing pdf_to_public))
 ```
 
 and **need not begin at `(0,0)`**.
+
+In this preserved-frame case, the output public MediaBox rectangle is observed in the same page frame as the source request, so a successfully written MediaBox is expected to correspond to the requested public rectangle subject only to the exact numeric mapping contract.
 
 This non-zero-origin behavior is a required regression test. V1 must not secretly rewrite CropBox merely to re-origin the page.
 
@@ -267,15 +271,17 @@ Therefore changing MediaBox may change their **effective region** without changi
 V1 explicitly permits this derived effect.
 
 - absent Bleed/Trim/Art keys remain absent;
-- explicit keys remain byte/structure-equivalent at the semantic-object level;
+- explicit keys remain semantically/structurally unchanged;
 - V1 does not reject a trim merely because one of these production boxes would have a reduced or empty effective region;
 - V1 only requires a positive post-trim effective CropBox intersection because that defines ExtractPDF's visible page contract.
+
+These three keys are **opaque preservation state** for this slice. V1 does not parse or validate their values as part of trim preflight because it does not consume them to compute MediaBox or visible-page semantics. A malformed explicit BleedBox/TrimBox/ArtBox that the source PDF can otherwise open is preserved unchanged rather than normalized, repaired, or converted into a trim-specific status.
 
 A future production-printing-box API may impose stronger rules. This trim primitive does not silently invent them.
 
 ## 7. Strict page-box preflight
 
-Transformation is stricter than tolerant rendering.
+Transformation is stricter than tolerant rendering for the state it actually consumes.
 
 Before any source serialization/private write, each requested page must satisfy:
 
@@ -291,11 +297,13 @@ Before any source serialization/private write, each requested page must satisfy:
 - page-local `/UserUnit`, when present, is finite and strictly positive;
 - public MediaBox and visible rectangles derived from the strict raw model are finite and positive-area.
 
-Malformed structure returns `EXTRACTPDF_ERROR_FORMAT`.
+BleedBox/TrimBox/ArtBox are deliberately excluded from this strict consumed-state validation per §6.
+
+Malformed consumed structure returns `EXTRACTPDF_ERROR_FORMAT`.
 
 Structurally valid inheritance depth greater than 256 returns `EXTRACTPDF_ERROR_UNSUPPORTED`.
 
-The validator must not rely on MuPDF silently substituting Letter-size/unit rectangles for malformed or empty boxes.
+The validator must not rely on MuPDF silently substituting Letter-size/unit rectangles for malformed or empty MediaBox/CropBox values.
 
 ## 8. Rotate and UserUnit
 
@@ -374,6 +382,18 @@ new immutable extractpdf_output
 ```
 
 No `pdf_obj *`, `pdf_page *`, annotation pointer, Widget pointer, editor ref, or other MuPDF identity crosses from source context into private context.
+
+Private-plan consistency is checked **before the first write**. At minimum, reparsing must preserve for each request:
+
+- target page index;
+- valid MediaBox/CropBox consumed structure;
+- whether CropBox is truly present versus MediaBox fallback;
+- effective Rotate/UserUnit semantics;
+- inverse-mapped requested raw MediaBox containment;
+- changed/no-op classification;
+- positive post-trim visible intersection when CropBox is present.
+
+A private canonical reparse that changes one of these consumed semantics is `EXTRACTPDF_ERROR_FORMAT`; the implementation must not continue by silently accepting a different plan.
 
 `pdf_graft_mapped_page()` is prohibited; this is transform preservation, not composition.
 
@@ -462,7 +482,7 @@ For a page with no local/inherited CropBox:
 1. MediaBox changes to the requested physical region;
 2. output CropBox follows MediaBox by fallback;
 3. output visible page dimensions match the requested physical dimensions;
-4. output visible/public MediaBox origin is `(0,0)`;
+4. output visible/public MediaBox origin is `(0,0)` rather than preserving the source request x0/y0;
 5. render is clipped to the new medium;
 6. text/image/link/annotation/widget coordinates change according to the newly re-anchored page transform;
 7. internal destination resolution on a trimmed target page follows the target page's new transform;
@@ -506,7 +526,7 @@ A physical MediaBox change that leaves visible CropBox behavior unchanged is **n
 
 If every request is a no-op:
 
-1. validate the full batch, including security and page structure;
+1. validate the full batch, including security and consumed page structure;
 2. run the existing deterministic source serialization exactly once;
 3. return those bytes directly;
 4. do not open a private PDF graph;
@@ -546,6 +566,8 @@ Use existing public status values only.
 - invalid inherited Rotate representation;
 - invalid page-local UserUnit;
 - private reparse produces a structurally inconsistent target page or changed plan.
+
+Malformed BleedBox/TrimBox/ArtBox are not trim-specific `FORMAT` conditions because V1 does not consume those values; they follow the opaque preservation policy in §6.
 
 ### `EXTRACTPDF_ERROR_UNSUPPORTED`
 
@@ -607,6 +629,8 @@ src/pdf_trim.c
 
 The common unit must remain read-only. It performs no dictionary writes and owns no transform orchestration.
 
+It consumes only MediaBox/CropBox/Rotate/UserUnit state needed by the two transforms; it must not start parsing Bleed/Trim/Art merely because those names are also page boxes.
+
 CropBox implementation should be migrated only as necessary to consume this shared resolver; its public behavior and already-proven 22nd CTest contract must remain unchanged.
 
 No generic `transform options` struct, transform registry, visitor framework, or arbitrary page-box rewrite API is authorized.
@@ -643,7 +667,7 @@ The first strict RED occurs before any trim production implementation:
 
 The final trim target must cover at least:
 
-1. **no CropBox fallback** — changed MediaBox becomes both physical and visible region, with output origin re-anchored;
+1. **no CropBox fallback** — changed MediaBox becomes both physical and visible region, with output origin re-anchored and source request x0/y0 not preserved as output origin;
 2. **explicit CropBox, physical-only trim** — MediaBox shrinks but still contains CropBox; visible page and object coordinates remain unchanged;
 3. **explicit CropBox, clipping trim** — MediaBox clips part of CropBox; raw CropBox unchanged and public visible bounds become smaller/non-zero;
 4. **inherited CropBox** — same preserved-frame semantics without materializing CropBox;
@@ -652,7 +676,7 @@ The final trim target must cover at least:
 7. **raw CropBox outside MediaBox** — valid source intersection and deterministic further MediaBox shrink;
 8. **Rotate 90**;
 9. **non-default page-local UserUnit**;
-10. **explicit BleedBox/TrimBox/ArtBox** — raw entries unchanged;
+10. **explicit BleedBox/TrimBox/ArtBox** — raw entries unchanged, including opaque preservation rather than normalization;
 11. **absent BleedBox/TrimBox/ArtBox** — keys remain absent;
 12. **two-page interactive preservation** — text, image, URI link, internal link, ordinary annotation, Widget + AcroForm value, outline destination;
 13. **object outside new MediaBox** — remains structurally enumerable;
@@ -686,7 +710,7 @@ Allowed assertions include:
 - changed inherited MediaBox does not modify ancestor;
 - no-op inherited MediaBox remains inherited;
 - raw explicit/inherited CropBox remains unchanged and is not materialized locally merely by trim;
-- explicit Bleed/Trim/Art entries remain semantically equal;
+- explicit Bleed/Trim/Art entries remain semantically equal without repair/normalization;
 - absent Bleed/Trim/Art entries remain absent;
 - Contents/Resources/Annots/AcroForm/Outlines/Names/Dests structures remain semantically preserved.
 
