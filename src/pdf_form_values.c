@@ -30,7 +30,8 @@ static pdf_obj *find_field_source(
     if (name->present && name->size != 0)
         return pdf_lookup_field(ctx, fields, model->strings + name->offset);
     if (pdf_is_array(ctx, fields)) {
-        int i, n = pdf_array_len(ctx, fields);
+        int i;
+        int n = pdf_array_len(ctx, fields);
         for (i = 0; i < n; ++i) {
             pdf_obj *candidate = pdf_array_get(ctx, fields, i);
             pdf_obj *t = NULL;
@@ -59,6 +60,7 @@ static extractpdf_status append_string(
     size_t required;
     size_t capacity;
     char *grown;
+
     if (model->string_size > SIZE_MAX - size - 1)
         return EXTRACTPDF_ERROR_NOMEM;
     required = model->string_size + size + 1;
@@ -88,14 +90,13 @@ static extractpdf_status append_string(
     return EXTRACTPDF_OK;
 }
 
-static extractpdf_status append_utf8_value(
+static extractpdf_status reserve_one_value(
     extractpdf_pdf_form_model *model,
-    extractpdf_pdf_form_field_internal *field,
-    const char *text)
+    extractpdf_pdf_form_value_internal **out_value)
 {
     extractpdf_pdf_form_value_internal *grown;
-    extractpdf_pdf_form_value_internal *value;
-    size_t size = strlen(text);
+
+    *out_value = NULL;
     if (model->value_count == SIZE_MAX ||
         model->value_count + 1 > SIZE_MAX / sizeof(*model->values))
         return EXTRACTPDF_ERROR_NOMEM;
@@ -104,16 +105,87 @@ static extractpdf_status append_utf8_value(
     if (grown == NULL)
         return EXTRACTPDF_ERROR_NOMEM;
     model->values = grown;
-    value = &model->values[model->value_count];
-    memset(value, 0, sizeof(*value));
+    *out_value = &model->values[model->value_count];
+    memset(*out_value, 0, sizeof(**out_value));
+    return EXTRACTPDF_OK;
+}
+
+static extractpdf_status append_utf8_value(
+    extractpdf_pdf_form_model *model,
+    extractpdf_pdf_form_field_internal *field,
+    const char *text)
+{
+    extractpdf_pdf_form_value_internal *value;
+    extractpdf_status status;
+    size_t size = strlen(text);
+
+    status = reserve_one_value(model, &value);
+    if (status != EXTRACTPDF_OK)
+        return status;
     value->kind = EXTRACTPDF_FORM_VALUE_UTF8;
     value->option_index = SIZE_MAX;
-    if (append_string(model, text, size, &value->utf8) != EXTRACTPDF_OK)
-        return EXTRACTPDF_ERROR_NOMEM;
+    status = append_string(model, text, size, &value->utf8);
+    if (status != EXTRACTPDF_OK)
+        return status;
     field->first_value = model->value_count;
     field->value_count = 1;
     ++model->value_count;
     return EXTRACTPDF_OK;
+}
+
+static extractpdf_status append_option_value(
+    extractpdf_pdf_form_model *model,
+    extractpdf_pdf_form_field_internal *field,
+    size_t option_index)
+{
+    extractpdf_pdf_form_value_internal *value;
+    extractpdf_status status;
+
+    status = reserve_one_value(model, &value);
+    if (status != EXTRACTPDF_OK)
+        return status;
+    value->kind = EXTRACTPDF_FORM_VALUE_OPTION;
+    value->option_index = option_index;
+    field->first_value = model->value_count;
+    field->value_count = 1;
+    ++model->value_count;
+    return EXTRACTPDF_OK;
+}
+
+static extractpdf_status materialize_button_value(
+    fz_context *ctx,
+    extractpdf_pdf_form_model *model,
+    extractpdf_pdf_form_field_internal *field,
+    pdf_obj *value)
+{
+    const char *state;
+    size_t option_index;
+
+    field->value_count = 0;
+    if (value == NULL) {
+        field->value_presence = EXTRACTPDF_FORM_VALUE_MISSING;
+        return EXTRACTPDF_OK;
+    }
+    if (!pdf_is_name(ctx, value))
+        return EXTRACTPDF_ERROR_FORMAT;
+
+    state = pdf_to_name(ctx, value);
+    if (state == NULL)
+        return EXTRACTPDF_ERROR_FORMAT;
+    field->value_presence = EXTRACTPDF_FORM_VALUE_PRESENT;
+    if (strcmp(state, "Off") == 0)
+        return EXTRACTPDF_OK;
+
+    for (option_index = 0; option_index < field->option_count; ++option_index) {
+        extractpdf_pdf_form_option_internal *option =
+            &model->options[field->first_option + option_index];
+        if (option->kind != EXTRACTPDF_FORM_OPTION_BUTTON_STATE ||
+            option->button_state == NULL)
+            return EXTRACTPDF_ERROR_FORMAT;
+        if (strcmp(state, option->button_state) == 0)
+            return append_option_value(model, field, option_index);
+    }
+    return EXTRACTPDF_ERROR_FORMAT;
 }
 
 extractpdf_status extractpdf_pdf_form_materialize_scalar_values(
@@ -123,15 +195,19 @@ extractpdf_status extractpdf_pdf_form_materialize_scalar_values(
 {
     pdf_obj *fields;
     size_t index;
+
     if (ctx == NULL || document == NULL || model == NULL)
         return EXTRACTPDF_ERROR_ARGUMENT;
     fields = pdf_dict_getp(ctx, pdf_trailer(ctx, document), "Root/AcroForm/Fields");
     if (!pdf_is_array(ctx, fields))
         return EXTRACTPDF_OK;
+
     for (index = 0; index < model->field_count; ++index) {
         extractpdf_pdf_form_field_internal *field = &model->fields[index];
         pdf_obj *source = find_field_source(ctx, fields, model, index);
         pdf_obj *v;
+        extractpdf_status status;
+
         if (source == NULL)
             return EXTRACTPDF_ERROR_FORMAT;
         v = effective_raw(ctx, source, PDF_NAME(V));
@@ -149,9 +225,16 @@ extractpdf_status extractpdf_pdf_form_materialize_scalar_values(
                 if (text == NULL)
                     return EXTRACTPDF_ERROR_FORMAT;
                 field->value_presence = EXTRACTPDF_FORM_VALUE_PRESENT;
-                if (append_utf8_value(model, field, text) != EXTRACTPDF_OK)
-                    return EXTRACTPDF_ERROR_NOMEM;
+                status = append_utf8_value(model, field, text);
+                if (status != EXTRACTPDF_OK)
+                    return status;
             }
+            break;
+        case EXTRACTPDF_FORM_FIELD_CHECKBOX:
+        case EXTRACTPDF_FORM_FIELD_RADIO_BUTTON:
+            status = materialize_button_value(ctx, model, field, v);
+            if (status != EXTRACTPDF_OK)
+                return status;
             break;
         case EXTRACTPDF_FORM_FIELD_SIGNATURE:
             field->value_presence = EXTRACTPDF_FORM_VALUE_NOT_APPLICABLE;
@@ -165,7 +248,8 @@ extractpdf_status extractpdf_pdf_form_materialize_scalar_values(
             {
                 pdf_obj *type = NULL;
                 if (extractpdf_pdf_dict_find(ctx, v, PDF_NAME(Type), &type) &&
-                    (!pdf_is_name(ctx, type) || !pdf_name_eq(ctx, type, PDF_NAME(Sig))))
+                    (!pdf_is_name(ctx, type) ||
+                     !pdf_name_eq(ctx, type, PDF_NAME(Sig))))
                     return EXTRACTPDF_ERROR_FORMAT;
                 field->is_signed = 1;
             }
