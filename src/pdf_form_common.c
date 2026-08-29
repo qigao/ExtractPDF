@@ -34,6 +34,7 @@ typedef struct extractpdf_pdf_form_parse_state {
     fz_context *ctx;
     pdf_document *document;
     extractpdf_pdf_form_model *model;
+    extractpdf_pdf_form_provenance *provenance;
     extractpdf_pdf_form_node *nodes;
     size_t node_count;
     size_t node_capacity;
@@ -74,6 +75,34 @@ void extractpdf_pdf_form_drop_model(
     free(model->widgets);
     free(model->strings);
     free(model);
+}
+
+void extractpdf_pdf_form_drop_provenance(
+    fz_context *ctx,
+    extractpdf_pdf_form_provenance *provenance)
+{
+    size_t field_index;
+
+    if (provenance == NULL)
+        return;
+    for (field_index = 0; field_index < provenance->field_count; ++field_index) {
+        extractpdf_pdf_form_live_field *field =
+            &provenance->fields[field_index];
+        size_t index;
+
+        if (field->group_head != NULL)
+            pdf_drop_obj(ctx, field->group_head);
+        for (index = 0; index < field->group_node_count; ++index)
+            pdf_drop_obj(ctx, field->group_nodes[index]);
+        if (field->effective_v_owner != NULL)
+            pdf_drop_obj(ctx, field->effective_v_owner);
+        for (index = 0; index < field->widget_count; ++index)
+            pdf_drop_obj(ctx, field->widgets[index].object);
+        free(field->group_nodes);
+        free(field->widgets);
+    }
+    free(provenance->fields);
+    free(provenance);
 }
 
 static extractpdf_pdf_form_model *extractpdf_pdf_form_new_model(void)
@@ -140,7 +169,7 @@ static extractpdf_status extractpdf_pdf_form_reserve_groups(
     return EXTRACTPDF_OK;
 }
 
-static int extractpdf_pdf_form_same_identity(
+int extractpdf_pdf_form_same_identity(
     fz_context *ctx,
     pdf_obj *left,
     pdf_obj *right)
@@ -731,6 +760,76 @@ static extractpdf_status extractpdf_pdf_form_materialize_fields(
     return field_index == terminal_count ? EXTRACTPDF_OK : EXTRACTPDF_ERROR_FORMAT;
 }
 
+static extractpdf_status extractpdf_pdf_form_materialize_provenance(
+    extractpdf_pdf_form_parse_state *state)
+{
+    extractpdf_pdf_form_provenance *provenance;
+    size_t group_index;
+
+    provenance = (extractpdf_pdf_form_provenance *)calloc(1, sizeof(*provenance));
+    if (provenance == NULL)
+        return EXTRACTPDF_ERROR_NOMEM;
+    state->provenance = provenance;
+    provenance->field_count = state->model->field_count;
+    if (provenance->field_count != 0) {
+        if (provenance->field_count > SIZE_MAX / sizeof(*provenance->fields))
+            return EXTRACTPDF_ERROR_NOMEM;
+        provenance->fields = (extractpdf_pdf_form_live_field *)calloc(
+            provenance->field_count, sizeof(*provenance->fields));
+        if (provenance->fields == NULL)
+            return EXTRACTPDF_ERROR_NOMEM;
+    }
+
+    for (group_index = 0; group_index < state->group_count; ++group_index) {
+        const extractpdf_pdf_form_group *group = &state->groups[group_index];
+        extractpdf_pdf_form_live_field *live;
+        extractpdf_pdf_form_effective effective;
+        size_t node_index;
+        size_t node_count = 0;
+        size_t at = 0;
+
+        if (group->public_index == SIZE_MAX)
+            continue;
+        if (group->public_index >= provenance->field_count)
+            return EXTRACTPDF_ERROR_FORMAT;
+        live = &provenance->fields[group->public_index];
+        live->group_head = pdf_keep_obj(
+            state->ctx, state->nodes[group->head_node].object);
+
+        for (node_index = 0; node_index < state->node_count; ++node_index)
+            if (state->nodes[node_index].group_index == group_index)
+                ++node_count;
+        if (node_count != 0) {
+            if (node_count > SIZE_MAX / sizeof(*live->group_nodes))
+                return EXTRACTPDF_ERROR_NOMEM;
+            live->group_nodes = (pdf_obj **)calloc(
+                node_count, sizeof(*live->group_nodes));
+            if (live->group_nodes == NULL)
+                return EXTRACTPDF_ERROR_NOMEM;
+        }
+        live->group_node_count = node_count;
+        for (node_index = 0; node_index < state->node_count; ++node_index) {
+            if (state->nodes[node_index].group_index != group_index)
+                continue;
+            live->group_nodes[at++] = pdf_keep_obj(
+                state->ctx, state->nodes[node_index].object);
+        }
+        if (at != node_count)
+            return EXTRACTPDF_ERROR_FORMAT;
+
+        effective = extractpdf_pdf_form_effective_value(
+            state, group->head_node, PDF_NAME(V));
+        if (effective.present) {
+            if (effective.owner_node >= state->node_count)
+                return EXTRACTPDF_ERROR_FORMAT;
+            live->effective_v_present = 1;
+            live->effective_v_owner = pdf_keep_obj(
+                state->ctx, state->nodes[effective.owner_node].object);
+        }
+    }
+    return EXTRACTPDF_OK;
+}
+
 static extractpdf_status extractpdf_pdf_form_parse_impl(
     extractpdf_pdf_form_parse_state *state)
 {
@@ -770,17 +869,21 @@ static extractpdf_status extractpdf_pdf_form_parse_impl(
     return extractpdf_pdf_form_materialize_fields(state);
 }
 
-extractpdf_status extractpdf_pdf_form_parse(
+static extractpdf_status extractpdf_pdf_form_parse_internal(
     fz_context *ctx,
     pdf_document *document,
-    extractpdf_pdf_form_model **out_model)
+    int want_provenance,
+    extractpdf_pdf_form_model **out_model,
+    extractpdf_pdf_form_provenance **out_provenance)
 {
     extractpdf_pdf_form_parse_state *state;
     extractpdf_status status = EXTRACTPDF_OK;
 
-    if (out_model == NULL)
+    if (out_model == NULL || (want_provenance && out_provenance == NULL))
         return EXTRACTPDF_ERROR_ARGUMENT;
     *out_model = NULL;
+    if (out_provenance != NULL)
+        *out_provenance = NULL;
     if (ctx == NULL || document == NULL)
         return EXTRACTPDF_ERROR_ARGUMENT;
     state = (extractpdf_pdf_form_parse_state *)calloc(1, sizeof(*state));
@@ -792,6 +895,8 @@ extractpdf_status extractpdf_pdf_form_parse(
     fz_try(ctx)
     {
         status = extractpdf_pdf_form_parse_impl(state);
+        if (status == EXTRACTPDF_OK && want_provenance)
+            status = extractpdf_pdf_form_materialize_provenance(state);
     }
     fz_always(ctx)
     {
@@ -800,16 +905,86 @@ extractpdf_status extractpdf_pdf_form_parse(
     fz_catch(ctx)
     {
         extractpdf_pdf_form_drop_model(state->model);
+        extractpdf_pdf_form_drop_provenance(ctx, state->provenance);
         free(state);
         fz_rethrow(ctx);
     }
 
     if (status != EXTRACTPDF_OK) {
         extractpdf_pdf_form_drop_model(state->model);
+        extractpdf_pdf_form_drop_provenance(ctx, state->provenance);
         free(state);
         return status;
     }
     *out_model = state->model;
+    if (out_provenance != NULL)
+        *out_provenance = state->provenance;
     free(state);
+    return EXTRACTPDF_OK;
+}
+
+extractpdf_status extractpdf_pdf_form_parse(
+    fz_context *ctx,
+    pdf_document *document,
+    extractpdf_pdf_form_model **out_model)
+{
+    return extractpdf_pdf_form_parse_internal(
+        ctx, document, 0, out_model, NULL);
+}
+
+extractpdf_status extractpdf_pdf_form_build(
+    fz_context *ctx,
+    pdf_document *document,
+    int want_provenance,
+    extractpdf_pdf_form_model **out_model,
+    extractpdf_pdf_form_provenance **out_provenance)
+{
+    extractpdf_pdf_form_model *model = NULL;
+    extractpdf_pdf_form_provenance *provenance = NULL;
+    extractpdf_status status = EXTRACTPDF_OK;
+    int caught_code = FZ_ERROR_NONE;
+
+    if (out_model == NULL || (want_provenance && out_provenance == NULL))
+        return EXTRACTPDF_ERROR_ARGUMENT;
+    *out_model = NULL;
+    if (out_provenance != NULL)
+        *out_provenance = NULL;
+    if (ctx == NULL || document == NULL)
+        return EXTRACTPDF_ERROR_ARGUMENT;
+
+    fz_var(model);
+    fz_var(provenance);
+    fz_var(status);
+    fz_var(caught_code);
+    fz_try(ctx)
+    {
+        status = extractpdf_pdf_form_parse_internal(
+            ctx, document, want_provenance, &model,
+            want_provenance ? &provenance : NULL);
+        if (status == EXTRACTPDF_OK)
+            status = extractpdf_pdf_form_reconcile_widgets(ctx, document, model);
+        if (status == EXTRACTPDF_OK)
+            status = extractpdf_pdf_form_materialize_scalar_values(
+                ctx, document, model);
+    }
+    fz_catch(ctx)
+    {
+        caught_code = fz_caught(ctx);
+        fz_report_error(ctx);
+    }
+
+    if (caught_code != FZ_ERROR_NONE) {
+        extractpdf_pdf_form_drop_model(model);
+        extractpdf_pdf_form_drop_provenance(ctx, provenance);
+        return extractpdf_status_from_mupdf(caught_code);
+    }
+    if (status != EXTRACTPDF_OK) {
+        extractpdf_pdf_form_drop_model(model);
+        extractpdf_pdf_form_drop_provenance(ctx, provenance);
+        return status;
+    }
+    *out_model = model;
+    if (out_provenance != NULL)
+        *out_provenance = provenance;
     return EXTRACTPDF_OK;
 }
