@@ -4,11 +4,13 @@
 
 **Goal:** Add an immutable, batch, shrink-only MediaBox physical trim transform that preserves existing CropBox/interactive/document-root structures and extends the suite from 22 to 23 CTests.
 
-**Architecture:** Reuse CropBox V1's proven full-document isolation and deterministic serializer, but keep MediaBox trim as a separate public primitive and writer. Extract only strict page-box resolution/mapping into a small private `pdf_page_box_common.[ch]` helper so CropBox and MediaBox share one proven coordinate model without creating a generic transform framework.
+**Architecture:** Reuse CropBox V1's proven full-document isolation and deterministic serializer, but keep MediaBox trim as a separate public primitive and writer. Extract only strict page-box resolution/mapping into a small private `pdf_page_box_common.[ch]` helper so CropBox and MediaBox share one proven coordinate model without creating a generic transform framework. Frame-changing classification is based on the effective visible intersection before/after trim, per the committed MediaBox frame correction.
 
 **Tech Stack:** C11, MuPDF 1.28.2, CMake/CTest, GitHub Actions Linux + ASan/UBSan + macOS + Windows DLL.
 
 **Spec:** `docs/superpowers/specs/2026-08-29-extractpdf-mediabox-trim-design.md`
+
+**Normative correction/evidence:** `docs/superpowers/specs/2026-08-29-extractpdf-mediabox-trim-frame-correction.md`
 
 ## Global Constraints
 
@@ -16,8 +18,12 @@
 - Public request coordinates are current ExtractPDF/Fitz page space; callers never supply raw PDF coordinates.
 - MuPDF page matrix project invariant: PDF user space -> ExtractPDF/Fitz public page space; inverse maps public -> PDF.
 - V1 is shrink-only against current public MediaBox.
-- A real local/inherited CropBox remains structurally unchanged; output visible region is `intersection(new MediaBox, preserved CropBox)` and may have non-zero public origin.
-- If no CropBox exists through inheritance, CropBox falls back to new MediaBox and output page frame re-anchors to `(0,0)`.
+- A real local/inherited CropBox remains structurally unchanged.
+- Post-trim effective visible raw box is `requested_media_pdf` when no real CropBox exists, otherwise `intersection(requested_media_pdf, preserved_crop_pdf)`.
+- If post-trim effective visible raw box equals source effective visible raw box, the transform is physical-only: page frame and public visible/object geometry stay unchanged even though MediaBox changes.
+- If post-trim effective visible raw box differs, MuPDF re-anchors the page frame to that new effective visible box; deterministic unrotated/UserUnit=1 visible bounds restart at `(0,0)`.
+- Do not require a clipped preserved-CropBox output visible rectangle to retain its old non-zero origin. Instead test that the output MediaBox can be negative/non-zero relative to the newly re-anchored visible frame.
+- If no CropBox exists through inheritance, CropBox falls back to new MediaBox and output frame re-anchors to the new MediaBox.
 - BleedBox/TrimBox/ArtBox are opaque preservation state: do not write, materialize, normalize, repair, or trim-specific validate them.
 - Only changed pages receive page-local `/MediaBox` writes.
 - No page graft, content-stream transformation, per-object geometry rewrite, annotation/form mutation, appearance regeneration, JavaScript, form events, validation, formatting, calculation, or activation.
@@ -26,7 +32,7 @@
 - All requests preflight before private writes; private canonical reparse must re-resolve/revalidate every target before first write.
 - No MuPDF types in public headers; no mutable process-global/TLS PDF state; no MuPDF exception crosses the C ABI.
 - No `.github/workflows/ci.yml` changes are authorized.
-- Current suite is 22 CTests; this slice adds exactly one new CTest: `extractpdf.pdf_trim`, yielding 23 total.
+- Current suite is 22 CTests; this slice adds exactly one new CTest `extractpdf.pdf_trim`, yielding 23 total.
 - Do not start poster split, flatten, optimize/gc, image recompression, or security rewrite work in this branch.
 
 ---
@@ -34,29 +40,26 @@
 ## File Structure
 
 ### New production files
-
 - `src/pdf_page_box_common.h` — strict reusable page-box view and raw/public mapping declarations.
 - `src/pdf_page_box_common.c` — MediaBox/CropBox inheritance resolution, CropBox provenance, Rotate/UserUnit validation, effective-visible intersection, PDF/public mapping.
-- `src/pdf_trim_internal.h` — trim-only plan type and private declarations.
-- `src/pdf_trim_preflight.c` — MediaBox-specific request validation, no-op classification, post-trim CropBox-intersection validation.
+- `src/pdf_trim_internal.h` — trim-only plan type and declarations.
+- `src/pdf_trim_preflight.c` — MediaBox-specific request validation, no-op classification, post-trim visible intersection, frame-change classification.
 - `src/pdf_trim.c` — public orchestration, private full-document reopen, `/MediaBox` writer, deterministic publication.
 
 ### Existing production files modified
-
 - `include/extractpdf/extractpdf.h` — approved `extractpdf_page_trim` and `extractpdf_trim_pages()` ABI only.
 - `src/pdf_crop_internal.h` — retain crop-only plan declarations; consume common page-box view.
 - `src/pdf_crop_preflight.c` — delegate strict page-box resolution to common helper without semantic changes.
-- `src/pdf_crop.c` — include/name adjustment only if required by common extraction; no semantic change intended.
+- `src/pdf_crop.c` — include/name adjustment only if required; no semantic change intended.
 - `CMakeLists.txt` — add common and trim production sources.
 
 ### New tests/fixtures
-
-- `tests/test_pdf_trim.c` — ABI, argument/security/no-op/batch/source-lifetime tests and main runner.
-- `tests/test_pdf_trim_raw.c` — raw local MediaBox/CropBox/default-box/preservation checks.
-- `tests/test_pdf_trim_internal.h` — test-only declarations.
-- `tests/test_pdf_trim_transforms.c` — Rotate/UserUnit and preserved-CropBox coordinate cases.
-- `tests/fixtures/trim-interactive.pdf` — deterministic two-page no-CropBox interactive fixture.
-- `tests/fixtures/trim-preserved-crop.pdf` — inherited CropBox physical-only and clipped-visible cases.
+- `tests/test_pdf_trim.c`
+- `tests/test_pdf_trim_raw.c`
+- `tests/test_pdf_trim_internal.h`
+- `tests/test_pdf_trim_transforms.c`
+- `tests/fixtures/trim-interactive.pdf`
+- `tests/fixtures/trim-preserved-crop.pdf`
 - `tests/fixtures/trim-rotate-90.pdf`
 - `tests/fixtures/trim-userunit.pdf`
 - `tests/fixtures/trim-default-boxes.pdf`
@@ -65,69 +68,45 @@
 - `tests/fixtures/trim-malformed-userunit.pdf`
 
 ### Existing test file modified
-
-- `tests/CMakeLists.txt` — register exactly one new executable/CTest; private MuPDF link for raw helper; Windows DLL post-build copy as required.
+- `tests/CMakeLists.txt` — register exactly one new executable/CTest, private MuPDF link for raw helper, Windows DLL copy as required.
 
 ---
 
 ### Task 1: Lock the MediaBox ABI compile RED and open the draft PR
 
-**Files:**
-- Create: `tests/test_pdf_trim.c`
-- Create: `tests/fixtures/trim-interactive.pdf`
-- Modify: `tests/CMakeLists.txt`
-- Do not modify: public header, `src/`, root `CMakeLists.txt`, workflow files.
+**Files:** Create `tests/test_pdf_trim.c`, `tests/fixtures/trim-interactive.pdf`; modify `tests/CMakeLists.txt`. No public/header/src/root-CMake/workflow edits.
 
-**Interfaces:**
-- Consumes: integrated 22-test baseline.
-- Produces: one failing `extractpdf_test_pdf_trim` compile target referencing the approved-but-absent ABI.
+**Interfaces:** Produces one compile-RED target referencing absent approved ABI.
 
-- [ ] **Step 1: Create the deterministic two-page no-CropBox fixture**
-
-Construct `trim-interactive.pdf` with:
+- [ ] Create deterministic two-page fixture:
 
 ```text
-Page 1 raw MediaBox [0 0 400 300]
-Page 2 raw MediaBox [0 0 400 300]
-No local/inherited CropBox.
-
-Page 1:
-  text marker TRIM-TEXT
-  one image XObject occurrence
-  URI link https://example.com/trim
-  internal /XYZ link targeting page 2
-  Square annotation Contents=(TRIM-ANNOT)
-  Text Widget under a legal AcroForm hierarchy:
-      parent field /T (trim)
-      child Widget field /T (text)
-      public full field name = trim.text
-      value = TRIM-VALUE
-
-Page 2:
-  text marker TRIM-TARGET
-  outline internal destination
+Page 1/2 raw MediaBox [0 0 400 300]
+No real CropBox anywhere.
+Page 1: TRIM-TEXT, one image, URI https://example.com/trim,
+        internal /XYZ link -> page 2,
+        Square Contents=(TRIM-ANNOT),
+        Text Widget with legal hierarchy:
+          parent /T(trim), child Widget field /T(text)
+          public full field name trim.text, value TRIM-VALUE
+Page 2: TRIM-TARGET and outline internal destination.
 ```
 
-Do **not** encode `/T (trim.text)` as one partial field name; the existing strict AcroForm parser rejects dotted partial names. Use Parent/Kids hierarchy to produce the public full name `trim.text`.
+Do not encode `/T(trim.text)` as one partial name; existing strict AcroForm rejects dotted partial names.
 
-- [ ] **Step 2: Write the initial compile-RED test**
-
-Reference the absent ABI exactly:
+- [ ] Write initial absent-ABI test:
 
 ```c
-extractpdf_page_trim trim;
+extractpdf_page_trim trim = {0};
 extractpdf_output *output = NULL;
-
-memset(&trim, 0, sizeof(trim));
 trim.struct_size = sizeof(trim);
 trim.page_index = 0;
-trim.bounds = (extractpdf_rect){40.0f, 30.0f, 360.0f, 270.0f};
-
+trim.bounds = (extractpdf_rect){40,30,360,270};
 if (extractpdf_trim_pages(document, &trim, 1, &output) != EXTRACTPDF_OK)
     return fail("valid trim failed");
 ```
 
-- [ ] **Step 3: Register exactly one new CTest**
+- [ ] Register one new CTest:
 
 ```cmake
 add_executable(extractpdf_test_pdf_trim test_pdf_trim.c)
@@ -138,36 +117,15 @@ add_test(NAME extractpdf.pdf_trim COMMAND extractpdf_test_pdf_trim)
 set_tests_properties(extractpdf.pdf_trim PROPERTIES TIMEOUT 60)
 ```
 
-- [ ] **Step 4: Commit the strict RED surface**
-
-```bash
-git add tests/test_pdf_trim.c tests/fixtures/trim-interactive.pdf tests/CMakeLists.txt
-git commit -m "test: lock MediaBox trim contract"
-```
-
-- [ ] **Step 5: Create canonical draft PR**
-
-`feat/mediabox-trim` -> `master`, title `feat: add immutable MediaBox physical trim transform`, body tracks #51/#48/#2 and links the committed spec. State compile-RED checkpoint and explicit integration requirement.
-
-- [ ] **Step 6: Require attributable Linux compile RED**
-
-Expected:
-
-```text
-existing 22 targets build
-only extractpdf_test_pdf_trim fails for missing extractpdf_page_trim / extractpdf_trim_pages
-```
-
-Stop if any old target fails or RED is caused by fixture/CMake defects.
+- [ ] Commit `test: lock MediaBox trim contract`.
+- [ ] Create canonical **draft** PR `feat/mediabox-trim` -> `master`, tracking #51/#48/#2 and committed spec/correction.
+- [ ] Require Linux compile RED attributable only to missing `extractpdf_page_trim` / `extractpdf_trim_pages`; old 22 targets must still build. Stop otherwise.
 
 ---
 
 ### Task 2: Add the public ABI shell and move RED to runtime
 
-**Files:**
-- Modify: `include/extractpdf/extractpdf.h`
-- Create: `src/pdf_trim.c`
-- Modify: `CMakeLists.txt`
+**Files:** modify header/root CMake; create `src/pdf_trim.c`.
 
 **Interfaces:**
 
@@ -185,20 +143,14 @@ EXTRACTPDF_API extractpdf_status extractpdf_trim_pages(
     extractpdf_output **out_output);
 ```
 
-- [ ] **Step 1: Add exact approved ABI** beside CropBox types/function.
-- [ ] **Step 2: Add minimal shell**:
+- [ ] Add exact ABI beside CropBox ABI; no options/generic page-box rewrite API.
+- [ ] Add shell:
 
 ```c
 #include "internal.h"
-
-extractpdf_status extractpdf_trim_pages(
-    extractpdf_document *document,
-    const extractpdf_page_trim *trims,
-    size_t trim_count,
-    extractpdf_output **out_output)
+extractpdf_status extractpdf_trim_pages(...)
 {
-    if (out_output == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+    if (out_output == NULL) return EXTRACTPDF_ERROR_ARGUMENT;
     *out_output = NULL;
     if (document == NULL || trims == NULL || trim_count == 0)
         return EXTRACTPDF_ERROR_ARGUMENT;
@@ -206,28 +158,15 @@ extractpdf_status extractpdf_trim_pages(
 }
 ```
 
-- [ ] **Step 3: Add only `src/pdf_trim.c` to root CMake.**
-- [ ] **Step 4: Run PR workflow.** Expected 23 executables compile; old 22 CTests pass; only `extractpdf.pdf_trim` fails `valid trim failed`.
-- [ ] **Step 5: Commit**:
-
-```bash
-git add include/extractpdf/extractpdf.h src/pdf_trim.c CMakeLists.txt
-git commit -m "feat: add MediaBox trim ABI shell"
-```
-
-Public ABI review gate: no MuPDF type, flags, generic box-rewrite API, or unrelated ABI.
+- [ ] Add only `src/pdf_trim.c` to root CMake.
+- [ ] Require workflow: 23 executables compile; old 22 CTests pass; only `extractpdf.pdf_trim` runtime REDs at changed trim.
+- [ ] Commit `feat: add MediaBox trim ABI shell`.
 
 ---
 
 ### Task 3: Extract strict page-box common helper without changing CropBox behavior
 
-**Files:**
-- Create: `src/pdf_page_box_common.h`
-- Create: `src/pdf_page_box_common.c`
-- Modify: `src/pdf_crop_internal.h`
-- Modify: `src/pdf_crop_preflight.c`
-- Modify: `src/pdf_crop.c` only if include/name adjustment is required
-- Modify: `CMakeLists.txt`
+**Files:** create `src/pdf_page_box_common.[ch]`; modify crop internal/preflight, root CMake, and `src/pdf_crop.c` only if include/name adjustment is necessary.
 
 **Interfaces:**
 
@@ -246,49 +185,25 @@ typedef struct extractpdf_pdf_page_box_view {
 } extractpdf_pdf_page_box_view;
 
 extractpdf_status extractpdf_pdf_page_box_resolve(
-    fz_context *ctx,
-    pdf_document *document,
-    int page_index,
+    fz_context *ctx, pdf_document *document, int page_index,
     extractpdf_pdf_page_box_view *out_view);
 ```
 
-- [ ] **Step 1: Characterize existing CropBox** with `ctest --test-dir build -R '^extractpdf\.pdf_crop$' --output-on-failure`; expect PASS before refactor.
-- [ ] **Step 2: Move only read-only consumed-state logic**: page dictionary; Parent cycle/depth; nearest MediaBox; nearest CropBox + presence provenance; strict four-number parsing; positive raw boxes; visible intersection; inherited Rotate; page-local UserUnit; `pdf_to_public`; `media_public`; `visible_public`.
-- [ ] **Step 3: Keep crop policy crop-specific**: struct_size, duplicate page, shrink-to-visible, changed/no-op, security, writer/orchestration.
-- [ ] **Step 4: Adapt crop plan mapping**:
+- [ ] Characterize `extractpdf.pdf_crop` before refactor; PASS required.
+- [ ] Move only read-only consumed-state logic: page dictionary; Parent cycle/depth; nearest MediaBox; nearest CropBox + provenance; strict finite boxes; visible intersection; inherited Rotate; page-local UserUnit; `pdf_to_public`; media/visible public rects.
+- [ ] Keep CropBox struct-size/duplicates/shrink-to-visible/no-op/security/writer/orchestration crop-specific.
+- [ ] Adapt crop plan mapping with `inverse(view.pdf_to_public)` and preserve exact integrated behavior.
+- [ ] Add common source to CMake; run static + sanitizer. Baseline 22 incl. crop PASS; trim remains runtime RED.
+- [ ] Audit common helper: no put/del/graft/serializer/JS/form runtime.
+- [ ] Commit `refactor: share strict PDF page-box resolution`.
 
-```c
-public_to_pdf = fz_invert_matrix(view.pdf_to_public);
-requested_pdf = normalize(transform(crops[index].bounds, public_to_pdf));
-validate requested_pdf inside view.visible_pdf;
-changed = requested_public != view.visible_public;
-```
-
-- [ ] **Step 5: Add common source to CMake and run static + sanitizer suites.** Expected baseline 22 pass; trim stays runtime RED.
-- [ ] **Step 6: Forbidden audit** common helper contains no `pdf_dict_put`, `pdf_dict_del`, graft, serializer, JS/form runtime.
-- [ ] **Step 7: Commit**:
-
-```bash
-git add src/pdf_page_box_common.h src/pdf_page_box_common.c \
-  src/pdf_crop_internal.h src/pdf_crop_preflight.c src/pdf_crop.c CMakeLists.txt
-git commit -m "refactor: share strict PDF page-box resolution"
-```
-
-Reject this task if any CropBox status, no-op, output semantics, tests, or public ABI changed.
+Reject this task if any CropBox status/no-op/output/test/public-ABI behavior changes.
 
 ---
 
-### Task 4: Lock strict trim preflight, security, and all-no-op behavior
+### Task 4: Lock strict trim preflight, security, no-op, and frame classification
 
-**Files:**
-- Create: `src/pdf_trim_internal.h`
-- Create: `src/pdf_trim_preflight.c`
-- Modify: `src/pdf_trim.c`
-- Create: `tests/fixtures/trim-malformed-box.pdf`
-- Create: `tests/fixtures/trim-malformed-rotate.pdf`
-- Create: `tests/fixtures/trim-malformed-userunit.pdf`
-- Modify: `tests/test_pdf_trim.c`
-- Modify: `tests/CMakeLists.txt`
+**Files:** create `src/pdf_trim_internal.h`, `src/pdf_trim_preflight.c`, three malformed fixtures; modify `src/pdf_trim.c`, trim test, tests CMake.
 
 **Interfaces:**
 
@@ -297,22 +212,22 @@ typedef struct extractpdf_pdf_trim_plan {
     int page_index;
     extractpdf_rect requested_public;
     fz_rect requested_media_pdf;
+    fz_rect output_visible_pdf;
     int changed;
+    int frame_changed;
 } extractpdf_pdf_trim_plan;
 
 extractpdf_status extractpdf_pdf_trim_build_plan(
-    fz_context *ctx,
-    pdf_document *document,
-    const extractpdf_page_trim *trims,
-    size_t trim_count,
-    extractpdf_pdf_trim_plan *plans,
-    int *out_any_changed);
+    fz_context *ctx, pdf_document *document,
+    const extractpdf_page_trim *trims, size_t trim_count,
+    extractpdf_pdf_trim_plan *plans, int *out_any_changed);
 ```
 
-- [ ] **Step 1: Add tests first** for null pointers, zero count, too-small struct, bad/duplicate index, NaN/inf, zero/inverted rect, request outside MediaBox, malformed consumed MediaBox/CropBox, invalid Rotate/UserUnit, non-PDF, encrypted, signed. Every failure initializes output to sentinel `(extractpdf_output *)(uintptr_t)1` and requires `output == NULL` afterward.
-- [ ] **Step 2: Add all-no-op test** by querying exact public MediaBox and submitting it unchanged. Require OK, source unchanged, repeated canonical outputs byte-identical.
-- [ ] **Step 3: Run test-first RED**; failure should now be missing validation/no-op behavior, not compile.
-- [ ] **Step 4: Implement trim plan**:
+- [ ] Test-first argument/error matrix: nulls, zero count, small struct, bad/duplicate index, NaN/inf, zero/inverted, outside MediaBox, malformed consumed MediaBox/CropBox, invalid Rotate/UserUnit, non-PDF, encrypted, signed. Reuse existing non-PDF/encrypted/signed fixtures read-only; do not modify them. Initialize output sentinel and require NULL after all failures.
+- [ ] `trim-malformed-box.pdf` must isolate both consumed-box failures without ambiguity: one target page with malformed MediaBox and another target page with valid MediaBox but malformed real CropBox; each selected independently.
+- [ ] Add all-no-op test by querying exact current public MediaBox. Require OK, source unchanged, repeated canonical outputs byte-identical.
+- [ ] Run new tests before production; expect validation/no-op RED.
+- [ ] Build each plan:
 
 ```c
 view = extractpdf_pdf_page_box_resolve(...);
@@ -320,158 +235,164 @@ validate request inside view.media_public;
 requested_media_pdf = normalize(transform(request, inverse(view.pdf_to_public)));
 validate requested_media_pdf inside view.media_pdf;
 changed = request != view.media_public;
-if (changed && view.has_explicit_crop)
-    require positive intersection(requested_media_pdf, view.crop_pdf);
+
+if (view.has_explicit_crop)
+    output_visible_pdf = intersection(requested_media_pdf, view.crop_pdf);
+else
+    output_visible_pdf = requested_media_pdf;
+
+require positive output_visible_pdf for changed request;
+frame_changed = !raw_rect_equal(output_visible_pdf, view.visible_pdf);
 ```
 
-Do not inspect BleedBox/TrimBox/ArtBox.
+A changed MediaBox with `frame_changed == 0` is a valid physical-only trim, not a no-op.
 
-- [ ] **Step 5: Implement fail-closed security and all-no-op orchestration**. Changed batch still returns `UNSUPPORTED`; all-no-op serializes source once with existing deterministic serializer.
-- [ ] **Step 6: Run static + sanitizer suites**. Expected all validation/no-op assertions pass, baseline 22 pass, trim test fails only at first changed request.
-- [ ] **Step 7: Commit** `feat: preflight immutable MediaBox trims`.
+- [ ] Implement fail-closed security + all-no-op canonical serialization; changed batch still `UNSUPPORTED`.
+- [ ] Static + sanitizer: all new validation/no-op assertions pass, old 22 pass, trim fails only at first changed request.
+- [ ] Commit `feat: preflight immutable MediaBox trims`.
 
 ---
 
-### Task 5: Implement isolated MediaBox-only writer and both page-frame modes
+### Task 5: Implement isolated MediaBox-only writer and both frame modes
 
-**Files:**
-- Modify: `src/pdf_trim.c`
-- Create: `tests/test_pdf_trim_internal.h`
-- Create: `tests/test_pdf_trim_raw.c`
-- Create: `tests/fixtures/trim-preserved-crop.pdf`
-- Modify: `tests/test_pdf_trim.c`
-- Modify: `tests/CMakeLists.txt`
+**Files:** modify `src/pdf_trim.c`; create trim raw helper/header, `trim-preserved-crop.pdf`; modify trim test/CMake.
 
-**Test-only interfaces:**
+**Raw helper interfaces:**
 
 ```c
 int trim_raw_expect_local_mediabox(
     const unsigned char *data, size_t size, int page_index,
     int expect_present, const float expected[4]);
-
-int trim_raw_expect_preserved_cropbox(
-    const unsigned char *before, size_t before_size,
-    const unsigned char *after, size_t after_size,
-    int page_index);
-
-int trim_raw_expect_preserved_graph(
-    const unsigned char *before, size_t before_size,
-    const unsigned char *after, size_t after_size);
+int trim_raw_expect_preserved_cropbox(...);
+int trim_raw_expect_preserved_graph(...);
 ```
 
-- [ ] **Step 1: Add inherited-CropBox fixture** with MediaBox `[0 0 400 300]`, CropBox `[50 40 350 260]`, child pages without local boxes. One page is trimmed physically while still containing all CropBox; another clips CropBox but leaves positive intersection.
-- [ ] **Step 2: Derive public trim requests from actual public MediaBox observations/mapping**, never assume its public origin is `(0,0)` when CropBox exists.
-- [ ] **Step 3: Add raw helper** and privately link MuPDF only to trim test. Prove changed inherited MediaBox becomes local, no-op inherited MediaBox remains inherited, CropBox raw object/value unchanged, and Contents/Resources/Annots/root AcroForm/root Outlines are semantically preserved without object-number identity assumptions.
-- [ ] **Step 4: Add public assertions before production**:
+- [ ] Fixture: inherited MediaBox `[0 0 400 300]`, inherited CropBox `[50 40 350 260]`, child pages no local boxes. Include:
+  - physical-only trim whose `requested_media_pdf ∩ crop_pdf == source visible_pdf`;
+  - clipping trim whose intersection is positive but differs from source visible.
+- [ ] Derive public requests from actual source public MediaBox observations/mapping; never assume source MediaBox origin `(0,0)` when CropBox exists.
+- [ ] Raw helper proves changed inherited MediaBox becomes local; no-op remains inherited; raw CropBox unchanged; core graph semantically preserved without indirect-object-number identity assumptions.
+- [ ] Public tests first:
 
 ```text
-no CropBox fallback:
-  output MediaBox/CropBox/visible origin -> (0,0)
-  dimensions == requested physical dimensions
-  existing geometry follows re-anchored transform
+no real CropBox:
+  changed trim -> new effective visible = new MediaBox
+  output frame re-anchors
+  deterministic unrotated/UserUnit=1 visible bounds [0,0,w,h]
 
-preserved CropBox physical-only:
+real CropBox physical-only:
   MediaBox changes
-  visible/CropBox observation unchanged
+  output_visible_pdf == source_visible_pdf
+  frame unchanged
+  visible/object public geometry unchanged
 
-preserved CropBox clipped:
+real CropBox clipping:
   raw CropBox unchanged
-  visible == intersection(new MediaBox, CropBox)
-  visible public x0/y0 may be non-zero
-  no per-object rewrite
+  output_visible_pdf = new MediaBox ∩ CropBox
+  output_visible_pdf != source_visible_pdf
+  page frame re-anchors to new effective visible intersection
+  deterministic unrotated/UserUnit=1 visible bounds restart at [0,0,w,h]
+  output MediaBox public rect may be negative/non-zero relative to that new visible frame
+  object PDF geometry unchanged; public geometry follows new page transform
 ```
 
-Expected still RED on changed trim.
+Do not assert clipped visible public origin remains non-zero.
 
-- [ ] **Step 5: Implement private changed flow**: canonical source serialize -> fresh context -> open bytes -> disable JS -> security recheck -> rebuild all private plans -> resolve all target pages -> verify private semantics before first write -> local `/MediaBox` writes only -> deterministic serialize -> cleanup.
-- [ ] **Step 6: Narrow writer** uses `pdf_new_array(ctx, private_document, 4)` and exactly one `pdf_dict_put(..., PDF_NAME(MediaBox), array)` semantic key. No journal/graft/runtime mutation.
-- [ ] **Step 7: Require static + ASan/UBSan 23/23** at this checkpoint.
-- [ ] **Step 8: Commit** `feat: apply isolated MediaBox trims`.
+- [ ] Implement changed flow: source canonical serialize -> fresh private context -> open -> disable JS -> security recheck -> rebuild complete private plans -> resolve every target -> compare private plan semantics including `output_visible_pdf` and `frame_changed` before first write -> local MediaBox writes only -> deterministic serialize.
+- [ ] Writer uses `pdf_new_array(ctx, private_document, 4)` and exactly one semantic `pdf_dict_put(... PDF_NAME(MediaBox) ...)` key.
+- [ ] Static + ASan/UBSan 23/23.
+- [ ] Commit `feat: apply isolated MediaBox trims`.
 
 ---
 
 ### Task 6: Lock Rotate/UserUnit and opaque Bleed/Trim/Art preservation
 
-**Files:**
-- Create: `tests/test_pdf_trim_transforms.c`
-- Create: `tests/fixtures/trim-rotate-90.pdf`
-- Create: `tests/fixtures/trim-userunit.pdf`
-- Create: `tests/fixtures/trim-default-boxes.pdf`
-- Modify: `tests/test_pdf_trim_internal.h`
-- Modify: `tests/test_pdf_trim_raw.c`
-- Modify: `tests/CMakeLists.txt`
-- Production correction only if a real defect appears: `src/pdf_page_box_common.c`, `src/pdf_trim_preflight.c`, `src/pdf_trim.c`.
+**Files:** create transformed/default-box tests/fixtures; modify trim raw/header/CMake. Production only for a real defect in common/trim mapping files.
 
-- [ ] **Step 1: Add Rotate 90 test first**. Query public MediaBox, construct a valid public inset, trim, verify raw MediaBox equals inverse-mapped request and public behavior follows CropBox provenance.
-- [ ] **Step 2: Add page-local UserUnit 2 test** with same methodology.
-- [ ] **Step 3: Add default-box fixture**:
+- [ ] Rotate 90: query source public MediaBox, create valid inset, trim, verify raw MediaBox via inverse source mapping and post-trim frame behavior via effective intersection.
+- [ ] UserUnit 2: same methodology.
+- [ ] Default-box fixture:
 
 ```text
-page A: BleedBox/TrimBox/ArtBox absent
-page B: all explicit, with at least one raw box extending beyond future new MediaBox
+page A: Bleed/Trim/Art absent
+page B: explicit values, at least one extends beyond future new MediaBox
 ```
 
-Require absent keys remain absent; explicit raw arrays unchanged; trim succeeds even when a production box's effective intersection becomes reduced or empty.
-
-- [ ] **Step 4: Run characterization**. If mapping already passes, do not edit production. If not, fix only common/trim mapping; never add rotation switch tables or extra box writes.
-- [ ] **Step 5: Run full static + sanitizer 23/23.**
-- [ ] **Step 6: Commit** `test: lock transformed MediaBox trim semantics`; stage production only if it actually changed.
+Require absent keys remain absent; explicit raw values semantically unchanged; trim succeeds even if effective production box becomes reduced/empty. Do not add trim-specific malformed-production-box rejection.
+- [ ] Run characterization first. If already PASS, no production edit. If RED, correction only in common/trim mapping; no rotation switch tables/extra writes.
+- [ ] Static + sanitizer 23/23.
+- [ ] Commit `test: lock transformed MediaBox trim semantics`, staging production only if changed.
 
 ---
 
 ### Task 7: Lock batch determinism, failure atomicity, and lifetime preservation
 
-**Files:**
-- Modify: `tests/test_pdf_trim.c`
-- Modify: `tests/test_pdf_trim_transforms.c`
-- Modify: `tests/test_pdf_trim_raw.c` only if needed for one extra observation.
-- Production correction only for real contract defect: `src/pdf_trim.c`, `src/pdf_trim_preflight.c`.
+**Files:** modify trim public/transforms/raw tests; production only for real defect in trim orchestration/preflight.
 
-- [ ] **Step 1: Two-page all-no-op batch**: both current public MediaBoxes; require no local materialization and repeated canonical outputs byte-identical; do not compare to original file bytes.
-- [ ] **Step 2: Mixed no-op + changed**: no-op page structurally untouched, changed page local MediaBox.
-- [ ] **Step 3: Two changed pages**: identical batch twice -> same size + `memcmp == 0`.
-- [ ] **Step 4: Failure atomicity**: request 0 valid changed; request 1 invalid because it leaves empty preserved-CropBox intersection. Require `ARGUMENT`, output NULL, both source pages unchanged.
-- [ ] **Step 5: Source/output lifetime**: successful transform leaves source public observations unchanged; close source; output remains reopenable/fully usable; structurally enumerated objects outside new medium remain present.
-- [ ] **Step 6: Run tests before production edits**. Expected PASS if implementation already matches spec; failures are real contract defects unless test contradicts committed spec.
-- [ ] **Step 7: Minimal correction only if required**, no public ABI/general framework.
-- [ ] **Step 8: Run static + sanitizer 23/23 and commit** `test: lock MediaBox trim batch determinism`.
+- [ ] Two-page all-no-op: no local materialization; repeated canonical outputs byte-identical; never require original input byte equality.
+- [ ] Mixed no-op + changed: untouched no-op page, local MediaBox on changed page.
+- [ ] Two changed pages: identical batch twice -> equal size + `memcmp == 0`.
+- [ ] Failure atomicity: request 0 valid changed; request 1 leaves empty post-trim effective visible intersection -> `ARGUMENT`, output NULL, source unchanged.
+- [ ] Source/output lifetime: source original observations remain; close source; output remains fully usable; structurally enumerable objects outside medium remain present.
+- [ ] Run tests before production changes; expected PASS if implementation matches spec/correction. Treat failures as contract defects.
+- [ ] Minimal correction only if required; no ABI/general framework.
+- [ ] Static + sanitizer 23/23; commit `test: lock MediaBox trim batch determinism`.
 
 ---
 
 ### Task 8: Freeze exact head, same-SHA cross-platform proof, review, and STOP
 
-**Files:**
-- No intended source/test changes.
-- PR/issue metadata/comments only.
+**Files:** no intended source/test changes; metadata/comments only.
 
-- [ ] **Step 1: Freeze exact candidate SHA**. Any file change invalidates proof; no amend/rebase/force-push.
-- [ ] **Step 2: Audit net paths**. Expected only spec/plan, trim/common production, crop adaptation, trim tests/fixtures, CMake/header. Reused fixtures and workflow YAML untouched.
-- [ ] **Step 3: Forbidden audit**:
+- [ ] Freeze exact candidate SHA; any file change invalidates proof; no amend/rebase/force-push.
+- [ ] Audit net paths: only MediaBox spec + frame correction + plan, approved header/CMake, page-box common + crop adaptation, trim production/tests/fixtures. Reused fixtures/workflow YAML untouched.
+- [ ] Forbidden audit:
 
 ```text
 pdf_page_box_common.c: no put/del/graft/serializer/runtime mutation
 pdf_trim_preflight.c: no writes/graft; no Bleed/Trim/Art parsing
 pdf_trim.c: sole semantic key write PDF_NAME(MediaBox); no graft/content/annot/form/widget/appearance/JS/event mutation
-crop path: CropBox regression unchanged and sole crop write remains PDF_NAME(CropBox)
-public header: no MuPDF type
+crop path: CropBox regression unchanged; sole crop semantic key PDF_NAME(CropBox)
+public header: no MuPDF types
 ```
 
-- [ ] **Step 4: Fresh exact-head Linux PR proof**: static 23/23 + ASan/UBSan 23/23.
-- [ ] **Step 5: Add existing `full-ci` label to draft PR only**; workflow YAML unchanged. Require same frozen head SHA and Linux static/sanitizer 23/23, macOS 23/23, Windows DLL 23/23. Windows logs must show `extractpdf.dll`, `extractpdf_test_pdf_trim.exe`, `extractpdf.pdf_trim` as test 23/23, and 100% of 23 tests.
-- [ ] **Step 6: Final Critical/Important review** against: current-Fitz MediaBox inputs; shrink-only; source immutable; all preflight before writes; full-document isolation; private re-resolution; no source MuPDF pointer crossing; no-op inheritance preservation; fallback re-anchor; preserved-CropBox non-zero visible origin; physical-only trim != no-op; Rotate/UserUnit via common matrix; opaque Bleed/Trim/Art; structural preservation; fail-closed security; output reset; deterministic output; CropBox #22 regression; new #23 coverage.
-- [ ] **Step 7: Fetch reviews/threads**; require no unresolved Critical/Important blocker.
-- [ ] **Step 8: Post checkpoint to #51 + draft PR and STOP**. Do not mark ready, merge, close #51, checkpoint #48/#2 as integrated, delete branch, or start poster split without explicit integration authorization.
+- [ ] Fresh exact-head Linux PR: static 23/23 + ASan/UBSan 23/23.
+- [ ] Add existing `full-ci` label to draft PR only; workflow unchanged. Require same frozen SHA, Linux static/sanitizer 23/23, macOS 23/23, Windows DLL 23/23. Windows log explicitly shows `extractpdf.dll`, `extractpdf_test_pdf_trim.exe`, `extractpdf.pdf_trim` as test 23/23, 100% of 23 tests.
+- [ ] Final Critical/Important review verifies:
+
+```text
+current-source-Fitz MediaBox input
+shrink-only MediaBox
+source immutable / private reparse before writes
+no source MuPDF pointer crosses contexts
+only changed local MediaBox writes
+no-op inherited MediaBox stays inherited
+no-CropBox fallback re-anchors frame
+physical-only trim => effective visible intersection unchanged => frame unchanged
+clipping trim => effective visible intersection changed => frame re-anchored
+clipped visible public origin is not incorrectly required to preserve old non-zero origin
+output MediaBox may be negative/non-zero relative to visible frame
+Rotate/UserUnit use common matrix
+Bleed/Trim/Art opaque preservation
+interactive/document-root structural preservation
+encrypted/signed fail closed
+output reset and deterministic outputs
+CropBox #22 regression GREEN
+trim #23 adds coverage without weakening prior tests
+```
+
+- [ ] Fetch reviews/threads; no unresolved Critical/Important blocker.
+- [ ] Post exact SHA/workflow IDs/23-of-23/scope/review checkpoint to #51 + draft PR and STOP. Do not mark ready, merge, close #51, checkpoint #48/#2 as integrated, delete branch, or start poster split without explicit integration authorization.
 
 ---
 
 ### Task 9: Integrate only after explicit authorization
 
-**Files:**
-- No intended feature-tree changes.
+**Files:** no intended feature-tree changes.
 
-- [ ] **Step 1: Re-read frozen head, current master, reviews, and exact-head CI**. If feature moved, repeat Task 8; if master moved, inspect rather than silently rebasing.
-- [ ] **Step 2: Prefer normal expected-head merge commit**.
-- [ ] **Step 3: If draft->ready connector GraphQL is still broken**, use only the already-approved fallback after explicit integration authorization:
+- [ ] Re-read frozen feature head, current master, reviews, exact-head CI. If feature moved repeat Task 8; if master moved inspect, do not silently rebase.
+- [ ] Prefer normal expected-head merge commit.
+- [ ] If draft->ready connector GraphQL is still broken, only after explicit integration authorization use proven fallback:
 
 ```text
 create two-parent merge commit
@@ -479,11 +400,10 @@ create two-parent merge commit
   parent1 = current verified master
   parent2 = frozen feature SHA
 update master force=false
-verify PR is associated/merged
+verify GitHub associates PR as merged
 ```
 
 Never force-update master.
-
-- [ ] **Step 4: Require integrated-master push proof on exact merge SHA**: Linux static 23/23 + ASan/UBSan 23/23 + macOS 23/23 + Windows DLL 23/23, including `extractpdf_test_pdf_trim.exe`.
-- [ ] **Step 5: Only after proof** close #51 as completed and checkpoint #48/#2.
-- [ ] **Step 6: Do not auto-start poster split.**
+- [ ] Require integrated-master exact merge SHA proof: Linux static 23/23, ASan/UBSan 23/23, macOS 23/23, Windows DLL 23/23 including `extractpdf_test_pdf_trim.exe`.
+- [ ] Only after integrated proof close #51 completed and checkpoint #48/#2.
+- [ ] Do not auto-start poster split.
