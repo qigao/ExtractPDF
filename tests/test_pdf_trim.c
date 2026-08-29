@@ -52,6 +52,26 @@ static extractpdf_page_trim make_trim(
     return trim;
 }
 
+static void sibling_fixture_path(
+    const char *name,
+    char *out_path,
+    size_t capacity)
+{
+    const char *slash = strrchr(TRIM_INTERACTIVE_PDF, '/');
+    const char *backslash = strrchr(TRIM_INTERACTIVE_PDF, '\\');
+    const char *separator = slash;
+    size_t prefix;
+    size_t name_size = strlen(name);
+
+    if (backslash != NULL && (separator == NULL || backslash > separator))
+        separator = backslash;
+    CHECK(separator != NULL);
+    prefix = (size_t)(separator - TRIM_INTERACTIVE_PDF) + 1;
+    CHECK(prefix + name_size + 1 <= capacity);
+    memcpy(out_path, TRIM_INTERACTIVE_PDF, prefix);
+    memcpy(out_path + prefix, name, name_size + 1);
+}
+
 static extractpdf_document *open_document(const char *path, const char *password)
 {
     extractpdf_document *document = NULL;
@@ -133,6 +153,19 @@ int main(void)
     extractpdf_page_trim trim;
     extractpdf_page_trim bad;
     extractpdf_page_trim pair[2];
+    char non_pdf[1024];
+    char encrypted_pdf[1024];
+    char signed_pdf[1024];
+    char malformed_box_pdf[1024];
+    char malformed_rotate_pdf[1024];
+    char malformed_userunit_pdf[1024];
+
+    sibling_fixture_path("composition-non-pdf.txt", non_pdf, sizeof(non_pdf));
+    sibling_fixture_path("encrypted-one-page.pdf", encrypted_pdf, sizeof(encrypted_pdf));
+    sibling_fixture_path("annotation-mutation-signed.pdf", signed_pdf, sizeof(signed_pdf));
+    sibling_fixture_path("trim-malformed-box.pdf", malformed_box_pdf, sizeof(malformed_box_pdf));
+    sibling_fixture_path("trim-malformed-rotate.pdf", malformed_rotate_pdf, sizeof(malformed_rotate_pdf));
+    sibling_fixture_path("trim-malformed-userunit.pdf", malformed_userunit_pdf, sizeof(malformed_userunit_pdf));
 
     document = open_document(TRIM_INTERACTIVE_PDF, NULL);
     source_media = page_box(document, 0, EXTRACTPDF_PAGE_BOX_MEDIA);
@@ -191,25 +224,25 @@ int main(void)
     bad.bounds.x1 = source_media.x1 + 1.0f;
     expect_trim_error(document, &bad, 1, EXTRACTPDF_ERROR_ARGUMENT);
 
-    other = open_document(NON_PDF, NULL);
+    other = open_document(non_pdf, NULL);
     bad = make_trim(0, 0.0f, 0.0f, 100.0f, 100.0f);
     expect_trim_error(other, &bad, 1, EXTRACTPDF_ERROR_UNSUPPORTED);
     extractpdf_close(other);
     other = NULL;
 
-    other = open_document(ENCRYPTED_PDF, "user-pass");
+    other = open_document(encrypted_pdf, "user-pass");
     bad = make_trim(0, 0.0f, 0.0f, 100.0f, 100.0f);
     expect_trim_error(other, &bad, 1, EXTRACTPDF_ERROR_UNSUPPORTED);
     extractpdf_close(other);
     other = NULL;
 
-    other = open_document(SIGNED_PDF, NULL);
+    other = open_document(signed_pdf, NULL);
     bad = make_trim(0, 0.0f, 0.0f, 100.0f, 100.0f);
     expect_trim_error(other, &bad, 1, EXTRACTPDF_ERROR_UNSUPPORTED);
     extractpdf_close(other);
     other = NULL;
 
-    other = open_document(TRIM_MALFORMED_BOX_PDF, NULL);
+    other = open_document(malformed_box_pdf, NULL);
     bad = make_trim(0, 0.0f, 0.0f, 100.0f, 100.0f);
     expect_trim_error(other, &bad, 1, EXTRACTPDF_ERROR_FORMAT);
     bad = make_trim(1, 0.0f, 0.0f, 100.0f, 100.0f);
@@ -217,13 +250,13 @@ int main(void)
     extractpdf_close(other);
     other = NULL;
 
-    other = open_document(TRIM_MALFORMED_ROTATE_PDF, NULL);
+    other = open_document(malformed_rotate_pdf, NULL);
     bad = make_trim(0, 0.0f, 0.0f, 100.0f, 100.0f);
     expect_trim_error(other, &bad, 1, EXTRACTPDF_ERROR_FORMAT);
     extractpdf_close(other);
     other = NULL;
 
-    other = open_document(TRIM_MALFORMED_USERUNIT_PDF, NULL);
+    other = open_document(malformed_userunit_pdf, NULL);
     bad = make_trim(0, 0.0f, 0.0f, 100.0f, 100.0f);
     expect_trim_error(other, &bad, 1, EXTRACTPDF_ERROR_FORMAT);
     extractpdf_close(other);
