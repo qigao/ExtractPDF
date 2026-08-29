@@ -199,6 +199,50 @@ static void expect_button_field(const extractpdf_form *form, const char *name,
     }
 }
 
+static void expect_choice_options(const extractpdf_form *form, const char *name,
+    extractpdf_form_field_type type, extractpdf_form_value_presence presence,
+    const size_t *expected_options, size_t expected_count)
+{
+    size_t index = form_field_index_by_name(form, name);
+    extractpdf_form_field_info info = {0};
+    size_t i;
+
+    info.struct_size = sizeof(info);
+    CHECK(extractpdf_form_field_get_info(form, index, &info) == EXTRACTPDF_OK);
+    CHECK(info.type == type);
+    CHECK(info.value_presence == presence);
+    CHECK(info.value_count == expected_count);
+    for (i = 0; i < expected_count; ++i) {
+        extractpdf_form_value_info value_info = {0};
+        value_info.struct_size = sizeof(value_info);
+        CHECK(extractpdf_form_field_value_get_info(form, index, i, &value_info) == EXTRACTPDF_OK);
+        CHECK(value_info.kind == EXTRACTPDF_FORM_VALUE_OPTION);
+        CHECK(value_info.option_index == expected_options[i]);
+    }
+}
+
+static void expect_choice_utf8(const extractpdf_form *form, const char *name,
+    extractpdf_form_field_type type, const char *expected, size_t expected_size)
+{
+    size_t index = form_field_index_by_name(form, name);
+    extractpdf_form_field_info info = {0};
+    extractpdf_form_value_info value_info = {0};
+    const char *text = NULL;
+    size_t size = SIZE_MAX;
+
+    info.struct_size = sizeof(info);
+    CHECK(extractpdf_form_field_get_info(form, index, &info) == EXTRACTPDF_OK);
+    CHECK(info.type == type);
+    CHECK(info.value_presence == EXTRACTPDF_FORM_VALUE_PRESENT);
+    CHECK(info.value_count == 1);
+    value_info.struct_size = sizeof(value_info);
+    CHECK(extractpdf_form_field_value_get_info(form, index, 0, &value_info) == EXTRACTPDF_OK);
+    CHECK(value_info.kind == EXTRACTPDF_FORM_VALUE_UTF8);
+    CHECK(extractpdf_form_field_value_utf8(form, index, 0, &text, &size) == EXTRACTPDF_OK);
+    CHECK(text != NULL && size == expected_size);
+    CHECK(memcmp(text, expected, expected_size) == 0);
+}
+
 static void make_text_update(extractpdf_form_value_input *value,
     extractpdf_form_value_update *update, const char *text, size_t size)
 {
@@ -227,6 +271,24 @@ static void make_option_update(extractpdf_form_value_input *value,
     update->presence = EXTRACTPDF_FORM_VALUE_PRESENT;
     update->values = value;
     update->value_count = 1;
+}
+
+static void make_options_update(extractpdf_form_value_input *values,
+    extractpdf_form_value_update *update, const size_t *option_indices, size_t count)
+{
+    size_t i;
+
+    memset(update, 0, sizeof(*update));
+    for (i = 0; i < count; ++i) {
+        memset(&values[i], 0, sizeof(values[i]));
+        values[i].struct_size = sizeof(values[i]);
+        values[i].kind = EXTRACTPDF_FORM_VALUE_OPTION;
+        values[i].option_index = option_indices[i];
+    }
+    update->struct_size = sizeof(*update);
+    update->presence = EXTRACTPDF_FORM_VALUE_PRESENT;
+    update->values = count != 0 ? values : NULL;
+    update->value_count = count;
 }
 
 static void make_empty_update(extractpdf_form_value_update *update,
@@ -565,6 +627,156 @@ static void test_button_mutation_and_ap_preservation(void)
     extractpdf_drop_pdf_edit(edit);
 }
 
+static void test_choice_mutation(void)
+{
+    extractpdf_pdf_edit *edit = open_edit(FORM_MUTATION_CHOICE_PDF);
+    extractpdf_form_field_ref combo = field_ref_by_name(edit, "combo");
+    extractpdf_form_field_ref editable = field_ref_by_name(edit, "editable");
+    extractpdf_form_field_ref single = field_ref_by_name(edit, "single");
+    extractpdf_form_field_ref multi = field_ref_by_name(edit, "multi");
+    extractpdf_form_field_ref dup = field_ref_by_name(edit, "dup");
+    extractpdf_form_value_input values[2];
+    extractpdf_form_value_update update;
+    extractpdf_form *form = NULL;
+    extractpdf_output *output = NULL;
+    extractpdf_document *reopened = NULL;
+    unsigned char *bytes = NULL;
+    size_t size = 0;
+    const size_t option0[] = {0};
+    const size_t option1[] = {1};
+    const size_t option2[] = {2};
+    const size_t multi10[] = {1};
+    const size_t multi20[] = {2, 0};
+    const size_t duplicate[] = {1, 1};
+    static const char custom[] = "Nagoya";
+    static const char empty[] = "";
+
+    CHECK(extractpdf_pdf_edit_form_snapshot(edit, &form) == EXTRACTPDF_OK);
+    expect_choice_options(form, "combo", EXTRACTPDF_FORM_FIELD_COMBO_BOX,
+        EXTRACTPDF_FORM_VALUE_PRESENT, option1, 1);
+    expect_choice_utf8(form, "editable", EXTRACTPDF_FORM_FIELD_COMBO_BOX,
+        "Kyoto", 5);
+    expect_choice_options(form, "single", EXTRACTPDF_FORM_FIELD_LIST_BOX,
+        EXTRACTPDF_FORM_VALUE_PRESENT, option1, 1);
+    expect_choice_options(form, "multi", EXTRACTPDF_FORM_FIELD_LIST_BOX,
+        EXTRACTPDF_FORM_VALUE_PRESENT, multi20, 2);
+    expect_choice_options(form, "dup", EXTRACTPDF_FORM_FIELD_COMBO_BOX,
+        EXTRACTPDF_FORM_VALUE_PRESENT, option1, 1);
+    extractpdf_drop_form(form); form = NULL;
+
+    make_option_update(&values[0], &update, 0);
+    CHECK(extractpdf_pdf_edit_form_set_values(edit, &combo, &update) == EXTRACTPDF_OK);
+    CHECK(extractpdf_pdf_edit_form_snapshot(edit, &form) == EXTRACTPDF_OK);
+    expect_choice_options(form, "combo", EXTRACTPDF_FORM_FIELD_COMBO_BOX,
+        EXTRACTPDF_FORM_VALUE_PRESENT, option0, 1);
+    extractpdf_drop_form(form); form = NULL;
+
+    make_text_update(&values[0], &update, "bad", 3);
+    CHECK(extractpdf_pdf_edit_form_set_values(edit, &combo, &update) == EXTRACTPDF_ERROR_ARGUMENT);
+
+    make_option_update(&values[0], &update, 1);
+    CHECK(extractpdf_pdf_edit_form_set_values(edit, &editable, &update) == EXTRACTPDF_OK);
+    CHECK(extractpdf_pdf_edit_form_snapshot(edit, &form) == EXTRACTPDF_OK);
+    expect_choice_options(form, "editable", EXTRACTPDF_FORM_FIELD_COMBO_BOX,
+        EXTRACTPDF_FORM_VALUE_PRESENT, option1, 1);
+    extractpdf_drop_form(form); form = NULL;
+
+    make_text_update(&values[0], &update, custom, sizeof(custom) - 1);
+    CHECK(extractpdf_pdf_edit_form_set_values(edit, &editable, &update) == EXTRACTPDF_OK);
+    CHECK(extractpdf_pdf_edit_form_snapshot(edit, &form) == EXTRACTPDF_OK);
+    expect_choice_utf8(form, "editable", EXTRACTPDF_FORM_FIELD_COMBO_BOX,
+        custom, sizeof(custom) - 1);
+    extractpdf_drop_form(form); form = NULL;
+
+    make_text_update(&values[0], &update, empty, 0);
+    CHECK(extractpdf_pdf_edit_form_set_values(edit, &editable, &update) == EXTRACTPDF_OK);
+    CHECK(extractpdf_pdf_edit_form_snapshot(edit, &form) == EXTRACTPDF_OK);
+    expect_choice_utf8(form, "editable", EXTRACTPDF_FORM_FIELD_COMBO_BOX,
+        empty, 0);
+    extractpdf_drop_form(form); form = NULL;
+
+    make_option_update(&values[0], &update, 0);
+    CHECK(extractpdf_pdf_edit_form_set_values(edit, &dup, &update) == EXTRACTPDF_OK);
+    CHECK(extractpdf_pdf_edit_form_snapshot(edit, &form) == EXTRACTPDF_OK);
+    expect_choice_options(form, "dup", EXTRACTPDF_FORM_FIELD_COMBO_BOX,
+        EXTRACTPDF_FORM_VALUE_PRESENT, option0, 1);
+    extractpdf_drop_form(form); form = NULL;
+    make_option_update(&values[0], &update, 1);
+    CHECK(extractpdf_pdf_edit_form_set_values(edit, &dup, &update) == EXTRACTPDF_OK);
+    CHECK(extractpdf_pdf_edit_form_snapshot(edit, &form) == EXTRACTPDF_OK);
+    expect_choice_options(form, "dup", EXTRACTPDF_FORM_FIELD_COMBO_BOX,
+        EXTRACTPDF_FORM_VALUE_PRESENT, option1, 1);
+    extractpdf_drop_form(form); form = NULL;
+
+    make_option_update(&values[0], &update, 2);
+    CHECK(extractpdf_pdf_edit_form_set_values(edit, &single, &update) == EXTRACTPDF_OK);
+    CHECK(extractpdf_pdf_edit_form_snapshot(edit, &form) == EXTRACTPDF_OK);
+    expect_choice_options(form, "single", EXTRACTPDF_FORM_FIELD_LIST_BOX,
+        EXTRACTPDF_FORM_VALUE_PRESENT, option2, 1);
+    extractpdf_drop_form(form); form = NULL;
+    make_empty_update(&update, EXTRACTPDF_FORM_VALUE_PRESENT);
+    CHECK(extractpdf_pdf_edit_form_set_values(edit, &single, &update) == EXTRACTPDF_ERROR_ARGUMENT);
+    make_empty_update(&update, EXTRACTPDF_FORM_VALUE_MISSING);
+    CHECK(extractpdf_pdf_edit_form_set_values(edit, &single, &update) == EXTRACTPDF_OK);
+    CHECK(extractpdf_pdf_edit_form_snapshot(edit, &form) == EXTRACTPDF_OK);
+    expect_choice_options(form, "single", EXTRACTPDF_FORM_FIELD_LIST_BOX,
+        EXTRACTPDF_FORM_VALUE_MISSING, NULL, 0);
+    extractpdf_drop_form(form); form = NULL;
+
+    make_empty_update(&update, EXTRACTPDF_FORM_VALUE_PRESENT);
+    CHECK(extractpdf_pdf_edit_form_set_values(edit, &multi, &update) == EXTRACTPDF_OK);
+    CHECK(extractpdf_pdf_edit_form_snapshot(edit, &form) == EXTRACTPDF_OK);
+    expect_choice_options(form, "multi", EXTRACTPDF_FORM_FIELD_LIST_BOX,
+        EXTRACTPDF_FORM_VALUE_PRESENT, NULL, 0);
+    extractpdf_drop_form(form); form = NULL;
+
+    make_options_update(values, &update, multi10, 1);
+    CHECK(extractpdf_pdf_edit_form_set_values(edit, &multi, &update) == EXTRACTPDF_OK);
+    CHECK(extractpdf_pdf_edit_form_snapshot(edit, &form) == EXTRACTPDF_OK);
+    expect_choice_options(form, "multi", EXTRACTPDF_FORM_FIELD_LIST_BOX,
+        EXTRACTPDF_FORM_VALUE_PRESENT, multi10, 1);
+    extractpdf_drop_form(form); form = NULL;
+
+    make_options_update(values, &update, duplicate, 2);
+    CHECK(extractpdf_pdf_edit_form_set_values(edit, &multi, &update) == EXTRACTPDF_ERROR_ARGUMENT);
+
+    make_options_update(values, &update, multi20, 2);
+    CHECK(extractpdf_pdf_edit_form_set_values(edit, &multi, &update) == EXTRACTPDF_OK);
+    CHECK(extractpdf_pdf_edit_form_snapshot(edit, &form) == EXTRACTPDF_OK);
+    expect_choice_options(form, "multi", EXTRACTPDF_FORM_FIELD_LIST_BOX,
+        EXTRACTPDF_FORM_VALUE_PRESENT, multi20, 2);
+    extractpdf_drop_form(form); form = NULL;
+
+    CHECK(extractpdf_pdf_edit_snapshot(edit, &output) == EXTRACTPDF_OK);
+    copy_output(output, &bytes, &size);
+    CHECK(count_bytes(bytes, size, "CHOICE-AP-0") == 1);
+    CHECK(count_bytes(bytes, size, "CHOICE-AP-1") == 1);
+    CHECK(count_bytes(bytes, size, "CHOICE-AP-2") == 1);
+    CHECK(count_bytes(bytes, size, "CHOICE-AP-3") == 1);
+    CHECK(count_bytes(bytes, size, "CHOICE-AP-4") == 1);
+    free(bytes);
+
+    remove(FORM_MUTATION_ROUNDTRIP_PDF);
+    CHECK(extractpdf_output_save_file(output, FORM_MUTATION_ROUNDTRIP_PDF) == EXTRACTPDF_OK);
+    CHECK(extractpdf_open(FORM_MUTATION_ROUNDTRIP_PDF, NULL, &reopened) == EXTRACTPDF_OK);
+    CHECK(extractpdf_document_form(reopened, &form) == EXTRACTPDF_OK);
+    expect_choice_options(form, "combo", EXTRACTPDF_FORM_FIELD_COMBO_BOX,
+        EXTRACTPDF_FORM_VALUE_PRESENT, option0, 1);
+    expect_choice_utf8(form, "editable", EXTRACTPDF_FORM_FIELD_COMBO_BOX,
+        empty, 0);
+    expect_choice_options(form, "single", EXTRACTPDF_FORM_FIELD_LIST_BOX,
+        EXTRACTPDF_FORM_VALUE_MISSING, NULL, 0);
+    expect_choice_options(form, "multi", EXTRACTPDF_FORM_FIELD_LIST_BOX,
+        EXTRACTPDF_FORM_VALUE_PRESENT, multi20, 2);
+    expect_choice_options(form, "dup", EXTRACTPDF_FORM_FIELD_COMBO_BOX,
+        EXTRACTPDF_FORM_VALUE_PRESENT, option1, 1);
+    extractpdf_drop_form(form);
+    extractpdf_close(reopened);
+    extractpdf_drop_output(output);
+    remove(FORM_MUTATION_ROUNDTRIP_PDF);
+    extractpdf_drop_pdf_edit(edit);
+}
+
 static void test_api_reset(void)
 {
     extractpdf_form *form = (extractpdf_form *)(uintptr_t)1;
@@ -589,5 +801,6 @@ int main(void)
     test_text_modes_and_preflight();
     test_text_group_and_inheritance();
     test_button_mutation_and_ap_preservation();
+    test_choice_mutation();
     return EXIT_SUCCESS;
 }
