@@ -378,14 +378,16 @@ extractpdf_status extractpdf_pdf_form_reconcile_widgets(
         return status;
     page_count = pdf_count_pages(ctx, document);
     for (page_index = 0; page_index < page_count && status == EXTRACTPDF_OK; ++page_index) {
-        pdf_page *page = pdf_load_page(ctx, document, page_index);
+        pdf_obj *page_obj = pdf_lookup_page_obj(ctx, document, page_index);
         pdf_obj *annots = NULL;
+        fz_matrix page_ctm;
         int ai, acount = 0;
-        if (page == NULL) {
+        if (!pdf_is_dict(ctx, page_obj)) {
             status = EXTRACTPDF_ERROR_FORMAT;
             break;
         }
-        if (extractpdf_pdf_dict_find(ctx, page->obj, PDF_NAME(Annots), &annots) &&
+        pdf_page_obj_transform(ctx, page_obj, NULL, &page_ctm);
+        if (extractpdf_pdf_dict_find(ctx, page_obj, PDF_NAME(Annots), &annots) &&
             pdf_is_array(ctx, annots))
             acount = pdf_array_len(ctx, annots);
         for (ai = 0; ai < acount && status == EXTRACTPDF_OK; ++ai) {
@@ -393,7 +395,6 @@ extractpdf_status extractpdf_pdf_form_reconcile_widgets(
             extractpdf_expected_widget *match;
             extractpdf_pdf_form_widget_internal widget;
             pdf_obj *p = NULL;
-            fz_matrix page_ctm;
             char *state = NULL;
             if (!pdf_is_dict(ctx, obj) || !is_widget(ctx, obj))
                 continue;
@@ -408,7 +409,7 @@ extractpdf_status extractpdf_pdf_form_reconcile_widgets(
                 break;
             }
             if (extractpdf_pdf_dict_find(ctx, obj, PDF_NAME(P), &p) &&
-                !pdf_is_null(ctx, p) && pdf_objcmp_resolve(ctx, p, page->obj) != 0) {
+                !pdf_is_null(ctx, p) && pdf_objcmp_resolve(ctx, p, page_obj) != 0) {
                 status = EXTRACTPDF_ERROR_FORMAT;
                 break;
             }
@@ -416,7 +417,6 @@ extractpdf_status extractpdf_pdf_form_reconcile_widgets(
             widget.field_index = match->field_index;
             widget.page_index = page_index;
             widget.button_option_index = SIZE_MAX;
-            pdf_page_transform(ctx, page, NULL, &page_ctm);
             status = extractpdf_pdf_read_rect(
                 ctx, obj, PDF_NAME(Rect), page_ctm, &widget.bounds);
             if (status == EXTRACTPDF_OK)
@@ -433,7 +433,6 @@ extractpdf_status extractpdf_pdf_form_reconcile_widgets(
                 ++model->fields[match->field_index].widget_count;
             }
         }
-        fz_drop_page(ctx, (fz_page *)page);
     }
     if (status == EXTRACTPDF_OK)
         for (i = 0; i < expected_count; ++i)

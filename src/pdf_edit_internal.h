@@ -10,12 +10,76 @@ typedef struct extractpdf_pdf_edit_annotation_entry {
     int live;
 } extractpdf_pdf_edit_annotation_entry;
 
+typedef struct extractpdf_pdf_edit_form_entry {
+    size_t *locator_steps;
+    size_t locator_step_count;
+    uint32_t tag;
+} extractpdf_pdf_edit_form_entry;
+
+typedef struct extractpdf_pdf_edit_form_widget_handle {
+    pdf_annot *widget;
+    int previous_editing;
+    int editing_active;
+} extractpdf_pdf_edit_form_widget_handle;
+
+typedef struct extractpdf_pdf_edit_form_widget_handles {
+    pdf_page **pages;
+    int *page_indices;
+    size_t page_count;
+    extractpdf_pdf_edit_form_widget_handle *items;
+    size_t count;
+} extractpdf_pdf_edit_form_widget_handles;
+
+struct extractpdf_pdf_form_live_field;
+struct extractpdf_pdf_form_model;
+
+extractpdf_status extractpdf_pdf_edit_form_prepare_widget_handles(
+    extractpdf_pdf_edit *edit,
+    const struct extractpdf_pdf_form_live_field *live,
+    extractpdf_pdf_edit_form_widget_handles *out_handles);
+extractpdf_status extractpdf_pdf_edit_form_begin_widget_editing(
+    extractpdf_pdf_edit *edit,
+    extractpdf_pdf_edit_form_widget_handles *handles);
+extractpdf_status extractpdf_pdf_edit_form_restore_widget_editing(
+    extractpdf_pdf_edit *edit,
+    extractpdf_pdf_edit_form_widget_handles *handles);
+void extractpdf_pdf_edit_form_refresh_widget_handles(
+    extractpdf_pdf_edit *edit,
+    extractpdf_pdf_edit_form_widget_handles *handles);
+void extractpdf_pdf_edit_form_drop_widget_handles(
+    extractpdf_pdf_edit *edit,
+    extractpdf_pdf_edit_form_widget_handles *handles);
+extractpdf_status extractpdf_pdf_edit_form_mutation_preflight(
+    extractpdf_pdf_edit *edit);
+extractpdf_status extractpdf_pdf_edit_form_apply_text(
+    extractpdf_pdf_edit *edit,
+    const struct extractpdf_pdf_form_model *model,
+    size_t field_index,
+    const struct extractpdf_pdf_form_live_field *live,
+    const extractpdf_form_value_update *update);
+extractpdf_status extractpdf_pdf_edit_form_apply_button(
+    extractpdf_pdf_edit *edit,
+    const struct extractpdf_pdf_form_model *model,
+    size_t field_index,
+    const struct extractpdf_pdf_form_live_field *live,
+    const extractpdf_form_value_update *update);
+extractpdf_status extractpdf_pdf_edit_form_apply_choice(
+    extractpdf_pdf_edit *edit,
+    const struct extractpdf_pdf_form_model *model,
+    size_t field_index,
+    const struct extractpdf_pdf_form_live_field *live,
+    const extractpdf_form_value_update *update);
+
 #if defined(EXTRACTPDF_TESTING)
 enum {
     EXTRACTPDF_PDF_EDIT_TEST_FAULT_NONE = 0,
     EXTRACTPDF_PDF_EDIT_TEST_FAULT_AFTER_FIRST_UPDATE_FIELD = 1,
     EXTRACTPDF_PDF_EDIT_TEST_FAULT_AFTER_CREATE_MUTATION = 2,
-    EXTRACTPDF_PDF_EDIT_TEST_FAULT_SNAPSHOT_BEFORE_PUBLISH = 3
+    EXTRACTPDF_PDF_EDIT_TEST_FAULT_SNAPSHOT_BEFORE_PUBLISH = 3,
+    EXTRACTPDF_PDF_EDIT_TEST_FAULT_FORM_AFTER_WIDGET_PREPARE = 4,
+    EXTRACTPDF_PDF_EDIT_TEST_FAULT_FORM_AFTER_SEMANTIC_WRITE = 5,
+    EXTRACTPDF_PDF_EDIT_TEST_FAULT_FORM_AFTER_FIRST_WIDGET_STATE = 6,
+    EXTRACTPDF_PDF_EDIT_TEST_FAULT_FORM_AFTER_FIRST_AP_REFRESH = 7
 };
 #endif
 
@@ -27,6 +91,9 @@ struct extractpdf_pdf_edit {
     extractpdf_pdf_edit_annotation_entry *entries;
     size_t entry_count;
     size_t entry_capacity;
+    extractpdf_pdf_edit_form_entry *form_entries;
+    size_t form_entry_count;
+    size_t form_entry_capacity;
 #if defined(EXTRACTPDF_TESTING)
     int test_fault;
 #endif

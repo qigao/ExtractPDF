@@ -31,10 +31,17 @@ add_library(extractpdf
   src/pdf_annotations.c
   src/pdf_form_common.c
   src/pdf_form_widgets.c
+  src/pdf_form_provenance_widgets.c
   src/pdf_form_values.c
   src/pdf_form_choices.c
   src/pdf_form.c
   src/pdf_edit.c
+  src/pdf_edit_forms.c
+  src/pdf_edit_form_preflight.c
+  src/pdf_edit_form_values.c
+  src/pdf_edit_form_buttons.c
+  src/pdf_edit_form_choices.c
+  src/pdf_edit_form_widgets.c
   src/pdf_edit_annotations.c)
 add_library(ExtractPDF::ExtractPDF ALIAS extractpdf)
 target_compile_features(extractpdf PUBLIC c_std_11)
@@ -61,4 +68,6 @@ if(EXTRACTPDF_BUILD_TESTS)
   target_compile_definitions(extractpdf PRIVATE EXTRACTPDF_TESTING=1)
   include(CTest)
   add_subdirectory(tests)
+  target_sources(extractpdf_test_pdf_form_mutation PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_form_rollback.c")
 endif()

@@ -102,7 +102,13 @@ static void extractpdf_dispose_pdf_edit(extractpdf_pdf_edit *edit)
             pdf_drop_document(edit->ctx, edit->document);
     }
 
+    for (index = 0; index < edit->form_entry_count; ++index) {
+        free(edit->form_entries[index].locator_steps);
+        edit->form_entries[index].locator_steps = NULL;
+        edit->form_entries[index].locator_step_count = 0;
+    }
     free(edit->entries);
+    free(edit->form_entries);
     if (edit->ctx != NULL)
         fz_drop_context(edit->ctx);
     extractpdf_drop_output(edit->seed_output);
