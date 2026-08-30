@@ -24,6 +24,7 @@ add_library(extractpdf
   src/pdf_crop_preflight.c
   src/pdf_trim.c
   src/pdf_trim_preflight.c
+  src/pdf_poster.c
   src/pdf_export.c
   src/pdf_output.c
   src/pdf_range.c
