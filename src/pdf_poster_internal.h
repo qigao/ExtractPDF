@@ -50,6 +50,12 @@ typedef struct extractpdf_pdf_poster_plan {
     int expansion_policy_applied;
 } extractpdf_pdf_poster_plan;
 
+typedef struct extractpdf_pdf_poster_private_split {
+    pdf_obj *source_page;
+    pdf_obj **tile_pages;
+    size_t tile_count;
+} extractpdf_pdf_poster_private_split;
+
 extractpdf_status extractpdf_pdf_poster_check_security(
     fz_context *ctx,
     pdf_document *document);
