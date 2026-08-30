@@ -80,6 +80,11 @@ extractpdf_status extractpdf_pdf_poster_annotations_preflight(
     pdf_document *document,
     extractpdf_pdf_poster_plan *plan);
 
+extractpdf_status extractpdf_pdf_poster_widget_provenance_preflight(
+    fz_context *ctx,
+    pdf_document *document,
+    extractpdf_pdf_poster_plan *plan);
+
 void extractpdf_pdf_poster_drop_annotation_plans(
     extractpdf_pdf_poster_plan *plan);
 
