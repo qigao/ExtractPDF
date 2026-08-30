@@ -101,9 +101,11 @@ if(EXTRACTPDF_BUILD_TESTS)
     PROPERTY COMPILE_DEFINITIONS "main=extractpdf_pdf_poster_split_base_main")
   target_sources(extractpdf_test_pdf_poster_split PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_raw.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_navigation_raw.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_geometry.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_policy.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_interactive.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_navigation.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_main.c")
   target_link_libraries(extractpdf_test_pdf_poster_split PRIVATE
     unofficial::libmupdf::libmupdf)
@@ -112,6 +114,10 @@ if(EXTRACTPDF_BUILD_TESTS)
     POSTER_ROTATE_90_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-rotate-90.pdf"
     POSTER_USERUNIT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-userunit.pdf"
     POSTER_INTERACTIVE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-interactive.pdf"
+    POSTER_NAVIGATION_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-navigation.pdf"
+    POSTER_NAVIGATION_ROTATE_90_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-navigation-rotate-90.pdf"
+    POSTER_NAVIGATION_USERUNIT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-navigation-userunit.pdf"
+    POSTER_MALFORMED_DESTINATION_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-malformed-destination.pdf"
     POSTER_PRODUCTION_BOX_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-production-box.pdf"
     POSTER_TAGGED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-tagged.pdf"
     POSTER_ROOT_POLICY_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-root-policy.pdf"
