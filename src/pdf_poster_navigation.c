@@ -4,19 +4,19 @@
 
 #include <math.h>
 
-static extractpdf_pdf_poster_split_plan *poster_nav_find_split(
+static extractpdf_pdf_poster_split_plan *find_split(
     extractpdf_pdf_poster_plan *plan,
     int page_index)
 {
-    size_t index;
-    for (index = 0; index < plan->split_count; ++index) {
-        if (plan->splits[index].page_index == page_index)
-            return &plan->splits[index];
+    size_t i;
+    for (i = 0; i < plan->split_count; ++i) {
+        if (plan->splits[i].page_index == page_index)
+            return &plan->splits[i];
     }
     return NULL;
 }
 
-static extractpdf_status poster_validate_local_destination(
+static extractpdf_status validate_local_destination(
     fz_context *ctx,
     pdf_document *document,
     extractpdf_pdf_poster_plan *plan,
@@ -31,7 +31,6 @@ static extractpdf_status poster_validate_local_destination(
         return EXTRACTPDF_OK;
     if (!pdf_is_array(ctx, destination) || pdf_array_len(ctx, destination) < 2)
         return EXTRACTPDF_ERROR_FORMAT;
-
     page_operand = pdf_array_get(ctx, destination, 0);
     if (!pdf_is_indirect(ctx, page_operand) || !pdf_is_dict(ctx, page_operand) ||
         !pdf_name_eq(
@@ -40,15 +39,13 @@ static extractpdf_status poster_validate_local_destination(
     page_index = pdf_lookup_page_number(ctx, document, page_operand);
     if (page_index < 0 || page_index >= plan->source_page_count)
         return EXTRACTPDF_ERROR_FORMAT;
-
     kind = pdf_array_get(ctx, destination, 1);
     if (!pdf_is_name(ctx, kind))
         return EXTRACTPDF_ERROR_FORMAT;
 
-    split = poster_nav_find_split(plan, page_index);
+    split = find_split(plan, page_index);
     if (split == NULL || !split->changed)
         return EXTRACTPDF_OK;
-
     if (!pdf_name_eq(ctx, kind, PDF_NAME(XYZ)))
         return EXTRACTPDF_ERROR_UNSUPPORTED;
     if (pdf_array_len(ctx, destination) < 5 ||
@@ -91,8 +88,7 @@ static extractpdf_status poster_validate_local_destination(
         for (row = 0; row < split->rows; ++row) {
             if (py >= split->y_edges[row] &&
                 (py < split->y_edges[row + 1] ||
-                 (row + 1 == split->rows &&
-                  py <= split->y_edges[row + 1]))) {
+                 (row + 1 == split->rows && py <= split->y_edges[row + 1]))) {
                 found_row = 1;
                 break;
             }
@@ -100,11 +96,10 @@ static extractpdf_status poster_validate_local_destination(
         if (!found_column || !found_row)
             return EXTRACTPDF_ERROR_UNSUPPORTED;
     }
-
     return EXTRACTPDF_OK;
 }
 
-static extractpdf_status poster_outline_visit(
+static extractpdf_status outline_visit(
     fz_context *ctx,
     pdf_document *document,
     pdf_obj *item,
@@ -114,36 +109,34 @@ static extractpdf_status poster_outline_visit(
     extractpdf_pdf_poster_plan *plan = (extractpdf_pdf_poster_plan *)user;
     pdf_obj *dest = pdf_dict_get(ctx, item, PDF_NAME(Dest));
     pdf_obj *action = pdf_dict_get(ctx, item, PDF_NAME(A));
+    pdf_obj *kind;
 
     (void)preorder_index;
     if (dest != NULL && action != NULL)
         return EXTRACTPDF_ERROR_FORMAT;
     if (dest != NULL)
-        return poster_validate_local_destination(ctx, document, plan, dest);
+        return validate_local_destination(ctx, document, plan, dest);
     if (action == NULL)
         return EXTRACTPDF_OK;
     if (!pdf_is_dict(ctx, action))
         return EXTRACTPDF_ERROR_FORMAT;
     if (pdf_dict_get(ctx, action, PDF_NAME(Next)) != NULL)
         return EXTRACTPDF_ERROR_UNSUPPORTED;
-    {
-        pdf_obj *kind = pdf_dict_get(ctx, action, PDF_NAME(S));
-        if (!pdf_is_name(ctx, kind))
+    kind = pdf_dict_get(ctx, action, PDF_NAME(S));
+    if (!pdf_is_name(ctx, kind))
+        return EXTRACTPDF_ERROR_FORMAT;
+    if (pdf_name_eq(ctx, kind, PDF_NAME(URI)))
+        return EXTRACTPDF_OK;
+    if (pdf_name_eq(ctx, kind, PDF_NAME(GoTo))) {
+        pdf_obj *target = pdf_dict_get(ctx, action, PDF_NAME(D));
+        if (target == NULL)
             return EXTRACTPDF_ERROR_FORMAT;
-        if (pdf_name_eq(ctx, kind, PDF_NAME(URI)))
-            return EXTRACTPDF_OK;
-        if (pdf_name_eq(ctx, kind, PDF_NAME(GoTo))) {
-            pdf_obj *target = pdf_dict_get(ctx, action, PDF_NAME(D));
-            if (target == NULL)
-                return EXTRACTPDF_ERROR_FORMAT;
-            return poster_validate_local_destination(
-                ctx, document, plan, target);
-        }
+        return validate_local_destination(ctx, document, plan, target);
     }
     return EXTRACTPDF_ERROR_UNSUPPORTED;
 }
 
-static extractpdf_status poster_scan_link_destinations(
+static extractpdf_status scan_link_destinations(
     fz_context *ctx,
     pdf_document *document,
     extractpdf_pdf_poster_plan *plan)
@@ -167,6 +160,7 @@ static extractpdf_status poster_scan_link_destinations(
             pdf_obj *subtype;
             pdf_obj *dest;
             pdf_obj *action;
+            extractpdf_status status;
 
             if (!pdf_is_indirect(ctx, annotation) || !pdf_is_dict(ctx, annotation))
                 return EXTRACTPDF_ERROR_FORMAT;
@@ -178,17 +172,21 @@ static extractpdf_status poster_scan_link_destinations(
 
             dest = pdf_dict_get(ctx, annotation, PDF_NAME(Dest));
             action = pdf_dict_get(ctx, annotation, PDF_NAME(A));
-            if (dest != NULL)
-                return poster_validate_local_destination(
-                    ctx, document, plan, dest);
+            if (dest != NULL) {
+                status = validate_local_destination(ctx, document, plan, dest);
+                if (status != EXTRACTPDF_OK)
+                    return status;
+                continue;
+            }
             if (action != NULL && pdf_is_dict(ctx, action) &&
                 pdf_name_eq(
                     ctx, pdf_dict_get(ctx, action, PDF_NAME(S)), PDF_NAME(GoTo))) {
                 pdf_obj *target = pdf_dict_get(ctx, action, PDF_NAME(D));
                 if (target == NULL)
                     return EXTRACTPDF_ERROR_FORMAT;
-                return poster_validate_local_destination(
-                    ctx, document, plan, target);
+                status = validate_local_destination(ctx, document, plan, target);
+                if (status != EXTRACTPDF_OK)
+                    return status;
             }
         }
     }
@@ -210,17 +208,16 @@ extractpdf_status extractpdf_pdf_poster_navigation_preflight(
     if (!pdf_is_dict(ctx, root))
         return EXTRACTPDF_ERROR_FORMAT;
 
-    if (pdf_dict_get(ctx, root, PDF_NAME(OpenAction)) != NULL ||
+    if (pdf_dict_gets(ctx, root, "OpenAction") != NULL ||
         pdf_dict_get(ctx, root, PDF_NAME(AA)) != NULL ||
-        pdf_dict_get(ctx, root, PDF_NAME(PageLabels)) != NULL ||
-        pdf_dict_get(ctx, root, PDF_NAME(Threads)) != NULL ||
+        pdf_dict_gets(ctx, root, "PageLabels") != NULL ||
+        pdf_dict_gets(ctx, root, "Threads") != NULL ||
         pdf_dict_get(ctx, root, PDF_NAME(StructTreeRoot)) != NULL)
         return EXTRACTPDF_ERROR_UNSUPPORTED;
 
-    status = poster_scan_link_destinations(ctx, document, plan);
+    status = scan_link_destinations(ctx, document, plan);
     if (status != EXTRACTPDF_OK)
         return status;
-
     return extractpdf_pdf_outline_walk_strict(
-        ctx, document, poster_outline_visit, plan, &outline_count);
+        ctx, document, outline_visit, plan, &outline_count);
 }
