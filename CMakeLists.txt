@@ -147,6 +147,7 @@ if(EXTRACTPDF_BUILD_TESTS)
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_flatten_appearance.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_flatten_raw.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_flatten_form.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_flatten_form_multi.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_flatten_main.c")
   target_link_libraries(extractpdf_test_pdf_flatten PRIVATE
     unofficial::libmupdf::libmupdf)
@@ -159,5 +160,6 @@ if(EXTRACTPDF_BUILD_TESTS)
     FLATTEN_WIDGETS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-widgets.pdf"
     FLATTEN_FORM_COW_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-form-cow.pdf"
     FLATTEN_FORM_KIDS_COW_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-form-kids-cow.pdf"
-    FLATTEN_FORM_CO_COW_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-form-co-cow.pdf")
+    FLATTEN_FORM_CO_COW_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-form-co-cow.pdf"
+    FLATTEN_MULTI_WIDGET_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-multi-widget.pdf")
 endif()
