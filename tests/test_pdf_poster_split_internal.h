@@ -1,6 +1,17 @@
 #ifndef EXTRACTPDF_TEST_PDF_POSTER_SPLIT_INTERNAL_H
 #define EXTRACTPDF_TEST_PDF_POSTER_SPLIT_INTERNAL_H
 
+#include <stddef.h>
+
+int poster_raw_check_basic_tiles(
+    const unsigned char *data,
+    size_t size,
+    int first_tile_page,
+    size_t tile_count,
+    const float (*expected_boxes)[4],
+    int expected_rotate,
+    float expected_user_unit);
+
 int poster_run_geometry_tests(void);
 int poster_run_policy_tests(void);
 
