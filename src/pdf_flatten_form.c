@@ -554,7 +554,7 @@ extractpdf_status extractpdf_pdf_flatten_form_preflight(
             goto fail;
         }
     } else if (form->entries[0].locator_count == 0 ||
-               form->entries[0].locator_count > 2) {
+               form->entries[0].locator_count > 3) {
         status = EXTRACTPDF_ERROR_STATE;
         goto fail;
     }
@@ -616,7 +616,7 @@ extractpdf_status extractpdf_pdf_flatten_form_preflight(
             form->remove_acroform = 1;
         else
             form->replace_root_fields = 1;
-    } else {
+    } else if (form->entries[0].locator_count == 2) {
         pdf_obj *root_kids;
         pdf_obj *selected_terminal;
         int root_kid_count;
@@ -647,6 +647,75 @@ extractpdf_status extractpdf_pdf_flatten_form_preflight(
             ctx, root_kids, (int)form->remove_root_kid_index);
         if (!flatten_form_same_identity(
                 ctx, selected_terminal, selected_field->group_head)) {
+            status = EXTRACTPDF_ERROR_FORMAT;
+            goto fail;
+        }
+        status = flatten_form_check_sole_widget_child(
+            ctx, selected_terminal, selected_widget);
+        if (status != EXTRACTPDF_OK)
+            goto fail;
+        form->replace_root_kids = 1;
+    } else {
+        pdf_obj *root_kids;
+        pdf_obj *mid;
+        pdf_obj *mid_kids;
+        pdf_obj *selected_terminal;
+        pdf_obj *parent;
+        int root_kid_count;
+
+        if (form->entries[0].merged || root_field_count != 1) {
+            status = EXTRACTPDF_ERROR_STATE;
+            goto fail;
+        }
+        root_kids = pdf_dict_get(ctx, root_field, PDF_NAME(Kids));
+        if (!pdf_is_array(ctx, root_kids)) {
+            status = EXTRACTPDF_ERROR_FORMAT;
+            goto fail;
+        }
+        root_kid_count = pdf_array_len(ctx, root_kids);
+        if (root_kid_count <= 1 ||
+            form->entries[0].locator_steps[1] >= (size_t)root_kid_count) {
+            status = root_kid_count <= 1 ?
+                EXTRACTPDF_ERROR_STATE : EXTRACTPDF_ERROR_FORMAT;
+            goto fail;
+        }
+        if (model->field_count != (size_t)root_kid_count) {
+            status = EXTRACTPDF_ERROR_STATE;
+            goto fail;
+        }
+        form->root_kid_count = (size_t)root_kid_count;
+        form->remove_root_kid_index = form->entries[0].locator_steps[1];
+        mid = pdf_array_get(ctx, root_kids, (int)form->remove_root_kid_index);
+        if (!pdf_is_indirect(ctx, mid) || !pdf_is_dict(ctx, mid)) {
+            status = EXTRACTPDF_ERROR_FORMAT;
+            goto fail;
+        }
+        parent = pdf_dict_get(ctx, mid, PDF_NAME(Parent));
+        if (!flatten_form_same_identity(ctx, parent, root_field)) {
+            status = EXTRACTPDF_ERROR_FORMAT;
+            goto fail;
+        }
+        mid_kids = pdf_dict_get(ctx, mid, PDF_NAME(Kids));
+        if (!pdf_is_array(ctx, mid_kids)) {
+            status = EXTRACTPDF_ERROR_FORMAT;
+            goto fail;
+        }
+        if (pdf_array_len(ctx, mid_kids) != 1) {
+            status = EXTRACTPDF_ERROR_STATE;
+            goto fail;
+        }
+        if (form->entries[0].locator_steps[2] != 0) {
+            status = EXTRACTPDF_ERROR_FORMAT;
+            goto fail;
+        }
+        selected_terminal = pdf_array_get(ctx, mid_kids, 0);
+        if (!flatten_form_same_identity(
+                ctx, selected_terminal, selected_field->group_head)) {
+            status = EXTRACTPDF_ERROR_FORMAT;
+            goto fail;
+        }
+        parent = pdf_dict_get(ctx, selected_terminal, PDF_NAME(Parent));
+        if (!flatten_form_same_identity(ctx, parent, mid)) {
             status = EXTRACTPDF_ERROR_FORMAT;
             goto fail;
         }
@@ -767,7 +836,8 @@ extractpdf_status extractpdf_pdf_flatten_form_resolve_runtime(
         return EXTRACTPDF_ERROR_STATE;
     if (form->entry_count == 1) {
         if (form->entries[0].locator_count != 1 &&
-            form->entries[0].locator_count != 2)
+            form->entries[0].locator_count != 2 &&
+            form->entries[0].locator_count != 3)
             return EXTRACTPDF_ERROR_STATE;
     } else {
         size_t entry_index;
@@ -831,7 +901,7 @@ extractpdf_status extractpdf_pdf_flatten_form_resolve_runtime(
                 if (status != EXTRACTPDF_OK)
                     return status;
             }
-        } else {
+        } else if (form->entries[0].locator_count == 2) {
             pdf_obj *parent;
 
             if (!form->replace_root_kids || form->entries[0].merged ||
@@ -848,6 +918,37 @@ extractpdf_status extractpdf_pdf_flatten_form_resolve_runtime(
                 return EXTRACTPDF_ERROR_FORMAT;
             parent = pdf_dict_get(ctx, field, PDF_NAME(Parent));
             if (!flatten_form_same_identity(ctx, parent, root_field))
+                return EXTRACTPDF_ERROR_FORMAT;
+            status = flatten_form_check_sole_widget_child(ctx, field, widget);
+            if (status != EXTRACTPDF_OK)
+                return status;
+        } else {
+            pdf_obj *mid;
+            pdf_obj *mid_kids;
+            pdf_obj *parent;
+
+            if (!form->replace_root_kids || form->entries[0].merged ||
+                form->root_kid_count <= 1 ||
+                form->remove_root_kid_index >= form->root_kid_count)
+                return EXTRACTPDF_ERROR_FORMAT;
+            root_kids = pdf_dict_get(ctx, root_field, PDF_NAME(Kids));
+            if (!pdf_is_array(ctx, root_kids) ||
+                (size_t)pdf_array_len(ctx, root_kids) != form->root_kid_count)
+                return EXTRACTPDF_ERROR_FORMAT;
+            mid = pdf_array_get(
+                ctx, root_kids, (int)form->remove_root_kid_index);
+            if (!pdf_is_indirect(ctx, mid) || !pdf_is_dict(ctx, mid))
+                return EXTRACTPDF_ERROR_FORMAT;
+            parent = pdf_dict_get(ctx, mid, PDF_NAME(Parent));
+            if (!flatten_form_same_identity(ctx, parent, root_field))
+                return EXTRACTPDF_ERROR_FORMAT;
+            mid_kids = pdf_dict_get(ctx, mid, PDF_NAME(Kids));
+            if (!pdf_is_array(ctx, mid_kids) || pdf_array_len(ctx, mid_kids) != 1 ||
+                form->entries[0].locator_steps[2] != 0 ||
+                !flatten_form_same_identity(ctx, pdf_array_get(ctx, mid_kids, 0), field))
+                return EXTRACTPDF_ERROR_FORMAT;
+            parent = pdf_dict_get(ctx, field, PDF_NAME(Parent));
+            if (!flatten_form_same_identity(ctx, parent, mid))
                 return EXTRACTPDF_ERROR_FORMAT;
             status = flatten_form_check_sole_widget_child(ctx, field, widget);
             if (status != EXTRACTPDF_OK)
