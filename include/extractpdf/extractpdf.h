@@ -61,6 +61,11 @@ typedef struct extractpdf_page_poster_split {
     size_t rows;
 } extractpdf_page_poster_split;
 
+typedef enum extractpdf_flatten_flag {
+    EXTRACTPDF_FLATTEN_ANNOTATIONS = 1u << 0,
+    EXTRACTPDF_FLATTEN_WIDGETS = 1u << 1
+} extractpdf_flatten_flag;
+
 typedef struct extractpdf_quad {
     extractpdf_point ul;
     extractpdf_point ur;
@@ -453,6 +458,11 @@ EXTRACTPDF_API extractpdf_status extractpdf_poster_split_pages(
     extractpdf_document *document,
     const extractpdf_page_poster_split *splits,
     size_t split_count,
+    extractpdf_output **out_output);
+
+EXTRACTPDF_API extractpdf_status extractpdf_flatten_interactive(
+    extractpdf_document *document,
+    uint32_t flags,
     extractpdf_output **out_output);
 
 EXTRACTPDF_API extractpdf_status extractpdf_output_data(
