@@ -167,5 +167,6 @@ if(EXTRACTPDF_BUILD_TESTS)
     FLATTEN_MULTI_WIDGET_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-multi-widget.pdf"
     FLATTEN_FORM_CLOSURE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-form-closure.pdf"
     FLATTEN_FORM_ANCESTOR_SURVIVES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-form-ancestor-survives.pdf"
-    FLATTEN_WIDGET_AS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-widget-as.pdf")
+    FLATTEN_WIDGET_AS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-widget-as.pdf"
+    FLATTEN_WIDGET_RADIO_AS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-widget-radio-as.pdf")
 endif()
