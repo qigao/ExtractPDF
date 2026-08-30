@@ -363,3 +363,18 @@ if(WIN32 AND BUILD_SHARED_LIBS)
       $<TARGET_FILE_DIR:extractpdf_test_pdf_poster_split>
     VERBATIM)
 endif()
+
+add_executable(extractpdf_test_pdf_flatten test_pdf_flatten.c)
+target_link_libraries(extractpdf_test_pdf_flatten PRIVATE ExtractPDF::ExtractPDF)
+target_compile_definitions(extractpdf_test_pdf_flatten PRIVATE
+  FLATTEN_BASIC_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-basic.pdf")
+add_test(NAME extractpdf.pdf_flatten COMMAND extractpdf_test_pdf_flatten)
+set_tests_properties(extractpdf.pdf_flatten PROPERTIES TIMEOUT 60)
+
+if(WIN32 AND BUILD_SHARED_LIBS)
+  add_custom_command(TARGET extractpdf_test_pdf_flatten POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      $<TARGET_FILE:extractpdf>
+      $<TARGET_FILE_DIR:extractpdf_test_pdf_flatten>
+    VERBATIM)
+endif()
