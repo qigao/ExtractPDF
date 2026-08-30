@@ -282,7 +282,7 @@ static void check_interactive_source(extractpdf_document *source)
     int page_count = 0;
 
     CHECK(extractpdf_page_count(source, &page_count) == EXTRACTPDF_OK);
-    CHECK(page_count == 1);
+    CHECK(page_count == 2);
     CHECK(extractpdf_load_page(source, 0, &page) == EXTRACTPDF_OK);
     CHECK(extractpdf_extract_links(page, &links) == EXTRACTPDF_OK);
     CHECK(extractpdf_link_count(links, &count) == EXTRACTPDF_OK);
@@ -351,7 +351,7 @@ static void test_source_immutability_and_output_lifetime(void)
         size_t count = 0;
         int page_count = 0;
         CHECK(extractpdf_page_count(reopened, &page_count) == EXTRACTPDF_OK);
-        CHECK(page_count == 4);
+        CHECK(page_count == 5);
         CHECK(extractpdf_document_form(reopened, &form) == EXTRACTPDF_OK);
         CHECK(extractpdf_form_widget_count(form, &count) == EXTRACTPDF_OK);
         CHECK(count == 1);
