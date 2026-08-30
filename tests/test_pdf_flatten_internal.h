@@ -3,5 +3,6 @@
 
 int extractpdf_test_pdf_flatten_appearance(void);
 int extractpdf_test_pdf_flatten_raw(void);
+int extractpdf_test_pdf_flatten_form(void);
 
 #endif
