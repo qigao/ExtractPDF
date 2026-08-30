@@ -9,58 +9,6 @@ static void poster_discard_log(void *user, const char *message)
     (void)message;
 }
 
-static int poster_writer_has_deferred_navigation(
-    fz_context *ctx,
-    pdf_document *document)
-{
-    pdf_obj *root;
-    int page_count;
-    int page_index;
-
-    root = pdf_dict_get(ctx, pdf_trailer(ctx, document), PDF_NAME(Root));
-    if (!pdf_is_dict(ctx, root))
-        return 1;
-    if (pdf_dict_get(ctx, root, PDF_NAME(Outlines)) != NULL ||
-        pdf_dict_get(ctx, root, PDF_NAME(Names)) != NULL ||
-        pdf_dict_get(ctx, root, PDF_NAME(Dests)) != NULL)
-        return 1;
-
-    page_count = pdf_count_pages(ctx, document);
-    for (page_index = 0; page_index < page_count; ++page_index) {
-        pdf_obj *page = pdf_lookup_page_obj(ctx, document, page_index);
-        pdf_obj *annots = pdf_dict_get(ctx, page, PDF_NAME(Annots));
-        int annot_count;
-        int annot_index;
-
-        if (annots == NULL)
-            continue;
-        if (!pdf_is_array(ctx, annots))
-            return 1;
-        annot_count = pdf_array_len(ctx, annots);
-        for (annot_index = 0; annot_index < annot_count; ++annot_index) {
-            pdf_obj *annotation = pdf_array_get(ctx, annots, annot_index);
-            pdf_obj *subtype;
-            pdf_obj *action;
-
-            if (!pdf_is_dict(ctx, annotation))
-                return 1;
-            subtype = pdf_dict_get(ctx, annotation, PDF_NAME(Subtype));
-            if (!pdf_name_eq(ctx, subtype, PDF_NAME(Link)))
-                continue;
-            if (pdf_dict_get(ctx, annotation, PDF_NAME(Dest)) != NULL)
-                return 1;
-            action = pdf_dict_get(ctx, annotation, PDF_NAME(A));
-            if (pdf_is_dict(ctx, action) &&
-                pdf_name_eq(
-                    ctx,
-                    pdf_dict_get(ctx, action, PDF_NAME(S)),
-                    PDF_NAME(GoTo)))
-                return 1;
-        }
-    }
-    return 0;
-}
-
 static pdf_obj *poster_create_tile_page(
     fz_context *ctx,
     pdf_document *document,
@@ -328,18 +276,19 @@ static extractpdf_status poster_transform_changed(
     private_plan->expansion_policy_applied = 1;
     if (!extractpdf_pdf_poster_plan_equivalent(source_plan, private_plan) ||
         !extractpdf_pdf_poster_annotation_plans_equivalent(
+            source_plan, private_plan) ||
+        !extractpdf_pdf_poster_navigation_plans_equivalent(
             source_plan, private_plan)) {
         status = EXTRACTPDF_ERROR_FORMAT;
         goto cleanup;
     }
 
-    if (poster_writer_has_deferred_navigation(private_ctx, private_document)) {
-        status = EXTRACTPDF_ERROR_UNSUPPORTED;
-        goto cleanup;
-    }
-
     status = poster_build_private_tiles(
         private_ctx, private_document, private_plan, &runtime);
+    if (status != EXTRACTPDF_OK)
+        goto cleanup;
+    status = extractpdf_pdf_poster_apply_navigation(
+        private_ctx, private_document, private_plan, runtime);
     if (status != EXTRACTPDF_OK)
         goto cleanup;
     status = extractpdf_pdf_poster_apply_annotations(
@@ -408,17 +357,13 @@ extractpdf_status extractpdf_poster_split_pages(
                 document->ctx, source_pdf, plan);
         if (status == EXTRACTPDF_OK) {
             plan->expansion_policy_applied = 1;
-            if (poster_writer_has_deferred_navigation(
-                    document->ctx, source_pdf))
-                status = EXTRACTPDF_ERROR_UNSUPPORTED;
-            else
-                status = poster_transform_changed(
-                    document->ctx,
-                    source_pdf,
-                    splits,
-                    split_count,
-                    plan,
-                    out_output);
+            status = poster_transform_changed(
+                document->ctx,
+                source_pdf,
+                splits,
+                split_count,
+                plan,
+                out_output);
         }
     }
 
