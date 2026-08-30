@@ -104,7 +104,7 @@ extractpdf_status extractpdf_pdf_flatten_form_preflight(
     fz_context *ctx,
     pdf_document *document,
     const extractpdf_pdf_form_model *model,
-    const extractpdf_pdf_form_provenance *provenance,
+    extractpdf_pdf_form_provenance *provenance,
     extractpdf_pdf_flatten_plan *plan);
 
 int extractpdf_pdf_flatten_form_plan_equivalent(

@@ -126,7 +126,7 @@ extractpdf_status extractpdf_pdf_flatten_form_preflight(
     fz_context *ctx,
     pdf_document *document,
     const extractpdf_pdf_form_model *model,
-    const extractpdf_pdf_form_provenance *provenance,
+    extractpdf_pdf_form_provenance *provenance,
     extractpdf_pdf_flatten_plan *plan)
 {
     extractpdf_pdf_flatten_form_plan *form = NULL;
@@ -150,6 +150,10 @@ extractpdf_status extractpdf_pdf_flatten_form_preflight(
         return EXTRACTPDF_ERROR_FORMAT;
 
     status = flatten_form_check_policy(ctx, document);
+    if (status != EXTRACTPDF_OK)
+        return status;
+    status = extractpdf_pdf_form_capture_provenance_widgets(
+        ctx, document, model, provenance);
     if (status != EXTRACTPDF_OK)
         return status;
 
