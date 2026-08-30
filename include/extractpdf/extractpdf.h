@@ -54,6 +54,13 @@ typedef struct extractpdf_page_trim {
     extractpdf_rect bounds;
 } extractpdf_page_trim;
 
+typedef struct extractpdf_page_poster_split {
+    size_t struct_size;
+    int page_index;
+    size_t columns;
+    size_t rows;
+} extractpdf_page_poster_split;
+
 typedef struct extractpdf_quad {
     extractpdf_point ul;
     extractpdf_point ur;
@@ -440,6 +447,12 @@ EXTRACTPDF_API extractpdf_status extractpdf_trim_pages(
     extractpdf_document *document,
     const extractpdf_page_trim *trims,
     size_t trim_count,
+    extractpdf_output **out_output);
+
+EXTRACTPDF_API extractpdf_status extractpdf_poster_split_pages(
+    extractpdf_document *document,
+    const extractpdf_page_poster_split *splits,
+    size_t split_count,
     extractpdf_output **out_output);
 
 EXTRACTPDF_API extractpdf_status extractpdf_output_data(
