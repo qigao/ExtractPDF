@@ -67,6 +67,25 @@ static void expect_internal_link(
 
     info.struct_size = sizeof(info);
     CHECK(extractpdf_link_get_info(links, index, &info) == EXTRACTPDF_OK);
+    if (info.kind != EXTRACTPDF_LINK_INTERNAL ||
+        info.target_page != target_page ||
+        !close_float(info.target.x, target_x) ||
+        !close_float(info.target.y, target_y)) {
+        fprintf(stderr,
+            "poster public link[%zu]: kind=%d target=%d (%.3f,%.3f) hotspot=[%.3f %.3f %.3f %.3f], expected=%d (%.3f,%.3f)\n",
+            index,
+            (int)info.kind,
+            info.target_page,
+            info.target.x,
+            info.target.y,
+            info.hotspot.x0,
+            info.hotspot.y0,
+            info.hotspot.x1,
+            info.hotspot.y1,
+            target_page,
+            target_x,
+            target_y);
+    }
     CHECK(info.kind == EXTRACTPDF_LINK_INTERNAL);
     CHECK(info.target_page == target_page);
     CHECK(close_float(info.target.x, target_x));
