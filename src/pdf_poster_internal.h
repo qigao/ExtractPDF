@@ -83,6 +83,16 @@ extractpdf_status extractpdf_pdf_poster_annotations_preflight(
 void extractpdf_pdf_poster_drop_annotation_plans(
     extractpdf_pdf_poster_plan *plan);
 
+int extractpdf_pdf_poster_annotation_plans_equivalent(
+    const extractpdf_pdf_poster_plan *left,
+    const extractpdf_pdf_poster_plan *right);
+
+extractpdf_status extractpdf_pdf_poster_apply_annotations(
+    fz_context *ctx,
+    pdf_document *document,
+    const extractpdf_pdf_poster_plan *plan,
+    extractpdf_pdf_poster_private_split *runtime);
+
 extractpdf_status extractpdf_pdf_poster_navigation_preflight(
     fz_context *ctx,
     pdf_document *document,
