@@ -23,6 +23,8 @@ static extractpdf_status flatten_transform_changed(
     extractpdf_status status;
     int caught_code = FZ_ERROR_NONE;
 
+    (void)out_output;
+
     status = extractpdf_serialize_pdf(source_ctx, source_pdf, &seed);
     if (status != EXTRACTPDF_OK)
         return status;
