@@ -157,5 +157,6 @@ if(EXTRACTPDF_BUILD_TESTS)
     FLATTEN_CONTENTS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-contents.pdf"
     FLATTEN_CONTENTS_MALFORMED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-contents-malformed.pdf"
     FLATTEN_WIDGETS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-widgets.pdf"
-    FLATTEN_FORM_COW_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-form-cow.pdf")
+    FLATTEN_FORM_COW_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-form-cow.pdf"
+    FLATTEN_FORM_KIDS_COW_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-form-kids-cow.pdf")
 endif()
