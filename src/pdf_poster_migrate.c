@@ -102,6 +102,57 @@ static extractpdf_status update_annotation_page(
     return EXTRACTPDF_OK;
 }
 
+static extractpdf_status append_link_instance(
+    fz_context *ctx,
+    pdf_document *document,
+    const extractpdf_pdf_poster_split_plan *split,
+    const extractpdf_pdf_poster_annot_plan *annot_plan,
+    pdf_obj *source_annotation,
+    pdf_obj *source_page,
+    pdf_obj **tile_pages,
+    pdf_obj **tile_annots,
+    size_t hit_index,
+    int clone)
+{
+    size_t tile_index = annot_plan->tile_indices[hit_index];
+    pdf_obj *annotation = NULL;
+    pdf_obj *clone_dict = NULL;
+    extractpdf_status status;
+
+    if (clone) {
+        clone_dict = pdf_copy_dict(ctx, source_annotation);
+        annotation = pdf_add_object(ctx, document, clone_dict);
+        pdf_drop_obj(ctx, clone_dict);
+        clone_dict = NULL;
+    } else {
+        annotation = pdf_keep_obj(ctx, source_annotation);
+    }
+    if (annotation == NULL)
+        return EXTRACTPDF_ERROR_NOMEM;
+
+    if (annot_plan->tile_count > 1) {
+        extractpdf_rect clipped = intersect_public(
+            annot_plan->source_public_rect,
+            split->tiles[tile_index].public_rect);
+        fz_rect raw = public_to_raw(clipped, split->page.pdf_to_public);
+        pdf_dict_put_rect(ctx, annotation, PDF_NAME(Rect), raw);
+    }
+
+    status = update_annotation_page(
+        ctx,
+        annotation,
+        source_page,
+        tile_pages[tile_index],
+        clone);
+    if (status != EXTRACTPDF_OK) {
+        pdf_drop_obj(ctx, annotation);
+        return status;
+    }
+    pdf_array_push(ctx, tile_annots[tile_index], annotation);
+    pdf_drop_obj(ctx, annotation);
+    return EXTRACTPDF_OK;
+}
+
 static extractpdf_status append_link(
     fz_context *ctx,
     pdf_document *document,
@@ -113,46 +164,40 @@ static extractpdf_status append_link(
     pdf_obj **tile_annots)
 {
     size_t hit_index;
+    extractpdf_status status;
 
-    for (hit_index = 0; hit_index < annot_plan->tile_count; ++hit_index) {
-        size_t tile_index = annot_plan->tile_indices[hit_index];
-        pdf_obj *annotation = NULL;
-        pdf_obj *clone_dict = NULL;
-        extractpdf_status status;
-
-        if (hit_index == 0) {
-            annotation = pdf_keep_obj(ctx, source_annotation);
-        } else {
-            clone_dict = pdf_copy_dict(ctx, source_annotation);
-            annotation = pdf_add_object(ctx, document, clone_dict);
-            pdf_drop_obj(ctx, clone_dict);
-            clone_dict = NULL;
-        }
-        if (annotation == NULL)
-            return EXTRACTPDF_ERROR_NOMEM;
-
-        if (annot_plan->tile_count > 1) {
-            extractpdf_rect clipped = intersect_public(
-                annot_plan->source_public_rect,
-                split->tiles[tile_index].public_rect);
-            fz_rect raw = public_to_raw(clipped, split->page.pdf_to_public);
-            pdf_dict_put_rect(ctx, annotation, PDF_NAME(Rect), raw);
-        }
-
-        status = update_annotation_page(
+    /*
+     * Clone every later row-major intersection while source_annotation still
+     * carries its original /P and /Rect. Only after all clones exist may the
+     * original Link be moved to the first intersection.
+     */
+    for (hit_index = 1; hit_index < annot_plan->tile_count; ++hit_index) {
+        status = append_link_instance(
             ctx,
-            annotation,
+            document,
+            split,
+            annot_plan,
+            source_annotation,
             source_page,
-            tile_pages[tile_index],
-            hit_index != 0);
-        if (status != EXTRACTPDF_OK) {
-            pdf_drop_obj(ctx, annotation);
+            tile_pages,
+            tile_annots,
+            hit_index,
+            1);
+        if (status != EXTRACTPDF_OK)
             return status;
-        }
-        pdf_array_push(ctx, tile_annots[tile_index], annotation);
-        pdf_drop_obj(ctx, annotation);
     }
-    return EXTRACTPDF_OK;
+
+    return append_link_instance(
+        ctx,
+        document,
+        split,
+        annot_plan,
+        source_annotation,
+        source_page,
+        tile_pages,
+        tile_annots,
+        0,
+        0);
 }
 
 static extractpdf_status append_single_annotation(
