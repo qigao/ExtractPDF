@@ -57,7 +57,19 @@ int poster_run_policy_tests(void)
     expect_policy_status(
         POSTER_UNSELECTED_ACTIONS_PDF, 2, 1, EXTRACTPDF_ERROR_UNSUPPORTED);
     expect_policy_status(
+        POSTER_UNSELECTED_ANNOT_ACTION_PDF, 2, 1, EXTRACTPDF_ERROR_UNSUPPORTED);
+    expect_policy_status(
         POSTER_FORM_ACTIONS_PDF, 2, 1, EXTRACTPDF_ERROR_UNSUPPORTED);
+    expect_policy_status(
+        POSTER_FIELD_ACTION_PDF, 2, 1, EXTRACTPDF_ERROR_UNSUPPORTED);
+    expect_policy_status(
+        POSTER_OUTLINE_UNSUPPORTED_ACTION_PDF, 2, 1, EXTRACTPDF_ERROR_UNSUPPORTED);
+    expect_policy_status(
+        POSTER_NONXYZ_DESTINATION_PDF, 2, 1, EXTRACTPDF_ERROR_UNSUPPORTED);
+    expect_policy_status(
+        POSTER_NULLXYZ_DESTINATION_PDF, 2, 1, EXTRACTPDF_ERROR_UNSUPPORTED);
+    expect_policy_status(
+        POSTER_OUTSIDE_DESTINATION_PDF, 2, 1, EXTRACTPDF_ERROR_UNSUPPORTED);
     expect_policy_status(
         POSTER_MALFORMED_ANNOTS_PDF, 2, 1, EXTRACTPDF_ERROR_FORMAT);
     expect_policy_status(
