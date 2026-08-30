@@ -99,8 +99,11 @@ static void check_form_cow_output(const extractpdf_output *output)
     pdf_obj *keep_ref;
     pdf_obj *page;
     pdf_obj *q;
+    int caught_code = FZ_ERROR_NONE;
 
     RAW_CHECK(ctx != NULL);
+    fz_var(document);
+    fz_var(caught_code);
     fz_try(ctx)
     {
         document = open_output_pdf(ctx, output);
@@ -132,12 +135,15 @@ static void check_form_cow_output(const extractpdf_output *output)
     fz_always(ctx)
     {
         pdf_drop_document(ctx, document);
-        fz_drop_context(ctx);
+        document = NULL;
     }
     fz_catch(ctx)
     {
-        fz_rethrow(ctx);
+        caught_code = fz_caught(ctx);
+        fz_report_error(ctx);
     }
+    fz_drop_context(ctx);
+    RAW_CHECK(caught_code == FZ_ERROR_NONE);
 }
 
 static int check_merged_root_widget(void)
