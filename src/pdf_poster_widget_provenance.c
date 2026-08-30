@@ -54,6 +54,16 @@ static extractpdf_status poster_assign_widget_locator(
             ctx, pdf_dict_get(ctx, widget, PDF_NAME(Subtype)), PDF_NAME(Widget)))
         return EXTRACTPDF_ERROR_FORMAT;
 
+#ifdef EXTRACTPDF_TESTING
+    fprintf(stderr,
+        "poster widget target: page=%d annot=%zu indirect=%d num=%d gen=%d\n",
+        page_index,
+        annot_plan->source_annot_index,
+        pdf_is_indirect(ctx, widget),
+        pdf_to_num(ctx, widget),
+        pdf_to_gen(ctx, widget));
+#endif
+
     for (field_index = 0; field_index < provenance->field_count; ++field_index) {
         const extractpdf_pdf_form_live_field *live_field =
             &provenance->fields[field_index];
@@ -63,6 +73,16 @@ static extractpdf_status poster_assign_widget_locator(
              ++widget_index) {
             const extractpdf_pdf_form_live_widget *live_widget =
                 &live_field->widgets[widget_index];
+#ifdef EXTRACTPDF_TESTING
+            fprintf(stderr,
+                "poster widget live: field=%zu widget=%zu page=%d indirect=%d num=%d gen=%d\n",
+                field_index,
+                widget_index,
+                live_widget->page_index,
+                pdf_is_indirect(ctx, live_widget->object),
+                pdf_to_num(ctx, live_widget->object),
+                pdf_to_gen(ctx, live_widget->object));
+#endif
             if (!extractpdf_pdf_form_same_identity(
                     ctx, live_widget->object, widget))
                 continue;
