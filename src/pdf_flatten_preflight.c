@@ -2,6 +2,7 @@
 #include "pdf_annotation_common.h"
 
 #include <limits.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -131,6 +132,101 @@ static int flatten_supported_annotation(extractpdf_annotation_type type)
     default:
         return 0;
     }
+}
+
+static extractpdf_status flatten_check_neutral_link(
+    fz_context *ctx,
+    pdf_obj *link)
+{
+    pdf_obj *ap;
+    pdf_obj *bs;
+    pdf_obj *width_object;
+    pdf_obj *border;
+    float width;
+    int index;
+
+    if (!pdf_is_dict(ctx, link))
+        return EXTRACTPDF_ERROR_FORMAT;
+
+    if (flatten_dict_has_key(ctx, link, PDF_NAME(AP))) {
+        ap = pdf_dict_get(ctx, link, PDF_NAME(AP));
+        if (!pdf_is_dict(ctx, ap))
+            return EXTRACTPDF_ERROR_FORMAT;
+        if (flatten_dict_has_key(ctx, ap, PDF_NAME(N)))
+            return EXTRACTPDF_ERROR_UNSUPPORTED;
+    }
+
+    if (flatten_dict_has_key(ctx, link, PDF_NAME(BS))) {
+        bs = pdf_dict_get(ctx, link, PDF_NAME(BS));
+        if (!pdf_is_dict(ctx, bs))
+            return EXTRACTPDF_ERROR_FORMAT;
+        if (!flatten_dict_has_key(ctx, bs, PDF_NAME(W)))
+            return EXTRACTPDF_ERROR_UNSUPPORTED;
+        width_object = pdf_dict_get(ctx, bs, PDF_NAME(W));
+        if (!pdf_is_number(ctx, width_object))
+            return EXTRACTPDF_ERROR_FORMAT;
+        width = pdf_to_real(ctx, width_object);
+        if (!isfinite(width) || width < 0.0f)
+            return EXTRACTPDF_ERROR_FORMAT;
+        return width == 0.0f ?
+            EXTRACTPDF_OK : EXTRACTPDF_ERROR_UNSUPPORTED;
+    }
+
+    if (flatten_dict_has_key(ctx, link, PDF_NAME(Border))) {
+        border = pdf_dict_get(ctx, link, PDF_NAME(Border));
+        if (!pdf_is_array(ctx, border) || pdf_array_len(ctx, border) < 3)
+            return EXTRACTPDF_ERROR_FORMAT;
+        width = 0.0f;
+        for (index = 0; index < 3; ++index) {
+            pdf_obj *item = pdf_array_get(ctx, border, index);
+            float value;
+            if (!pdf_is_number(ctx, item))
+                return EXTRACTPDF_ERROR_FORMAT;
+            value = pdf_to_real(ctx, item);
+            if (!isfinite(value))
+                return EXTRACTPDF_ERROR_FORMAT;
+            if (index == 2)
+                width = value;
+        }
+        return width == 0.0f ?
+            EXTRACTPDF_OK : EXTRACTPDF_ERROR_UNSUPPORTED;
+    }
+
+    return EXTRACTPDF_ERROR_UNSUPPORTED;
+}
+
+static extractpdf_status flatten_validate_changed_page_links(
+    fz_context *ctx,
+    pdf_obj *page)
+{
+    pdf_obj *annots;
+    int count;
+    int index;
+
+    annots = pdf_dict_get(ctx, page, PDF_NAME(Annots));
+    if (!pdf_is_array(ctx, annots))
+        return EXTRACTPDF_ERROR_FORMAT;
+    count = pdf_array_len(ctx, annots);
+    if (count < 0)
+        return EXTRACTPDF_ERROR_FORMAT;
+
+    for (index = 0; index < count; ++index) {
+        pdf_obj *annotation = pdf_array_get(ctx, annots, index);
+        pdf_obj *subtype;
+        extractpdf_status status;
+
+        if (!pdf_is_indirect(ctx, annotation) || !pdf_is_dict(ctx, annotation))
+            return EXTRACTPDF_ERROR_FORMAT;
+        subtype = pdf_dict_get(ctx, annotation, PDF_NAME(Subtype));
+        if (!pdf_is_name(ctx, subtype))
+            return EXTRACTPDF_ERROR_FORMAT;
+        if (!pdf_name_eq(ctx, subtype, PDF_NAME(Link)))
+            continue;
+        status = flatten_check_neutral_link(ctx, annotation);
+        if (status != EXTRACTPDF_OK)
+            return status;
+    }
+    return EXTRACTPDF_OK;
 }
 
 static extractpdf_status flatten_append_target(
@@ -424,8 +520,10 @@ static extractpdf_status flatten_discover_annotations(
         }
 
         if (page_selected != 0) {
-            status = flatten_validate_changed_page(
-                ctx, page, appearance_slots, &alias_numbers);
+            status = flatten_validate_changed_page_links(ctx, page);
+            if (status == EXTRACTPDF_OK)
+                status = flatten_validate_changed_page(
+                    ctx, page, appearance_slots, &alias_numbers);
             if (status == EXTRACTPDF_OK) {
                 status = flatten_append_page(
                     plan, page_index, first_target, page_selected,
@@ -558,8 +656,10 @@ static extractpdf_status flatten_discover_widgets(
         }
 
         if (page_selected != 0) {
-            status = flatten_validate_changed_page(
-                ctx, page, appearance_slots, &alias_numbers);
+            status = flatten_validate_changed_page_links(ctx, page);
+            if (status == EXTRACTPDF_OK)
+                status = flatten_validate_changed_page(
+                    ctx, page, appearance_slots, &alias_numbers);
             if (status == EXTRACTPDF_OK) {
                 status = flatten_append_page(
                     plan, page_index, first_target, page_selected,
