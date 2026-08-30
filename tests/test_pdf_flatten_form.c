@@ -30,15 +30,18 @@ int extractpdf_test_pdf_flatten_form(void)
 {
     extractpdf_document *document = NULL;
     extractpdf_output *output = NULL;
+    extractpdf_status status;
 
     CHECK(extractpdf_open(FLATTEN_WIDGETS_PDF, NULL, &document) == EXTRACTPDF_OK);
     CHECK(document != NULL);
     CHECK(check_source_widget_count(document, 1) == 0);
 
-    CHECK(extractpdf_flatten_interactive(
+    status = extractpdf_flatten_interactive(
         document,
         EXTRACTPDF_FLATTEN_WIDGETS,
-        &output) == EXTRACTPDF_OK);
+        &output);
+    fprintf(stderr, "merged widget flatten status=%d\n", (int)status);
+    CHECK(status == EXTRACTPDF_OK);
     CHECK(output != NULL);
 
     CHECK(check_source_widget_count(document, 1) == 0);
