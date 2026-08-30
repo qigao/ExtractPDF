@@ -52,6 +52,39 @@ static extractpdf_rect page_bounds(extractpdf_document *document, int page_index
     return bounds;
 }
 
+static char *page_text(
+    extractpdf_document *document,
+    int page_index,
+    size_t *out_size)
+{
+    extractpdf_page *page = NULL;
+    char *text = NULL;
+
+    *out_size = 0;
+    CHECK(extractpdf_load_page(document, page_index, &page) == EXTRACTPDF_OK);
+    CHECK(extractpdf_extract_text(page, &text, out_size) == EXTRACTPDF_OK);
+    CHECK(text != NULL);
+    extractpdf_drop_page(page);
+    return text;
+}
+
+static int bytes_contain(
+    const char *bytes,
+    size_t size,
+    const char *needle)
+{
+    size_t needle_size = strlen(needle);
+    size_t index;
+
+    if (needle_size > size)
+        return 0;
+    for (index = 0; index + needle_size <= size; ++index) {
+        if (memcmp(bytes + index, needle, needle_size) == 0)
+            return 1;
+    }
+    return 0;
+}
+
 static void check_bounds(
     extractpdf_document *document,
     int page_index,
@@ -93,6 +126,10 @@ static void test_batch_order_and_determinism(void)
     extractpdf_rect before0;
     extractpdf_rect before1;
     extractpdf_rect before2;
+    char *before_text = NULL;
+    char *after_text = NULL;
+    size_t before_text_size = 0;
+    size_t after_text_size = 0;
 
     forward[0] = make_split(0, 2, 1);
     forward[1] = make_split(1, 1, 2);
@@ -104,6 +141,7 @@ static void test_batch_order_and_determinism(void)
     before0 = page_bounds(source, 0);
     before1 = page_bounds(source, 1);
     before2 = page_bounds(source, 2);
+    before_text = page_text(source, 1, &before_text_size);
 
     CHECK(extractpdf_poster_split_pages(source, forward, 2, &first) == EXTRACTPDF_OK);
     CHECK(extractpdf_poster_split_pages(source, reverse, 2, &second) == EXTRACTPDF_OK);
@@ -136,7 +174,12 @@ static void test_batch_order_and_determinism(void)
         CHECK(memcmp(&before1, &after1, sizeof(before1)) == 0);
         CHECK(memcmp(&before2, &after2, sizeof(before2)) == 0);
     }
+    after_text = page_text(source, 1, &after_text_size);
+    CHECK(before_text_size == after_text_size);
+    CHECK(memcmp(before_text, after_text, before_text_size) == 0);
 
+    extractpdf_free(after_text);
+    extractpdf_free(before_text);
     extractpdf_drop_output(third);
     extractpdf_drop_output(second);
     extractpdf_drop_output(first);
@@ -236,14 +279,17 @@ static void check_interactive_source(extractpdf_document *source)
     const char *value = NULL;
     size_t value_size = 0;
     size_t count = 0;
+    int page_count = 0;
 
+    CHECK(extractpdf_page_count(source, &page_count) == EXTRACTPDF_OK);
+    CHECK(page_count == 1);
     CHECK(extractpdf_load_page(source, 0, &page) == EXTRACTPDF_OK);
     CHECK(extractpdf_extract_links(page, &links) == EXTRACTPDF_OK);
     CHECK(extractpdf_link_count(links, &count) == EXTRACTPDF_OK);
     CHECK(count == 2);
     CHECK(extractpdf_extract_annotations(page, &annotations) == EXTRACTPDF_OK);
     CHECK(extractpdf_annotation_count(annotations, &count) == EXTRACTPDF_OK);
-    CHECK(count == 2);
+    CHECK(count == 1);
     CHECK(extractpdf_document_form(source, &form) == EXTRACTPDF_OK);
     CHECK(extractpdf_form_widget_count(form, &count) == EXTRACTPDF_OK);
     CHECK(count == 1);
@@ -266,7 +312,10 @@ static void check_navigation_source(extractpdf_document *source)
     extractpdf_outline *outline = NULL;
     extractpdf_outline_info info;
     size_t count = 0;
+    int page_count = 0;
 
+    CHECK(extractpdf_page_count(source, &page_count) == EXTRACTPDF_OK);
+    CHECK(page_count == 2);
     CHECK(extractpdf_document_outline(source, &outline) == EXTRACTPDF_OK);
     CHECK(outline != NULL);
     CHECK(extractpdf_outline_count(outline, &count) == EXTRACTPDF_OK);
@@ -300,8 +349,9 @@ static void test_source_immutability_and_output_lifetime(void)
         extractpdf_annotation_page *annotations = NULL;
         extractpdf_link_page *links = NULL;
         size_t count = 0;
-        CHECK(extractpdf_page_count(reopened, (int *)&count) == EXTRACTPDF_OK);
-        CHECK(count == 4);
+        int page_count = 0;
+        CHECK(extractpdf_page_count(reopened, &page_count) == EXTRACTPDF_OK);
+        CHECK(page_count == 4);
         CHECK(extractpdf_document_form(reopened, &form) == EXTRACTPDF_OK);
         CHECK(extractpdf_form_widget_count(form, &count) == EXTRACTPDF_OK);
         CHECK(count == 1);
@@ -347,6 +397,32 @@ static void test_source_immutability_and_output_lifetime(void)
             extractpdf_close(reopened);
         }
         extractpdf_drop_output(navigation_output);
+    }
+
+    {
+        extractpdf_document *basic = open_document(POSTER_BASIC_PDF);
+        extractpdf_output *basic_output = NULL;
+        char *text = NULL;
+        size_t text_size = 0;
+        split = make_split(1, 2, 2);
+        CHECK(extractpdf_poster_split_pages(
+                  basic, &split, 1, &basic_output) == EXTRACTPDF_OK);
+        CHECK(basic_output != NULL);
+        extractpdf_close(basic);
+        basic = NULL;
+        CHECK(extractpdf_output_save_file(
+                  basic_output, POSTER_OUTPUT_PDF) == EXTRACTPDF_OK);
+        {
+            extractpdf_document *reopened = open_document(POSTER_OUTPUT_PDF);
+            int page_count = 0;
+            CHECK(extractpdf_page_count(reopened, &page_count) == EXTRACTPDF_OK);
+            CHECK(page_count == 6);
+            text = page_text(reopened, 1, &text_size);
+            CHECK(bytes_contain(text, text_size, "POSTER-00"));
+            extractpdf_free(text);
+            extractpdf_close(reopened);
+        }
+        extractpdf_drop_output(basic_output);
     }
 }
 
