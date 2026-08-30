@@ -172,10 +172,10 @@ int poster_raw_check_navigation(
             goto done;
         if (!destination_matches(
                 ctx, document, destination_value(ctx, pdf_array_get(ctx, name_values, 1)),
-                2, 50.0f, 75.0f, 1.0f) ||
+                3, 250.0f, 75.0f, 1.0f) ||
             !destination_matches(
                 ctx, document, destination_value(ctx, pdf_array_get(ctx, name_values, 3)),
-                3, 250.0f, 75.0f, 1.0f))
+                2, 50.0f, 75.0f, 1.0f))
             goto done;
 
         legacy = pdf_dict_get(ctx, root, PDF_NAME(Dests));
