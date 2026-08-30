@@ -24,12 +24,21 @@ add_library(extractpdf
   src/pdf_crop_preflight.c
   src/pdf_trim.c
   src/pdf_trim_preflight.c
+  src/pdf_poster.c
+  src/pdf_poster_preflight.c
+  src/pdf_poster_annotations.c
+  src/pdf_poster_widget_provenance.c
+  src/pdf_poster_navigation.c
+  src/pdf_poster_navigation_equivalence.c
+  src/pdf_poster_cleanup.c
+  src/pdf_poster_migrate.c
   src/pdf_export.c
   src/pdf_output.c
   src/pdf_range.c
   src/pdf_merge.c
   src/output_file.c
   src/pdf_metadata.c
+  src/pdf_outline_common.c
   src/pdf_outline.c
   src/pdf_object_common.c
   src/pdf_annotation_common.c
@@ -88,4 +97,42 @@ if(EXTRACTPDF_BUILD_TESTS)
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_trim_main.c")
   target_link_libraries(extractpdf_test_pdf_trim PRIVATE
     unofficial::libmupdf::libmupdf)
+  set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split.c"
+    TARGET_DIRECTORY extractpdf_test_pdf_poster_split
+    PROPERTY COMPILE_DEFINITIONS "main=extractpdf_pdf_poster_split_base_main")
+  target_sources(extractpdf_test_pdf_poster_split PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_raw.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_navigation_raw.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_geometry.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_policy.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_interactive.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_navigation.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_batch.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_main.c")
+  target_link_libraries(extractpdf_test_pdf_poster_split PRIVATE
+    unofficial::libmupdf::libmupdf)
+  target_compile_definitions(extractpdf_test_pdf_poster_split PRIVATE
+    POSTER_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/poster-split-output.pdf"
+    POSTER_ROTATE_90_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-rotate-90.pdf"
+    POSTER_USERUNIT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-userunit.pdf"
+    POSTER_INTERACTIVE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-interactive.pdf"
+    POSTER_NAVIGATION_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-navigation.pdf"
+    POSTER_NAVIGATION_ROTATE_90_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-navigation-rotate-90.pdf"
+    POSTER_NAVIGATION_USERUNIT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-navigation-userunit.pdf"
+    POSTER_MALFORMED_DESTINATION_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-malformed-destination.pdf"
+    POSTER_NONXYZ_DESTINATION_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-nonxyz-destination.pdf"
+    POSTER_NULLXYZ_DESTINATION_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-nullxyz-destination.pdf"
+    POSTER_OUTSIDE_DESTINATION_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-outside-destination.pdf"
+    POSTER_OUTLINE_UNSUPPORTED_ACTION_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-outline-unsupported-action.pdf"
+    POSTER_UNSELECTED_ANNOT_ACTION_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-unselected-annot-action.pdf"
+    POSTER_FIELD_ACTION_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-field-action.pdf"
+    POSTER_PRODUCTION_BOX_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-production-box.pdf"
+    POSTER_TAGGED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-tagged.pdf"
+    POSTER_ROOT_POLICY_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-root-policy.pdf"
+    POSTER_UNSELECTED_ACTIONS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-unselected-actions.pdf"
+    POSTER_FORM_ACTIONS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-form-actions.pdf"
+    POSTER_MALFORMED_ANNOTS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-malformed-annots.pdf"
+    POSTER_CROSSING_ANNOTATION_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-crossing-annotation.pdf"
+    POSTER_CROSSING_WIDGET_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-crossing-widget.pdf"
+    POSTER_ORPHAN_WIDGET_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-orphan-widget.pdf")
 endif()

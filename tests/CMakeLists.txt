@@ -348,3 +348,18 @@ if(WIN32 AND BUILD_SHARED_LIBS)
       $<TARGET_FILE_DIR:extractpdf_test_pdf_trim>
     VERBATIM)
 endif()
+
+add_executable(extractpdf_test_pdf_poster_split test_pdf_poster_split.c)
+target_link_libraries(extractpdf_test_pdf_poster_split PRIVATE ExtractPDF::ExtractPDF)
+target_compile_definitions(extractpdf_test_pdf_poster_split PRIVATE
+  POSTER_BASIC_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/poster-basic.pdf")
+add_test(NAME extractpdf.pdf_poster_split COMMAND extractpdf_test_pdf_poster_split)
+set_tests_properties(extractpdf.pdf_poster_split PROPERTIES TIMEOUT 60)
+
+if(WIN32 AND BUILD_SHARED_LIBS)
+  add_custom_command(TARGET extractpdf_test_pdf_poster_split POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      $<TARGET_FILE:extractpdf>
+      $<TARGET_FILE_DIR:extractpdf_test_pdf_poster_split>
+    VERBATIM)
+endif()

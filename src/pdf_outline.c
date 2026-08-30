@@ -1,4 +1,4 @@
-#include "pdf_internal.h"
+#include "pdf_outline_common.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -29,21 +29,6 @@ struct extractpdf_outline {
     size_t string_size;
     size_t string_capacity;
 };
-
-typedef struct extractpdf_outline_preflight_frame {
-    pdf_obj *parent;
-    pdf_obj *node;
-    pdf_obj *expected_prev;
-    size_t depth;
-} extractpdf_outline_preflight_frame;
-
-typedef struct extractpdf_outline_preflight {
-    extractpdf_outline_preflight_frame *stack;
-    size_t stack_count;
-    size_t stack_capacity;
-    size_t node_count;
-    int too_deep;
-} extractpdf_outline_preflight;
 
 static void extractpdf_dispose_outline(extractpdf_outline *outline)
 {
@@ -132,196 +117,6 @@ static extractpdf_status extractpdf_outline_append_string(
     *out_size = size;
     memcpy(outline->strings + outline->string_size, text, size + 1);
     outline->string_size = required;
-    return EXTRACTPDF_OK;
-}
-
-static extractpdf_status extractpdf_preflight_push(
-    extractpdf_outline_preflight *preflight,
-    const extractpdf_outline_preflight_frame *frame)
-{
-    size_t capacity;
-    extractpdf_outline_preflight_frame *grown;
-
-    if (preflight->stack_count == preflight->stack_capacity) {
-        if (preflight->stack_capacity == 0) {
-            capacity = 32;
-        } else {
-            if (preflight->stack_capacity > SIZE_MAX / 2)
-                return EXTRACTPDF_ERROR_NOMEM;
-            capacity = preflight->stack_capacity * 2;
-        }
-        if (capacity > SIZE_MAX / sizeof(*preflight->stack))
-            return EXTRACTPDF_ERROR_NOMEM;
-
-        grown = (extractpdf_outline_preflight_frame *)realloc(
-            preflight->stack, capacity * sizeof(*preflight->stack));
-        if (grown == NULL)
-            return EXTRACTPDF_ERROR_NOMEM;
-        preflight->stack = grown;
-        preflight->stack_capacity = capacity;
-    }
-
-    preflight->stack[preflight->stack_count++] = *frame;
-    return EXTRACTPDF_OK;
-}
-
-static extractpdf_status extractpdf_preflight_pdf_outline(
-    fz_context *ctx,
-    pdf_document *pdf,
-    size_t *out_count)
-{
-    pdf_obj *trailer;
-    pdf_obj *root;
-    pdf_obj *outlines;
-    pdf_obj *first;
-    pdf_obj *last;
-    pdf_mark_bits *marks = NULL;
-    extractpdf_outline_preflight *preflight;
-    extractpdf_outline_preflight_frame frame;
-    extractpdf_status status = EXTRACTPDF_OK;
-    int caught_code = FZ_ERROR_NONE;
-    size_t node_count;
-    int too_deep;
-
-    *out_count = 0;
-
-    preflight = (extractpdf_outline_preflight *)calloc(1, sizeof(*preflight));
-    if (preflight == NULL)
-        return EXTRACTPDF_ERROR_NOMEM;
-
-    fz_var(marks);
-    fz_var(status);
-    fz_var(caught_code);
-
-    fz_try(ctx)
-    {
-        trailer = pdf_trailer(ctx, pdf);
-        root = pdf_dict_get(ctx, trailer, PDF_NAME(Root));
-        if (!pdf_is_dict(ctx, root)) {
-            status = EXTRACTPDF_ERROR_FORMAT;
-        } else {
-            outlines = pdf_dict_get(ctx, root, PDF_NAME(Outlines));
-            if (outlines == NULL) {
-                status = EXTRACTPDF_OK;
-            } else if (!pdf_is_dict(ctx, outlines)) {
-                status = EXTRACTPDF_ERROR_FORMAT;
-            } else {
-                first = pdf_dict_get(ctx, outlines, PDF_NAME(First));
-                last = pdf_dict_get(ctx, outlines, PDF_NAME(Last));
-                if ((first == NULL) != (last == NULL)) {
-                    status = EXTRACTPDF_ERROR_FORMAT;
-                } else if (first != NULL) {
-                    marks = pdf_new_mark_bits(ctx, pdf);
-                    frame.parent = outlines;
-                    frame.node = first;
-                    frame.expected_prev = NULL;
-                    frame.depth = 1;
-                    status = extractpdf_preflight_push(preflight, &frame);
-                }
-            }
-        }
-
-        while (status == EXTRACTPDF_OK && preflight->stack_count != 0) {
-            pdf_obj *next;
-            pdf_obj *child;
-            pdf_obj *child_last;
-
-            frame = preflight->stack[--preflight->stack_count];
-
-            if (!pdf_is_dict(ctx, frame.node) ||
-                !pdf_is_indirect(ctx, frame.node)) {
-                status = EXTRACTPDF_ERROR_FORMAT;
-                break;
-            }
-            if (pdf_mark_bits_set(ctx, marks, frame.node)) {
-                status = EXTRACTPDF_ERROR_FORMAT;
-                break;
-            }
-            if (pdf_objcmp(
-                    ctx,
-                    pdf_dict_get(ctx, frame.node, PDF_NAME(Parent)),
-                    frame.parent) != 0) {
-                status = EXTRACTPDF_ERROR_FORMAT;
-                break;
-            }
-            if (pdf_objcmp(
-                    ctx,
-                    pdf_dict_get(ctx, frame.node, PDF_NAME(Prev)),
-                    frame.expected_prev) != 0) {
-                status = EXTRACTPDF_ERROR_FORMAT;
-                break;
-            }
-            if (preflight->node_count == SIZE_MAX) {
-                status = EXTRACTPDF_ERROR_NOMEM;
-                break;
-            }
-
-            ++preflight->node_count;
-            if (frame.depth > EXTRACTPDF_OUTLINE_MAX_DEPTH)
-                preflight->too_deep = 1;
-
-            next = pdf_dict_get(ctx, frame.node, PDF_NAME(Next));
-            child = pdf_dict_get(ctx, frame.node, PDF_NAME(First));
-            child_last = pdf_dict_get(ctx, frame.node, PDF_NAME(Last));
-
-            if ((child == NULL) != (child_last == NULL)) {
-                status = EXTRACTPDF_ERROR_FORMAT;
-                break;
-            }
-
-            if (next == NULL &&
-                pdf_objcmp(
-                    ctx,
-                    pdf_dict_get(ctx, frame.parent, PDF_NAME(Last)),
-                    frame.node) != 0) {
-                status = EXTRACTPDF_ERROR_FORMAT;
-                break;
-            }
-
-            if (next != NULL) {
-                extractpdf_outline_preflight_frame sibling = frame;
-                sibling.node = next;
-                sibling.expected_prev = frame.node;
-                status = extractpdf_preflight_push(preflight, &sibling);
-                if (status != EXTRACTPDF_OK)
-                    break;
-            }
-
-            if (child != NULL) {
-                extractpdf_outline_preflight_frame child_frame;
-                if (frame.depth == SIZE_MAX) {
-                    status = EXTRACTPDF_ERROR_NOMEM;
-                    break;
-                }
-                child_frame.parent = frame.node;
-                child_frame.node = child;
-                child_frame.expected_prev = NULL;
-                child_frame.depth = frame.depth + 1;
-                status = extractpdf_preflight_push(preflight, &child_frame);
-            }
-        }
-    }
-    fz_catch(ctx)
-    {
-        caught_code = fz_caught(ctx);
-        fz_report_error(ctx);
-    }
-
-    node_count = preflight->node_count;
-    too_deep = preflight->too_deep;
-    if (marks != NULL)
-        pdf_drop_mark_bits(ctx, marks);
-    free(preflight->stack);
-    free(preflight);
-
-    if (caught_code != FZ_ERROR_NONE)
-        return extractpdf_status_from_mupdf(caught_code);
-    if (status != EXTRACTPDF_OK)
-        return status;
-    if (too_deep)
-        return EXTRACTPDF_ERROR_UNSUPPORTED;
-
-    *out_count = node_count;
     return EXTRACTPDF_OK;
 }
 
@@ -548,8 +343,8 @@ extractpdf_status extractpdf_document_outline(
     {
         pdf = pdf_specifics(ctx, document->doc);
         if (pdf != NULL)
-            preflight_status = extractpdf_preflight_pdf_outline(
-                ctx, pdf, &count);
+            preflight_status = extractpdf_pdf_outline_walk_strict(
+                ctx, pdf, NULL, NULL, &count);
     }
     fz_catch(ctx)
     {
