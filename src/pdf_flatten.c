@@ -20,10 +20,9 @@ static extractpdf_status flatten_transform_changed(
     fz_stream *stream = NULL;
     pdf_document *private_document = NULL;
     extractpdf_pdf_flatten_plan *private_plan = NULL;
+    extractpdf_pdf_flatten_runtime *runtime = NULL;
     extractpdf_status status;
     int caught_code = FZ_ERROR_NONE;
-
-    (void)out_output;
 
     status = extractpdf_serialize_pdf(source_ctx, source_pdf, &seed);
     if (status != EXTRACTPDF_OK)
@@ -74,9 +73,19 @@ static extractpdf_status flatten_transform_changed(
         goto cleanup;
     }
 
-    status = EXTRACTPDF_ERROR_STATE;
+    status = extractpdf_pdf_flatten_resolve_runtime(
+        private_ctx, private_document, private_plan, &runtime);
+    if (status != EXTRACTPDF_OK)
+        goto cleanup;
+    status = extractpdf_pdf_flatten_apply_bake(
+        private_ctx, private_document, private_plan, runtime);
+    if (status != EXTRACTPDF_OK)
+        goto cleanup;
+    status = extractpdf_serialize_pdf(
+        private_ctx, private_document, out_output);
 
 cleanup:
+    extractpdf_pdf_flatten_drop_runtime(private_ctx, runtime);
     extractpdf_pdf_flatten_drop_plan(private_plan);
     pdf_drop_document(private_ctx, private_document);
     fz_drop_context(private_ctx);

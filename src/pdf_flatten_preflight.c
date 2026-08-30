@@ -2,6 +2,7 @@
 #include "pdf_annotation_common.h"
 #include "pdf_form_common.h"
 
+#include <limits.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -182,12 +183,121 @@ static extractpdf_status flatten_append_target(
     return EXTRACTPDF_OK;
 }
 
+static int flatten_dict_has_alias(
+    fz_context *ctx,
+    pdf_obj *dictionary,
+    size_t alias_number)
+{
+    char wanted[48];
+    int count;
+    int index;
+
+    if (dictionary == NULL)
+        return 0;
+    if (alias_number > (size_t)INT_MAX)
+        return 1;
+    if (fz_snprintf(wanted, sizeof(wanted), "EPB%d", (int)alias_number) >=
+        sizeof(wanted))
+        return 1;
+    count = pdf_dict_len(ctx, dictionary);
+    for (index = 0; index < count; ++index) {
+        pdf_obj *key = pdf_dict_get_key(ctx, dictionary, index);
+        const char *name;
+        if (!pdf_is_name(ctx, key))
+            continue;
+        name = pdf_to_name(ctx, key);
+        if (name != NULL && strcmp(name, wanted) == 0)
+            return 1;
+    }
+    return 0;
+}
+
+static extractpdf_status flatten_validate_changed_page(
+    fz_context *ctx,
+    pdf_obj *page,
+    size_t appearance_slot_count,
+    size_t **out_alias_numbers)
+{
+    pdf_obj *resources;
+    pdf_obj *xobjects = NULL;
+    pdf_obj *contents;
+    size_t *aliases = NULL;
+    size_t slot;
+
+    *out_alias_numbers = NULL;
+    resources = pdf_dict_get_inheritable(ctx, page, PDF_NAME(Resources));
+    if (resources != NULL && !pdf_is_null(ctx, resources)) {
+        if (!pdf_is_dict(ctx, resources))
+            return EXTRACTPDF_ERROR_FORMAT;
+        xobjects = pdf_dict_get(ctx, resources, PDF_NAME(XObject));
+        if (xobjects != NULL && !pdf_is_null(ctx, xobjects) &&
+            !pdf_is_dict(ctx, xobjects))
+            return EXTRACTPDF_ERROR_FORMAT;
+    }
+
+    contents = pdf_dict_get(ctx, page, PDF_NAME(Contents));
+    if (contents != NULL && !pdf_is_null(ctx, contents)) {
+        if (pdf_is_stream(ctx, contents)) {
+            if (!pdf_is_indirect(ctx, contents))
+                return EXTRACTPDF_ERROR_FORMAT;
+        } else if (pdf_is_array(ctx, contents)) {
+            int count = pdf_array_len(ctx, contents);
+            int index;
+            if (count < 0)
+                return EXTRACTPDF_ERROR_FORMAT;
+            for (index = 0; index < count; ++index) {
+                pdf_obj *entry = pdf_array_get(ctx, contents, index);
+                if (!pdf_is_indirect(ctx, entry) || !pdf_is_stream(ctx, entry))
+                    return EXTRACTPDF_ERROR_FORMAT;
+            }
+        } else {
+            return EXTRACTPDF_ERROR_FORMAT;
+        }
+    }
+
+    if (appearance_slot_count == 0)
+        return EXTRACTPDF_OK;
+    if (appearance_slot_count > SIZE_MAX / sizeof(*aliases))
+        return EXTRACTPDF_ERROR_NOMEM;
+    aliases = (size_t *)calloc(appearance_slot_count, sizeof(*aliases));
+    if (aliases == NULL)
+        return EXTRACTPDF_ERROR_NOMEM;
+
+    for (slot = 0; slot < appearance_slot_count; ++slot) {
+        size_t candidate = 0;
+        int collision;
+        do {
+            size_t prior;
+            if (candidate > (size_t)INT_MAX) {
+                free(aliases);
+                return EXTRACTPDF_ERROR_UNSUPPORTED;
+            }
+            collision = flatten_dict_has_alias(ctx, xobjects, candidate);
+            for (prior = 0; !collision && prior < slot; ++prior)
+                if (aliases[prior] == candidate)
+                    collision = 1;
+            if (collision) {
+                if (candidate == SIZE_MAX) {
+                    free(aliases);
+                    return EXTRACTPDF_ERROR_UNSUPPORTED;
+                }
+                ++candidate;
+            }
+        } while (collision);
+        aliases[slot] = candidate;
+    }
+
+    *out_alias_numbers = aliases;
+    return EXTRACTPDF_OK;
+}
+
 static extractpdf_status flatten_append_page(
     extractpdf_pdf_flatten_plan *plan,
     int page_index,
     size_t first_target,
     size_t target_count,
-    size_t appearance_slot_count)
+    size_t appearance_slot_count,
+    size_t *alias_numbers)
 {
     extractpdf_pdf_flatten_page_plan *grown;
     size_t next;
@@ -205,6 +315,7 @@ static extractpdf_status flatten_append_page(
     plan->pages[plan->page_count].first_target = first_target;
     plan->pages[plan->page_count].target_count = target_count;
     plan->pages[plan->page_count].appearance_slot_count = appearance_slot_count;
+    plan->pages[plan->page_count].alias_numbers = alias_numbers;
     plan->page_count = next;
     return EXTRACTPDF_OK;
 }
@@ -220,6 +331,7 @@ static extractpdf_status flatten_discover_annotations(
         pdf_obj *page = pdf_lookup_page_obj(ctx, document, page_index);
         pdf_obj *annots = NULL;
         pdf_obj **page_forms = NULL;
+        size_t *alias_numbers = NULL;
         size_t first_target = plan->target_count;
         size_t page_selected = 0;
         size_t appearance_slots = 0;
@@ -320,11 +432,24 @@ static extractpdf_status flatten_discover_annotations(
             ++page_selected;
         }
 
-        if (page_selected != 0)
-            status = flatten_append_page(
-                plan, page_index, first_target, page_selected, appearance_slots);
+        if (page_selected != 0) {
+            status = flatten_validate_changed_page(
+                ctx, page, appearance_slots, &alias_numbers);
+            if (status == EXTRACTPDF_OK) {
+                status = flatten_append_page(
+                    plan,
+                    page_index,
+                    first_target,
+                    page_selected,
+                    appearance_slots,
+                    alias_numbers);
+                if (status == EXTRACTPDF_OK)
+                    alias_numbers = NULL;
+            }
+        }
 
 page_cleanup:
+        free(alias_numbers);
         free(page_forms);
         if (status != EXTRACTPDF_OK)
             return status;
@@ -363,6 +488,8 @@ void extractpdf_pdf_flatten_drop_plan(
         return;
     for (index = 0; index < plan->target_count; ++index)
         free(plan->targets[index].appearance_state);
+    for (index = 0; index < plan->page_count; ++index)
+        free(plan->pages[index].alias_numbers);
     free(plan->targets);
     free(plan->pages);
     free(plan);
@@ -445,11 +572,15 @@ int extractpdf_pdf_flatten_plan_equivalent(
     for (index = 0; index < left->page_count; ++index) {
         const extractpdf_pdf_flatten_page_plan *a = &left->pages[index];
         const extractpdf_pdf_flatten_page_plan *b = &right->pages[index];
+        size_t alias;
         if (a->page_index != b->page_index ||
             a->first_target != b->first_target ||
             a->target_count != b->target_count ||
             a->appearance_slot_count != b->appearance_slot_count)
             return 0;
+        for (alias = 0; alias < a->appearance_slot_count; ++alias)
+            if (a->alias_numbers[alias] != b->alias_numbers[alias])
+                return 0;
     }
     for (index = 0; index < left->target_count; ++index) {
         const extractpdf_pdf_flatten_target_plan *a = &left->targets[index];

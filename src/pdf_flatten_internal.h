@@ -29,6 +29,7 @@ typedef struct extractpdf_pdf_flatten_page_plan {
     size_t first_target;
     size_t target_count;
     size_t appearance_slot_count;
+    size_t *alias_numbers;
 } extractpdf_pdf_flatten_page_plan;
 
 typedef struct extractpdf_pdf_flatten_form_plan
@@ -46,6 +47,22 @@ typedef struct extractpdf_pdf_flatten_plan {
     extractpdf_pdf_flatten_form_plan *form;
 } extractpdf_pdf_flatten_plan;
 
+typedef struct extractpdf_pdf_flatten_runtime_target {
+    pdf_obj *annotation;
+    pdf_obj *appearance;
+} extractpdf_pdf_flatten_runtime_target;
+
+typedef struct extractpdf_pdf_flatten_runtime_page {
+    pdf_obj *page;
+    extractpdf_pdf_flatten_runtime_target *targets;
+    size_t target_count;
+} extractpdf_pdf_flatten_runtime_page;
+
+typedef struct extractpdf_pdf_flatten_runtime {
+    extractpdf_pdf_flatten_runtime_page *pages;
+    size_t page_count;
+} extractpdf_pdf_flatten_runtime;
+
 extractpdf_status extractpdf_pdf_flatten_check_security(
     fz_context *ctx,
     pdf_document *document);
@@ -62,5 +79,21 @@ int extractpdf_pdf_flatten_plan_equivalent(
 
 void extractpdf_pdf_flatten_drop_plan(
     extractpdf_pdf_flatten_plan *plan);
+
+extractpdf_status extractpdf_pdf_flatten_resolve_runtime(
+    fz_context *ctx,
+    pdf_document *document,
+    const extractpdf_pdf_flatten_plan *plan,
+    extractpdf_pdf_flatten_runtime **out_runtime);
+
+extractpdf_status extractpdf_pdf_flatten_apply_bake(
+    fz_context *ctx,
+    pdf_document *document,
+    const extractpdf_pdf_flatten_plan *plan,
+    extractpdf_pdf_flatten_runtime *runtime);
+
+void extractpdf_pdf_flatten_drop_runtime(
+    fz_context *ctx,
+    extractpdf_pdf_flatten_runtime *runtime);
 
 #endif
