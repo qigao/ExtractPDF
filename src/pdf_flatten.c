@@ -163,12 +163,16 @@ extractpdf_status extractpdf_flatten_interactive(
         return EXTRACTPDF_ERROR_UNSUPPORTED;
 
     status = extractpdf_pdf_flatten_check_security(document->ctx, source_pdf);
-    if (status != EXTRACTPDF_OK)
+    if (status != EXTRACTPDF_OK) {
+        flatten_test_trace("source-security", status);
         return status;
+    }
     status = extractpdf_pdf_flatten_build_plan(
         document->ctx, source_pdf, flags, &source_plan);
-    if (status != EXTRACTPDF_OK)
+    if (status != EXTRACTPDF_OK) {
+        flatten_test_trace("source-plan", status);
         return status;
+    }
 
     if (!source_plan->any_changed) {
         status = extractpdf_serialize_pdf(
