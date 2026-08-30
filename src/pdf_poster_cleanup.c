@@ -18,4 +18,9 @@ void extractpdf_pdf_poster_drop_annotation_plans(
         split->annots = NULL;
         split->annot_count = 0;
     }
+
+    free(plan->destinations);
+    plan->destinations = NULL;
+    plan->destination_count = 0;
+    plan->destination_capacity = 0;
 }
