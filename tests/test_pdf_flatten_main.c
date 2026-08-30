@@ -6,5 +6,7 @@ int main(void)
 {
     if (extractpdf_test_pdf_flatten_appearance() != 0)
         return 1;
+    if (extractpdf_test_pdf_flatten_raw() != 0)
+        return 1;
     return extractpdf_pdf_flatten_base_main();
 }

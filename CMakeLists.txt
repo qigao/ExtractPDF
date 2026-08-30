@@ -143,11 +143,14 @@ if(EXTRACTPDF_BUILD_TESTS)
     PROPERTY COMPILE_DEFINITIONS "main=extractpdf_pdf_flatten_base_main")
   target_sources(extractpdf_test_pdf_flatten PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_flatten_appearance.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_flatten_raw.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_flatten_main.c")
   target_link_libraries(extractpdf_test_pdf_flatten PRIVATE
     unofficial::libmupdf::libmupdf)
   target_compile_definitions(extractpdf_test_pdf_flatten PRIVATE
     FLATTEN_NO_ANNOTATIONS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/one-page.pdf"
     FLATTEN_APPEARANCE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-appearance.pdf"
-    FLATTEN_APPEARANCE_MALFORMED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-appearance-malformed.pdf")
+    FLATTEN_APPEARANCE_MALFORMED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-appearance-malformed.pdf"
+    FLATTEN_CONTENTS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-contents.pdf"
+    FLATTEN_CONTENTS_MALFORMED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-contents-malformed.pdf")
 endif()
