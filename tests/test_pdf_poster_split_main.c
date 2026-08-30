@@ -8,5 +8,7 @@ int main(void)
         return 1;
     if (extractpdf_pdf_poster_split_base_main() != 0)
         return 1;
-    return poster_run_geometry_tests();
+    if (poster_run_geometry_tests() != 0)
+        return 1;
+    return poster_run_interactive_tests();
 }
