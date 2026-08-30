@@ -98,10 +98,14 @@ if(EXTRACTPDF_BUILD_TESTS)
     TARGET_DIRECTORY extractpdf_test_pdf_poster_split
     PROPERTY COMPILE_DEFINITIONS "main=extractpdf_pdf_poster_split_base_main")
   target_sources(extractpdf_test_pdf_poster_split PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_raw.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_geometry.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_policy.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_main.c")
+  target_link_libraries(extractpdf_test_pdf_poster_split PRIVATE
+    unofficial::libmupdf::libmupdf)
   target_compile_definitions(extractpdf_test_pdf_poster_split PRIVATE
+    POSTER_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/poster-split-output.pdf"
     POSTER_ROTATE_90_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-rotate-90.pdf"
     POSTER_USERUNIT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-userunit.pdf"
     POSTER_PRODUCTION_BOX_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-production-box.pdf"
