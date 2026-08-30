@@ -27,6 +27,25 @@ typedef struct extractpdf_pdf_poster_annot_plan {
     size_t form_widget_index;
 } extractpdf_pdf_poster_annot_plan;
 
+typedef enum extractpdf_pdf_poster_dest_owner_kind {
+    EXTRACTPDF_PDF_POSTER_DEST_LINK_DIRECT = 1,
+    EXTRACTPDF_PDF_POSTER_DEST_LINK_ACTION = 2,
+    EXTRACTPDF_PDF_POSTER_DEST_OUTLINE_DIRECT = 3,
+    EXTRACTPDF_PDF_POSTER_DEST_OUTLINE_ACTION = 4,
+    EXTRACTPDF_PDF_POSTER_DEST_NAME_TREE = 5,
+    EXTRACTPDF_PDF_POSTER_DEST_LEGACY_DICT = 6
+} extractpdf_pdf_poster_dest_owner_kind;
+
+typedef struct extractpdf_pdf_poster_dest_plan {
+    extractpdf_pdf_poster_dest_owner_kind owner_kind;
+    int owner_page_index;
+    size_t owner_ordinal;
+    int source_target_page_index;
+    extractpdf_point target_public;
+    size_t split_plan_index;
+    size_t tile_index;
+} extractpdf_pdf_poster_dest_plan;
+
 typedef struct extractpdf_pdf_poster_split_plan {
     int page_index;
     size_t columns;
@@ -48,6 +67,9 @@ typedef struct extractpdf_pdf_poster_plan {
     int output_page_count;
     int any_changed;
     int expansion_policy_applied;
+    extractpdf_pdf_poster_dest_plan *destinations;
+    size_t destination_count;
+    size_t destination_capacity;
 } extractpdf_pdf_poster_plan;
 
 typedef struct extractpdf_pdf_poster_private_split {
@@ -102,6 +124,12 @@ extractpdf_status extractpdf_pdf_poster_navigation_preflight(
     fz_context *ctx,
     pdf_document *document,
     extractpdf_pdf_poster_plan *plan);
+
+extractpdf_status extractpdf_pdf_poster_apply_navigation(
+    fz_context *ctx,
+    pdf_document *document,
+    const extractpdf_pdf_poster_plan *plan,
+    extractpdf_pdf_poster_private_split *runtime);
 
 int extractpdf_pdf_poster_plan_equivalent(
     const extractpdf_pdf_poster_plan *left,
