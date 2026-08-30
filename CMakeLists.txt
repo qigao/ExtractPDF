@@ -90,4 +90,13 @@ if(EXTRACTPDF_BUILD_TESTS)
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_trim_main.c")
   target_link_libraries(extractpdf_test_pdf_trim PRIVATE
     unofficial::libmupdf::libmupdf)
+  set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split.c"
+    TARGET_DIRECTORY extractpdf_test_pdf_poster_split
+    PROPERTY COMPILE_DEFINITIONS "main=extractpdf_pdf_poster_split_base_main")
+  target_sources(extractpdf_test_pdf_poster_split PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_geometry.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_main.c")
+  target_compile_definitions(extractpdf_test_pdf_poster_split PRIVATE
+    POSTER_ROTATE_90_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-rotate-90.pdf"
+    POSTER_USERUNIT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-userunit.pdf")
 endif()
