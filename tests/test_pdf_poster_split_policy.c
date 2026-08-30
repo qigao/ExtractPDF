@@ -64,6 +64,8 @@ int poster_run_policy_tests(void)
         POSTER_CROSSING_ANNOTATION_PDF, 2, 1, EXTRACTPDF_ERROR_UNSUPPORTED);
     expect_policy_status(
         POSTER_CROSSING_WIDGET_PDF, 2, 1, EXTRACTPDF_ERROR_UNSUPPORTED);
+    expect_policy_status(
+        POSTER_ORPHAN_WIDGET_PDF, 2, 1, EXTRACTPDF_ERROR_FORMAT);
 
     /* Expansion-only restrictions do not apply to a pure semantic no-op. */
     expect_policy_status(POSTER_TAGGED_PDF, 1, 1, EXTRACTPDF_OK);
