@@ -12,6 +12,10 @@ int poster_raw_check_basic_tiles(
     int expected_rotate,
     float expected_user_unit);
 
+int poster_raw_check_interactive(
+    const unsigned char *data,
+    size_t size);
+
 int poster_run_geometry_tests(void);
 int poster_run_policy_tests(void);
 int poster_run_interactive_tests(void);
