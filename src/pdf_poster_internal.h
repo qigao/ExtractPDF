@@ -125,6 +125,10 @@ extractpdf_status extractpdf_pdf_poster_navigation_preflight(
     pdf_document *document,
     extractpdf_pdf_poster_plan *plan);
 
+int extractpdf_pdf_poster_navigation_plans_equivalent(
+    const extractpdf_pdf_poster_plan *left,
+    const extractpdf_pdf_poster_plan *right);
+
 extractpdf_status extractpdf_pdf_poster_apply_navigation(
     fz_context *ctx,
     pdf_document *document,
