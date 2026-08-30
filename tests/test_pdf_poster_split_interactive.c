@@ -29,6 +29,18 @@ static extractpdf_document *open_document(const char *path)
     return document;
 }
 
+static void expect_source_form_valid(extractpdf_document *source)
+{
+    extractpdf_form *form = NULL;
+    extractpdf_status status = extractpdf_document_form(source, &form);
+    if (status != EXTRACTPDF_OK)
+        fprintf(stderr, "source form status: %s (%d)\n",
+            extractpdf_status_string(status), (int)status);
+    CHECK(status == EXTRACTPDF_OK);
+    CHECK(form != NULL);
+    extractpdf_drop_form(form);
+}
+
 static extractpdf_output *split_interactive(extractpdf_document *source)
 {
     extractpdf_page_poster_split split;
@@ -179,9 +191,13 @@ static void expect_widget(extractpdf_document *document)
 int poster_run_interactive_tests(void)
 {
     extractpdf_document *source = open_document(POSTER_INTERACTIVE_PDF);
-    extractpdf_output *output = split_interactive(source);
-    extractpdf_document *reopened = open_document(POSTER_OUTPUT_PDF);
+    extractpdf_output *output;
+    extractpdf_document *reopened;
     int count = 0;
+
+    expect_source_form_valid(source);
+    output = split_interactive(source);
+    reopened = open_document(POSTER_OUTPUT_PDF);
 
     CHECK(extractpdf_page_count(reopened, &count) == EXTRACTPDF_OK);
     CHECK(count == 5);
