@@ -10,5 +10,7 @@ int main(void)
         return 1;
     if (poster_run_geometry_tests() != 0)
         return 1;
-    return poster_run_interactive_tests();
+    if (poster_run_interactive_tests() != 0)
+        return 1;
+    return poster_run_navigation_tests();
 }
