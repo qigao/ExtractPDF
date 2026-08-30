@@ -1,8 +1,12 @@
 #include "test_pdf_flatten_internal.h"
 
+#include "../src/internal.h"
+#include "../src/pdf_appearance_common.h"
+
 #include <extractpdf/extractpdf.h>
 
 #include <stdio.h>
+#include <string.h>
 
 #define CHECK(x) do { \
     if (!(x)) { \
@@ -26,6 +30,39 @@ static int check_source_widget_count(
     return 0;
 }
 
+static int check_source_widget_appearance(extractpdf_document *document)
+{
+    pdf_document *pdf;
+    pdf_obj *page;
+    pdf_obj *annots;
+    pdf_obj *widget;
+    pdf_obj *appearance = NULL;
+    extractpdf_pdf_appearance_view view;
+    extractpdf_status status;
+
+    memset(&view, 0, sizeof(view));
+    pdf = pdf_document_from_fz_document(document->ctx, document->doc);
+    CHECK(pdf != NULL);
+    page = pdf_lookup_page_obj(document->ctx, pdf, 0);
+    CHECK(pdf_is_dict(document->ctx, page));
+    annots = pdf_dict_get(document->ctx, page, PDF_NAME(Annots));
+    CHECK(pdf_is_array(document->ctx, annots));
+    CHECK(pdf_array_len(document->ctx, annots) == 1);
+    widget = pdf_array_get(document->ctx, annots, 0);
+    CHECK(pdf_is_indirect(document->ctx, widget));
+    CHECK(pdf_is_dict(document->ctx, widget));
+
+    status = extractpdf_pdf_appearance_resolve(
+        document->ctx, pdf, widget, &view, &appearance);
+    fprintf(stderr, "merged widget appearance status=%d\n", (int)status);
+    CHECK(status == EXTRACTPDF_OK);
+    CHECK(appearance != NULL);
+    CHECK(pdf_is_indirect(document->ctx, appearance));
+    CHECK(pdf_is_stream(document->ctx, appearance));
+    extractpdf_pdf_appearance_drop_view(&view);
+    return 0;
+}
+
 int extractpdf_test_pdf_flatten_form(void)
 {
     extractpdf_document *document = NULL;
@@ -35,6 +72,7 @@ int extractpdf_test_pdf_flatten_form(void)
     CHECK(extractpdf_open(FLATTEN_WIDGETS_PDF, NULL, &document) == EXTRACTPDF_OK);
     CHECK(document != NULL);
     CHECK(check_source_widget_count(document, 1) == 0);
+    CHECK(check_source_widget_appearance(document) == 0);
 
     status = extractpdf_flatten_interactive(
         document,
