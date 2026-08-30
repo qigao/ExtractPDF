@@ -24,5 +24,6 @@ int poster_run_geometry_tests(void);
 int poster_run_policy_tests(void);
 int poster_run_interactive_tests(void);
 int poster_run_navigation_tests(void);
+int poster_run_batch_tests(void);
 
 #endif
