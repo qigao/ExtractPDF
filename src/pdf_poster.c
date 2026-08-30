@@ -315,6 +315,10 @@ static extractpdf_status poster_transform_changed(
         private_ctx, private_document, private_plan);
     if (status != EXTRACTPDF_OK)
         goto cleanup;
+    status = extractpdf_pdf_poster_widget_provenance_preflight(
+        private_ctx, private_document, private_plan);
+    if (status != EXTRACTPDF_OK)
+        goto cleanup;
     status = extractpdf_pdf_poster_navigation_preflight(
         private_ctx, private_document, private_plan);
     if (status != EXTRACTPDF_OK)
@@ -396,6 +400,9 @@ extractpdf_status extractpdf_poster_split_pages(
     } else {
         status = extractpdf_pdf_poster_annotations_preflight(
             document->ctx, source_pdf, plan);
+        if (status == EXTRACTPDF_OK)
+            status = extractpdf_pdf_poster_widget_provenance_preflight(
+                document->ctx, source_pdf, plan);
         if (status == EXTRACTPDF_OK)
             status = extractpdf_pdf_poster_navigation_preflight(
                 document->ctx, source_pdf, plan);
