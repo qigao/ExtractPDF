@@ -150,6 +150,7 @@ if(EXTRACTPDF_BUILD_TESTS)
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_flatten_form_multi.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_flatten_form_closure.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_flatten_form_ancestor_survives.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_flatten_widget_as.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_flatten_main.c")
   target_link_libraries(extractpdf_test_pdf_flatten PRIVATE
     unofficial::libmupdf::libmupdf)
@@ -165,5 +166,6 @@ if(EXTRACTPDF_BUILD_TESTS)
     FLATTEN_FORM_CO_COW_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-form-co-cow.pdf"
     FLATTEN_MULTI_WIDGET_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-multi-widget.pdf"
     FLATTEN_FORM_CLOSURE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-form-closure.pdf"
-    FLATTEN_FORM_ANCESTOR_SURVIVES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-form-ancestor-survives.pdf")
+    FLATTEN_FORM_ANCESTOR_SURVIVES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-form-ancestor-survives.pdf"
+    FLATTEN_WIDGET_AS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-widget-as.pdf")
 endif()
