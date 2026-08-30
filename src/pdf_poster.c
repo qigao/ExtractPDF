@@ -31,11 +31,20 @@ extractpdf_status extractpdf_poster_split_pages(
     if (status != EXTRACTPDF_OK)
         return status;
 
-    if (!plan->any_changed)
+    if (!plan->any_changed) {
         status = extractpdf_serialize_pdf(document->ctx, source_pdf, out_output);
-    else
-        status = EXTRACTPDF_ERROR_UNSUPPORTED;
+    } else {
+        status = extractpdf_pdf_poster_annotations_preflight(
+            document->ctx, source_pdf, plan);
+        if (status == EXTRACTPDF_OK) {
+            status = extractpdf_pdf_poster_navigation_preflight(
+                document->ctx, source_pdf, plan);
+        }
+        if (status == EXTRACTPDF_OK)
+            status = EXTRACTPDF_ERROR_UNSUPPORTED;
+    }
 
+    extractpdf_pdf_poster_drop_annotation_plans(plan);
     extractpdf_pdf_poster_drop_plan(plan);
     return status;
 }
