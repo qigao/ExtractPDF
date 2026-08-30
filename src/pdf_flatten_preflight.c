@@ -1,6 +1,5 @@
 #include "pdf_flatten_internal.h"
 #include "pdf_annotation_common.h"
-#include "pdf_form_common.h"
 
 #include <limits.h>
 #include <stdint.h>
@@ -139,6 +138,7 @@ static extractpdf_status flatten_append_target(
     const extractpdf_pdf_appearance_view *view,
     int page_index,
     size_t annot_ordinal,
+    extractpdf_pdf_flatten_target_kind kind,
     extractpdf_annotation_type type,
     uint32_t flags,
     size_t appearance_slot)
@@ -160,7 +160,7 @@ static extractpdf_status flatten_append_target(
     memset(target, 0, sizeof(*target));
     target->page_index = page_index;
     target->annot_ordinal = annot_ordinal;
-    target->kind = EXTRACTPDF_PDF_FLATTEN_TARGET_ANNOTATION;
+    target->kind = kind;
     target->annotation_type = type;
     target->flags = flags;
     target->rect = view->rect;
@@ -276,13 +276,8 @@ static extractpdf_status flatten_validate_changed_page(
             for (prior = 0; !collision && prior < slot; ++prior)
                 if (aliases[prior] == candidate)
                     collision = 1;
-            if (collision) {
-                if (candidate == SIZE_MAX) {
-                    free(aliases);
-                    return EXTRACTPDF_ERROR_UNSUPPORTED;
-                }
+            if (collision)
                 ++candidate;
-            }
         } while (collision);
         aliases[slot] = candidate;
     }
@@ -419,13 +414,9 @@ static extractpdf_status flatten_discover_annotations(
             page_forms[page_selected] = form;
 
             status = flatten_append_target(
-                plan,
-                &view,
-                page_index,
-                (size_t)annot_index,
-                type,
-                flags,
-                slot);
+                plan, &view, page_index, (size_t)annot_index,
+                EXTRACTPDF_PDF_FLATTEN_TARGET_ANNOTATION,
+                type, flags, slot);
             extractpdf_pdf_appearance_drop_view(&view);
             if (status != EXTRACTPDF_OK)
                 goto page_cleanup;
@@ -437,12 +428,8 @@ static extractpdf_status flatten_discover_annotations(
                 ctx, page, appearance_slots, &alias_numbers);
             if (status == EXTRACTPDF_OK) {
                 status = flatten_append_page(
-                    plan,
-                    page_index,
-                    first_target,
-                    page_selected,
-                    appearance_slots,
-                    alias_numbers);
+                    plan, page_index, first_target, page_selected,
+                    appearance_slots, alias_numbers);
                 if (status == EXTRACTPDF_OK)
                     alias_numbers = NULL;
             }
@@ -457,26 +444,149 @@ page_cleanup:
     return EXTRACTPDF_OK;
 }
 
-static extractpdf_status flatten_discover_widgets_pending(
+static extractpdf_status flatten_discover_widgets(
     fz_context *ctx,
-    pdf_document *document)
+    pdf_document *document,
+    extractpdf_pdf_flatten_plan *plan)
 {
     extractpdf_pdf_form_model *model = NULL;
     extractpdf_pdf_form_provenance *provenance = NULL;
     extractpdf_status status;
-    size_t widget_count = 0;
+    size_t selected_total = 0;
+    int page_index;
 
     status = extractpdf_pdf_form_build(
         ctx, document, 1, &model, &provenance);
-    if (status == EXTRACTPDF_OK)
-        widget_count = model->widget_count;
-    extractpdf_pdf_form_drop_provenance(ctx, provenance);
-    extractpdf_pdf_form_drop_model(model);
     if (status != EXTRACTPDF_OK)
         return status;
-    if (widget_count != 0)
-        return EXTRACTPDF_ERROR_STATE;
-    return EXTRACTPDF_OK;
+    if (model->widget_count == 0) {
+        extractpdf_pdf_form_drop_provenance(ctx, provenance);
+        extractpdf_pdf_form_drop_model(model);
+        return EXTRACTPDF_OK;
+    }
+
+    for (page_index = 0; page_index < plan->source_page_count; ++page_index) {
+        pdf_obj *page = pdf_lookup_page_obj(ctx, document, page_index);
+        pdf_obj *annots = NULL;
+        pdf_obj **page_forms = NULL;
+        size_t *alias_numbers = NULL;
+        size_t first_target = plan->target_count;
+        size_t page_selected = 0;
+        size_t appearance_slots = 0;
+        int annot_count;
+        int annot_index;
+
+        if (!pdf_is_dict(ctx, page)) {
+            status = EXTRACTPDF_ERROR_FORMAT;
+            goto cleanup;
+        }
+        if (!extractpdf_pdf_dict_find(ctx, page, PDF_NAME(Annots), &annots))
+            continue;
+        if (!pdf_is_array(ctx, annots)) {
+            status = EXTRACTPDF_ERROR_FORMAT;
+            goto cleanup;
+        }
+        annot_count = pdf_array_len(ctx, annots);
+        if (annot_count < 0) {
+            status = EXTRACTPDF_ERROR_FORMAT;
+            goto cleanup;
+        }
+        if (annot_count != 0) {
+            page_forms = (pdf_obj **)calloc((size_t)annot_count, sizeof(*page_forms));
+            if (page_forms == NULL) {
+                status = EXTRACTPDF_ERROR_NOMEM;
+                goto cleanup;
+            }
+        }
+
+        for (annot_index = 0; annot_index < annot_count; ++annot_index) {
+            pdf_obj *annotation = pdf_array_get(ctx, annots, annot_index);
+            pdf_obj *subtype = NULL;
+            extractpdf_pdf_appearance_view view;
+            pdf_obj *form = NULL;
+            uint32_t flags = 0;
+            size_t slot;
+            size_t prior;
+
+            memset(&view, 0, sizeof(view));
+            if (!pdf_is_indirect(ctx, annotation) || !pdf_is_dict(ctx, annotation)) {
+                status = EXTRACTPDF_ERROR_FORMAT;
+                goto widget_page_cleanup;
+            }
+            if (!extractpdf_pdf_dict_find(
+                    ctx, annotation, PDF_NAME(Subtype), &subtype) ||
+                !pdf_is_name(ctx, subtype)) {
+                status = EXTRACTPDF_ERROR_FORMAT;
+                goto widget_page_cleanup;
+            }
+            if (!pdf_name_eq(ctx, subtype, PDF_NAME(Widget)))
+                continue;
+
+            status = extractpdf_pdf_appearance_resolve(
+                ctx, document, annotation, &view, &form);
+            if (status != EXTRACTPDF_OK) {
+                extractpdf_pdf_appearance_drop_view(&view);
+                goto widget_page_cleanup;
+            }
+            status = extractpdf_pdf_read_optional_uint32(
+                ctx, annotation, PDF_NAME(F), 0, &flags);
+            if (status != EXTRACTPDF_OK) {
+                extractpdf_pdf_appearance_drop_view(&view);
+                goto widget_page_cleanup;
+            }
+
+            slot = appearance_slots;
+            for (prior = 0; prior < page_selected; ++prior) {
+                if (flatten_same_indirect(ctx, page_forms[prior], form)) {
+                    slot = plan->targets[first_target + prior].appearance_slot;
+                    break;
+                }
+            }
+            if (prior == page_selected)
+                ++appearance_slots;
+            page_forms[page_selected] = form;
+
+            status = flatten_append_target(
+                plan, &view, page_index, (size_t)annot_index,
+                EXTRACTPDF_PDF_FLATTEN_TARGET_WIDGET,
+                EXTRACTPDF_ANNOTATION_UNKNOWN, flags, slot);
+            extractpdf_pdf_appearance_drop_view(&view);
+            if (status != EXTRACTPDF_OK)
+                goto widget_page_cleanup;
+            ++page_selected;
+            ++selected_total;
+        }
+
+        if (page_selected != 0) {
+            status = flatten_validate_changed_page(
+                ctx, page, appearance_slots, &alias_numbers);
+            if (status == EXTRACTPDF_OK) {
+                status = flatten_append_page(
+                    plan, page_index, first_target, page_selected,
+                    appearance_slots, alias_numbers);
+                if (status == EXTRACTPDF_OK)
+                    alias_numbers = NULL;
+            }
+        }
+
+widget_page_cleanup:
+        free(alias_numbers);
+        free(page_forms);
+        if (status != EXTRACTPDF_OK)
+            goto cleanup;
+    }
+
+    if (selected_total != model->widget_count) {
+        status = EXTRACTPDF_ERROR_FORMAT;
+        goto cleanup;
+    }
+    status = extractpdf_pdf_flatten_form_preflight(
+        ctx, document, model, provenance, plan);
+
+cleanup:
+    extractpdf_pdf_form_drop_provenance(ctx, provenance);
+    extractpdf_pdf_form_drop_model(model);
+    return status;
 }
 
 void extractpdf_pdf_flatten_drop_plan(
@@ -490,6 +600,7 @@ void extractpdf_pdf_flatten_drop_plan(
         free(plan->targets[index].appearance_state);
     for (index = 0; index < plan->page_count; ++index)
         free(plan->pages[index].alias_numbers);
+    extractpdf_pdf_flatten_form_drop_plan(plan->form);
     free(plan->targets);
     free(plan->pages);
     free(plan);
@@ -526,7 +637,12 @@ extractpdf_status extractpdf_pdf_flatten_build_plan(
             goto fail;
     }
     if ((flags & EXTRACTPDF_FLATTEN_WIDGETS) != 0) {
-        status = flatten_discover_widgets_pending(ctx, document);
+        if ((flags & EXTRACTPDF_FLATTEN_ANNOTATIONS) != 0 &&
+            plan->target_count != 0) {
+            status = EXTRACTPDF_ERROR_STATE;
+            goto fail;
+        }
+        status = flatten_discover_widgets(ctx, document, plan);
         if (status != EXTRACTPDF_OK)
             goto fail;
     }
@@ -566,7 +682,8 @@ int extractpdf_pdf_flatten_plan_equivalent(
         left->target_count != right->target_count ||
         left->page_count != right->page_count ||
         left->any_changed != right->any_changed ||
-        left->policy_complete != right->policy_complete)
+        left->policy_complete != right->policy_complete ||
+        !extractpdf_pdf_flatten_form_plan_equivalent(left->form, right->form))
         return 0;
 
     for (index = 0; index < left->page_count; ++index) {

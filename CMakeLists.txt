@@ -59,6 +59,7 @@ add_library(extractpdf
   src/pdf_edit_annotations.c
   src/pdf_appearance_common.c
   src/pdf_flatten_preflight.c
+  src/pdf_flatten_form.c
   src/pdf_flatten_bake.c
   src/pdf_flatten.c)
 add_library(ExtractPDF::ExtractPDF ALIAS extractpdf)

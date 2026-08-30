@@ -77,7 +77,15 @@ static extractpdf_status flatten_transform_changed(
         private_ctx, private_document, private_plan, &runtime);
     if (status != EXTRACTPDF_OK)
         goto cleanup;
+    status = extractpdf_pdf_flatten_form_resolve_runtime(
+        private_ctx, private_document, private_plan, runtime);
+    if (status != EXTRACTPDF_OK)
+        goto cleanup;
     status = extractpdf_pdf_flatten_apply_bake(
+        private_ctx, private_document, private_plan, runtime);
+    if (status != EXTRACTPDF_OK)
+        goto cleanup;
+    status = extractpdf_pdf_flatten_form_apply(
         private_ctx, private_document, private_plan, runtime);
     if (status != EXTRACTPDF_OK)
         goto cleanup;
@@ -85,6 +93,10 @@ static extractpdf_status flatten_transform_changed(
         private_ctx, private_document, out_output);
 
 cleanup:
+    if (runtime != NULL) {
+        extractpdf_pdf_flatten_form_drop_runtime(private_ctx, runtime->form);
+        runtime->form = NULL;
+    }
     extractpdf_pdf_flatten_drop_runtime(private_ctx, runtime);
     extractpdf_pdf_flatten_drop_plan(private_plan);
     pdf_drop_document(private_ctx, private_document);
