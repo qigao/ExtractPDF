@@ -16,6 +16,7 @@ static void check_impl(int ok, const char *expr, int line)
 int main(void)
 {
     extractpdf_document *document = NULL;
+    extractpdf_document *no_annotations = NULL;
     extractpdf_output *output = NULL;
     extractpdf_output *sentinel = (extractpdf_output *)(uintptr_t)1;
 
@@ -42,6 +43,19 @@ int main(void)
         document,
         EXTRACTPDF_FLATTEN_ANNOTATIONS,
         NULL) == EXTRACTPDF_ERROR_ARGUMENT);
+
+    CHECK(extractpdf_open(
+        FLATTEN_NO_ANNOTATIONS_PDF, NULL, &no_annotations) == EXTRACTPDF_OK);
+    CHECK(no_annotations != NULL);
+    CHECK(extractpdf_flatten_interactive(
+        no_annotations,
+        EXTRACTPDF_FLATTEN_ANNOTATIONS,
+        &output) == EXTRACTPDF_OK);
+    CHECK(output != NULL);
+    extractpdf_drop_output(output);
+    output = NULL;
+    extractpdf_close(no_annotations);
+    no_annotations = NULL;
 
     CHECK(extractpdf_flatten_interactive(
         document,

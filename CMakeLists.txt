@@ -136,4 +136,16 @@ if(EXTRACTPDF_BUILD_TESTS)
     POSTER_CROSSING_ANNOTATION_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-crossing-annotation.pdf"
     POSTER_CROSSING_WIDGET_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-crossing-widget.pdf"
     POSTER_ORPHAN_WIDGET_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-orphan-widget.pdf")
+  set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_flatten.c"
+    TARGET_DIRECTORY extractpdf_test_pdf_flatten
+    PROPERTY COMPILE_DEFINITIONS "main=extractpdf_pdf_flatten_base_main")
+  target_sources(extractpdf_test_pdf_flatten PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_flatten_appearance.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_flatten_main.c")
+  target_link_libraries(extractpdf_test_pdf_flatten PRIVATE
+    unofficial::libmupdf::libmupdf)
+  target_compile_definitions(extractpdf_test_pdf_flatten PRIVATE
+    FLATTEN_NO_ANNOTATIONS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/one-page.pdf"
+    FLATTEN_APPEARANCE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-appearance.pdf"
+    FLATTEN_APPEARANCE_MALFORMED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-appearance-malformed.pdf")
 endif()
