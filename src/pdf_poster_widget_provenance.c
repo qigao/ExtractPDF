@@ -56,10 +56,6 @@ static extractpdf_status poster_assign_widget_locator(
             &provenance->fields[field_index];
         size_t widget_index;
 
-        if (field_index >= model->field_count ||
-            model->fields[field_index].widget_count != live_field->widget_count)
-            return EXTRACTPDF_ERROR_FORMAT;
-
         for (widget_index = 0; widget_index < live_field->widget_count;
              ++widget_index) {
             const extractpdf_pdf_form_live_widget *live_widget =
