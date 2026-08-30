@@ -33,11 +33,16 @@ static extractpdf_output *split_interactive(extractpdf_document *source)
 {
     extractpdf_page_poster_split split;
     extractpdf_output *output = NULL;
+    extractpdf_status status;
     split.struct_size = sizeof(split);
     split.page_index = 0;
     split.columns = 2;
     split.rows = 2;
-    CHECK(extractpdf_poster_split_pages(source, &split, 1, &output) == EXTRACTPDF_OK);
+    status = extractpdf_poster_split_pages(source, &split, 1, &output);
+    if (status != EXTRACTPDF_OK)
+        fprintf(stderr, "interactive poster split status: %s (%d)\n",
+            extractpdf_status_string(status), (int)status);
+    CHECK(status == EXTRACTPDF_OK);
     CHECK(output != NULL);
     CHECK(extractpdf_output_save_file(output, POSTER_OUTPUT_PDF) == EXTRACTPDF_OK);
     return output;
