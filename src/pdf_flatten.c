@@ -1,28 +1,12 @@
 #include "pdf_flatten_internal.h"
 
 #include <stdint.h>
-#ifdef EXTRACTPDF_TESTING
-#include <stdio.h>
-#endif
 
 static void flatten_discard_log(void *user, const char *message)
 {
     (void)user;
     (void)message;
 }
-
-#ifdef EXTRACTPDF_TESTING
-static void flatten_test_trace(const char *stage, extractpdf_status status)
-{
-    fprintf(stderr, "flatten stage=%s status=%d\n", stage, (int)status);
-}
-#else
-static void flatten_test_trace(const char *stage, extractpdf_status status)
-{
-    (void)stage;
-    (void)status;
-}
-#endif
 
 static extractpdf_status flatten_transform_changed(
     fz_context *source_ctx,
@@ -41,10 +25,8 @@ static extractpdf_status flatten_transform_changed(
     int caught_code = FZ_ERROR_NONE;
 
     status = extractpdf_serialize_pdf(source_ctx, source_pdf, &seed);
-    if (status != EXTRACTPDF_OK) {
-        flatten_test_trace("seed-serialize", status);
+    if (status != EXTRACTPDF_OK)
         return status;
-    }
 
     private_ctx = fz_new_context(NULL, NULL, FZ_STORE_DEFAULT);
     if (private_ctx == NULL) {
@@ -75,56 +57,40 @@ static extractpdf_status flatten_transform_changed(
     }
     if (caught_code != FZ_ERROR_NONE) {
         status = extractpdf_status_from_mupdf(caught_code);
-        flatten_test_trace("private-open", status);
         goto cleanup;
     }
 
     status = extractpdf_pdf_flatten_check_security(
         private_ctx, private_document);
-    if (status != EXTRACTPDF_OK) {
-        flatten_test_trace("private-security", status);
+    if (status != EXTRACTPDF_OK)
         goto cleanup;
-    }
     status = extractpdf_pdf_flatten_build_plan(
         private_ctx, private_document, flags, &private_plan);
-    if (status != EXTRACTPDF_OK) {
-        flatten_test_trace("private-plan", status);
+    if (status != EXTRACTPDF_OK)
         goto cleanup;
-    }
     if (!extractpdf_pdf_flatten_plan_equivalent(source_plan, private_plan)) {
         status = EXTRACTPDF_ERROR_FORMAT;
-        flatten_test_trace("plan-equivalence", status);
         goto cleanup;
     }
 
     status = extractpdf_pdf_flatten_resolve_runtime(
         private_ctx, private_document, private_plan, &runtime);
-    if (status != EXTRACTPDF_OK) {
-        flatten_test_trace("page-runtime", status);
+    if (status != EXTRACTPDF_OK)
         goto cleanup;
-    }
     status = extractpdf_pdf_flatten_form_resolve_runtime(
         private_ctx, private_document, private_plan, runtime);
-    if (status != EXTRACTPDF_OK) {
-        flatten_test_trace("form-runtime", status);
+    if (status != EXTRACTPDF_OK)
         goto cleanup;
-    }
     status = extractpdf_pdf_flatten_apply_bake(
         private_ctx, private_document, private_plan, runtime);
-    if (status != EXTRACTPDF_OK) {
-        flatten_test_trace("page-bake", status);
+    if (status != EXTRACTPDF_OK)
         goto cleanup;
-    }
     status = extractpdf_pdf_flatten_form_apply(
         private_ctx, private_document, private_plan, runtime);
-    if (status != EXTRACTPDF_OK) {
-        flatten_test_trace("form-apply", status);
+    if (status != EXTRACTPDF_OK)
         goto cleanup;
-    }
     status = extractpdf_serialize_pdf(
         private_ctx, private_document, out_output);
-    if (status != EXTRACTPDF_OK)
-        flatten_test_trace("final-serialize", status);
 
 cleanup:
     if (runtime != NULL) {
@@ -163,16 +129,12 @@ extractpdf_status extractpdf_flatten_interactive(
         return EXTRACTPDF_ERROR_UNSUPPORTED;
 
     status = extractpdf_pdf_flatten_check_security(document->ctx, source_pdf);
-    if (status != EXTRACTPDF_OK) {
-        flatten_test_trace("source-security", status);
+    if (status != EXTRACTPDF_OK)
         return status;
-    }
     status = extractpdf_pdf_flatten_build_plan(
         document->ctx, source_pdf, flags, &source_plan);
-    if (status != EXTRACTPDF_OK) {
-        flatten_test_trace("source-plan", status);
+    if (status != EXTRACTPDF_OK)
         return status;
-    }
 
     if (!source_plan->any_changed) {
         status = extractpdf_serialize_pdf(
