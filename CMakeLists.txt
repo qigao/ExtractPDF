@@ -26,12 +26,16 @@ add_library(extractpdf
   src/pdf_trim_preflight.c
   src/pdf_poster.c
   src/pdf_poster_preflight.c
+  src/pdf_poster_annotations.c
+  src/pdf_poster_navigation.c
+  src/pdf_poster_cleanup.c
   src/pdf_export.c
   src/pdf_output.c
   src/pdf_range.c
   src/pdf_merge.c
   src/output_file.c
   src/pdf_metadata.c
+  src/pdf_outline_common.c
   src/pdf_outline.c
   src/pdf_object_common.c
   src/pdf_annotation_common.c
@@ -95,8 +99,17 @@ if(EXTRACTPDF_BUILD_TESTS)
     PROPERTY COMPILE_DEFINITIONS "main=extractpdf_pdf_poster_split_base_main")
   target_sources(extractpdf_test_pdf_poster_split PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_geometry.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_policy.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_main.c")
   target_compile_definitions(extractpdf_test_pdf_poster_split PRIVATE
     POSTER_ROTATE_90_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-rotate-90.pdf"
-    POSTER_USERUNIT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-userunit.pdf")
+    POSTER_USERUNIT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-userunit.pdf"
+    POSTER_PRODUCTION_BOX_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-production-box.pdf"
+    POSTER_TAGGED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-tagged.pdf"
+    POSTER_ROOT_POLICY_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-root-policy.pdf"
+    POSTER_UNSELECTED_ACTIONS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-unselected-actions.pdf"
+    POSTER_FORM_ACTIONS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-form-actions.pdf"
+    POSTER_MALFORMED_ANNOTS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-malformed-annots.pdf"
+    POSTER_CROSSING_ANNOTATION_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-crossing-annotation.pdf"
+    POSTER_CROSSING_WIDGET_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-crossing-widget.pdf")
 endif()
