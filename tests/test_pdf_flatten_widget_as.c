@@ -4,6 +4,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define CHECK(x) do { \
     if (!(x)) { \
@@ -79,16 +80,19 @@ static void check_marker(
     fz_context *ctx,
     pdf_obj *xobjects,
     const char *alias,
-    pdf_obj *expected_marker)
+    const char *expected_marker)
 {
     pdf_obj *appearance = pdf_dict_gets(ctx, xobjects, alias);
     pdf_obj *marker;
+    const char *name;
 
     RAW_CHECK(pdf_is_indirect(ctx, appearance));
     RAW_CHECK(pdf_is_stream(ctx, appearance));
     marker = pdf_dict_gets(ctx, appearance, "StateMarker");
     RAW_CHECK(pdf_is_name(ctx, marker));
-    RAW_CHECK(pdf_name_eq(ctx, marker, expected_marker));
+    name = pdf_to_name(ctx, marker);
+    RAW_CHECK(name != NULL);
+    RAW_CHECK(strcmp(name, expected_marker) == 0);
 }
 
 static void check_checkbox_output(const extractpdf_output *output)
@@ -119,7 +123,7 @@ static void check_checkbox_output(const extractpdf_output *output)
         RAW_CHECK(pdf_is_dict(ctx, resources));
         xobjects = pdf_dict_get(ctx, resources, PDF_NAME(XObject));
         RAW_CHECK(pdf_is_dict(ctx, xobjects));
-        check_marker(ctx, xobjects, "EPB0", PDF_NAME(Yes));
+        check_marker(ctx, xobjects, "EPB0", "Yes");
     }
     fz_always(ctx)
     {
@@ -163,8 +167,8 @@ static void check_radio_output(const extractpdf_output *output)
         RAW_CHECK(pdf_is_dict(ctx, resources));
         xobjects = pdf_dict_get(ctx, resources, PDF_NAME(XObject));
         RAW_CHECK(pdf_is_dict(ctx, xobjects));
-        check_marker(ctx, xobjects, "EPB0", PDF_NAME(OffA));
-        check_marker(ctx, xobjects, "EPB1", PDF_NAME(B));
+        check_marker(ctx, xobjects, "EPB0", "OffA");
+        check_marker(ctx, xobjects, "EPB1", "B");
     }
     fz_always(ctx)
     {
