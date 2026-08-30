@@ -32,11 +32,7 @@ static extractpdf_document *open_document(const char *path)
 static void expect_source_form_valid(extractpdf_document *source)
 {
     extractpdf_form *form = NULL;
-    extractpdf_status status = extractpdf_document_form(source, &form);
-    if (status != EXTRACTPDF_OK)
-        fprintf(stderr, "source form status: %s (%d)\n",
-            extractpdf_status_string(status), (int)status);
-    CHECK(status == EXTRACTPDF_OK);
+    CHECK(extractpdf_document_form(source, &form) == EXTRACTPDF_OK);
     CHECK(form != NULL);
     extractpdf_drop_form(form);
 }
@@ -45,16 +41,12 @@ static extractpdf_output *split_interactive(extractpdf_document *source)
 {
     extractpdf_page_poster_split split;
     extractpdf_output *output = NULL;
-    extractpdf_status status;
     split.struct_size = sizeof(split);
     split.page_index = 0;
     split.columns = 2;
     split.rows = 2;
-    status = extractpdf_poster_split_pages(source, &split, 1, &output);
-    if (status != EXTRACTPDF_OK)
-        fprintf(stderr, "interactive poster split status: %s (%d)\n",
-            extractpdf_status_string(status), (int)status);
-    CHECK(status == EXTRACTPDF_OK);
+    CHECK(extractpdf_poster_split_pages(source, &split, 1, &output) ==
+          EXTRACTPDF_OK);
     CHECK(output != NULL);
     CHECK(extractpdf_output_save_file(output, POSTER_OUTPUT_PDF) == EXTRACTPDF_OK);
     return output;
@@ -193,10 +185,15 @@ int poster_run_interactive_tests(void)
     extractpdf_document *source = open_document(POSTER_INTERACTIVE_PDF);
     extractpdf_output *output;
     extractpdf_document *reopened;
+    const unsigned char *data = NULL;
+    size_t size = 0;
     int count = 0;
 
     expect_source_form_valid(source);
     output = split_interactive(source);
+    CHECK(extractpdf_output_data(output, &data, &size) == EXTRACTPDF_OK);
+    CHECK(data != NULL && size != 0);
+    CHECK(poster_raw_check_interactive(data, size));
     reopened = open_document(POSTER_OUTPUT_PDF);
 
     CHECK(extractpdf_page_count(reopened, &count) == EXTRACTPDF_OK);
