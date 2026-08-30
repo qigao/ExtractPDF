@@ -29,6 +29,7 @@ add_library(extractpdf
   src/pdf_poster_annotations.c
   src/pdf_poster_navigation.c
   src/pdf_poster_cleanup.c
+  src/pdf_poster_migrate.c
   src/pdf_export.c
   src/pdf_output.c
   src/pdf_range.c
