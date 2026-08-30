@@ -3,6 +3,9 @@
 #include "pdf_form_common.h"
 
 #include <stddef.h>
+#ifdef EXTRACTPDF_TESTING
+#include <stdio.h>
+#endif
 
 static int poster_has_planned_widget(const extractpdf_pdf_poster_plan *plan)
 {
@@ -71,6 +74,16 @@ static extractpdf_status poster_assign_widget_locator(
         }
     }
 
+#ifdef EXTRACTPDF_TESTING
+    if (match_count != 1)
+        fprintf(stderr,
+            "poster widget provenance locator: page=%d annot=%zu matches=%zu fields=%zu widgets=%zu\n",
+            page_index,
+            annot_plan->source_annot_index,
+            match_count,
+            model->field_count,
+            model->widget_count);
+#endif
     if (match_count != 1)
         return EXTRACTPDF_ERROR_FORMAT;
 
@@ -94,8 +107,15 @@ extractpdf_status extractpdf_pdf_poster_widget_provenance_preflight(
     if (!poster_has_planned_widget(plan))
         return EXTRACTPDF_OK;
 
+#ifdef EXTRACTPDF_TESTING
+    fprintf(stderr, "poster widget provenance: start\n");
+#endif
     status = extractpdf_pdf_form_build(
         ctx, document, 1, &model, &provenance);
+#ifdef EXTRACTPDF_TESTING
+    if (status != EXTRACTPDF_OK)
+        fprintf(stderr, "poster widget provenance: form_build status=%d\n", (int)status);
+#endif
     if (status != EXTRACTPDF_OK)
         return status;
     if (model == NULL || provenance == NULL ||
@@ -124,6 +144,10 @@ extractpdf_status extractpdf_pdf_poster_widget_provenance_preflight(
         }
     }
 
+#ifdef EXTRACTPDF_TESTING
+    fprintf(stderr, "poster widget provenance: ok fields=%zu widgets=%zu\n",
+        model->field_count, model->widget_count);
+#endif
 cleanup:
     extractpdf_pdf_form_drop_provenance(ctx, provenance);
     extractpdf_pdf_form_drop_model(model);
