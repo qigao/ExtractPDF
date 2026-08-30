@@ -259,18 +259,15 @@ static int check_nested_widget_kids_cow(void)
 {
     extractpdf_document *document = NULL;
     extractpdf_output *output = NULL;
-    extractpdf_status status;
 
     CHECK(extractpdf_open(FLATTEN_FORM_KIDS_COW_PDF, NULL, &document) == EXTRACTPDF_OK);
     CHECK(document != NULL);
     CHECK(check_source_form_counts(document, 2, 1) == 0);
 
-    status = extractpdf_flatten_interactive(
+    CHECK(extractpdf_flatten_interactive(
         document,
         EXTRACTPDF_FLATTEN_WIDGETS,
-        &output);
-    fprintf(stderr, "nested widget flatten status=%d\n", (int)status);
-    CHECK(status == EXTRACTPDF_OK);
+        &output) == EXTRACTPDF_OK);
     CHECK(output != NULL);
     check_form_kids_cow_output(output);
 
