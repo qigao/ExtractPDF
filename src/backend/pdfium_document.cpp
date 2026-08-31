@@ -13,6 +13,7 @@
 #include <fpdfview.h>
 #include <fpdf_edit.h>
 #include <fpdf_doc.h>
+#include <fpdf_formfill.h>
 #include <fpdf_text.h>
 
 #include <algorithm>
@@ -28,13 +29,17 @@
 
 struct quantapdf_pdfium_document {
     FPDF_DOCUMENT handle;
+    FPDF_FORMHANDLE form_handle;
+    FPDF_FORMFILLINFO form_info;
     unsigned char *owned_data;
 };
 
 struct quantapdf_pdfium_page {
     FPDF_DOCUMENT document;
+    FPDF_FORMHANDLE form_handle;
     int page_index;
     FPDF_PAGE handle;
+    bool form_page_loaded;
 };
 
 namespace {
@@ -85,7 +90,16 @@ quantapdf_status ensure_page_handle(quantapdf_pdfium_page *page) noexcept
     page->handle = FPDF_LoadPage(page->document, page->page_index);
     if (page->handle == nullptr)
         return status_from_pdfium(FPDF_GetLastError());
+    if (page->form_handle != nullptr) {
+        FORM_OnAfterLoadPage(page->handle, page->form_handle);
+        page->form_page_loaded = true;
+    }
     return QUANTAPDF_OK;
+}
+
+void pdfium_form_invalidate(
+    FPDF_FORMFILLINFO *, FPDF_PAGE, double, double, double, double)
+{
 }
 
 bool checked_bitmap_size(int width, int height, int components,
@@ -645,6 +659,8 @@ extern "C" quantapdf_status quantapdf_pdfium_open_memory(
     try {
         auto document = std::make_unique<quantapdf_pdfium_document>();
         document->handle = nullptr;
+        document->form_handle = nullptr;
+        std::memset(&document->form_info, 0, sizeof(document->form_info));
         document->owned_data = nullptr;
         status = quantapdf_pdfium_enter();
         if (status != QUANTAPDF_OK)
@@ -681,6 +697,10 @@ extern "C" quantapdf_status quantapdf_pdfium_open_memory(
                 }
             }
         }
+        document->form_info.version = 1;
+        document->form_info.FFI_Invalidate = pdfium_form_invalidate;
+        document->form_handle = FPDFDOC_InitFormFillEnvironment(
+            document->handle, &document->form_info);
         *out_document = document.release();
         return QUANTAPDF_OK;
     } catch (std::bad_alloc const&) {
@@ -729,8 +749,10 @@ extern "C" quantapdf_status quantapdf_pdfium_load_page(
     try {
         auto page = std::make_unique<quantapdf_pdfium_page>();
         page->document = nullptr;
+        page->form_handle = nullptr;
         page->page_index = -1;
         page->handle = nullptr;
+        page->form_page_loaded = false;
         status = quantapdf_pdfium_enter();
         if (status != QUANTAPDF_OK)
             return status;
@@ -738,6 +760,7 @@ extern "C" quantapdf_status quantapdf_pdfium_load_page(
         if (page_index >= FPDF_GetPageCount(document->handle))
             return QUANTAPDF_ERROR_ARGUMENT;
         page->document = document->handle;
+        page->form_handle = document->form_handle;
         page->page_index = page_index;
         *out_page = page.release();
         return QUANTAPDF_OK;
@@ -952,13 +975,24 @@ extern "C" quantapdf_status quantapdf_pdfium_render_page(
     device_clip.right = static_cast<float>(width);
     device_clip.bottom = static_cast<float>(height);
     if (cosine == 1.0 && sine == 0.0) {
+        int const start_x = static_cast<int>(
+            std::floor(-source_x0 * scale));
+        int const start_y = static_cast<int>(
+            std::floor(-source_y0 * scale));
+        int const size_x = static_cast<int>(
+            std::ceil(page_size.width * user_unit * scale));
+        int const size_y = static_cast<int>(
+            std::ceil(page_size.height * user_unit * scale));
         FPDF_RenderPageBitmap(
             pdfium_bitmap, page->handle,
-            static_cast<int>(std::floor(-source_x0 * scale)),
-            static_cast<int>(std::floor(-source_y0 * scale)),
-            static_cast<int>(std::ceil(page_size.width * user_unit * scale)),
-            static_cast<int>(std::ceil(page_size.height * user_unit * scale)),
+            start_x, start_y, size_x, size_y,
             0, FPDF_ANNOT | FPDF_LCD_TEXT);
+        if (page->form_handle != nullptr) {
+            FPDF_FFLDraw(
+                page->form_handle, pdfium_bitmap, page->handle,
+                start_x, start_y, size_x, size_y, 0,
+                FPDF_ANNOT | FPDF_LCD_TEXT);
+        }
     } else {
         FPDF_RenderPageBitmapWithMatrix(
             pdfium_bitmap, page->handle, &matrix, &device_clip,
@@ -1446,6 +1480,8 @@ extern "C" void quantapdf_pdfium_drop_page(quantapdf_pdfium_page *page)
     if (status != QUANTAPDF_OK)
         return;
     pdfium_scope const scope(status);
+    if (page->handle != nullptr && page->form_page_loaded)
+        FORM_OnBeforeClosePage(page->handle, page->form_handle);
     if (page->handle != nullptr)
         FPDF_ClosePage(page->handle);
     delete page;
@@ -1462,6 +1498,7 @@ extern "C" void quantapdf_pdfium_close(
     if (status != QUANTAPDF_OK)
         return;
     pdfium_scope const scope(status);
+    FPDFDOC_ExitFormFillEnvironment(document->form_handle);
     FPDF_CloseDocument(document->handle);
     std::free(document->owned_data);
     delete document;
