@@ -1,5 +1,6 @@
 #include "qpdf_document.h"
 #include "../annotation_snapshot.h"
+#include "../form_snapshot.h"
 #include "../outline_snapshot.h"
 
 #include <qpdf/Constants.h>
@@ -18,8 +19,10 @@
 #include <memory>
 #include <new>
 #include <limits>
+#include <map>
 #include <set>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 struct quantapdf_qpdf_document {
@@ -679,6 +682,391 @@ static quantapdf_status quantapdf_qpdf_public_crop_to_pdf(
     return QUANTAPDF_OK;
 }
 
+struct quantapdf_qpdf_form_group {
+    QPDFObjectHandle head;
+    std::string full_name;
+    bool name_present = false;
+    bool has_named_child = false;
+    bool has_widget = false;
+    size_t public_index = SIZE_MAX;
+};
+
+struct quantapdf_qpdf_form_node {
+    QPDFObjectHandle object;
+    size_t group_index;
+    bool widget;
+};
+
+struct quantapdf_qpdf_form_capture {
+    std::vector<quantapdf_pdf_form_field_internal> fields;
+    std::vector<quantapdf_pdf_form_value_internal> values;
+    std::vector<quantapdf_pdf_form_option_internal> options;
+    std::vector<std::string> button_states;
+    std::vector<quantapdf_pdf_form_widget_internal> widgets;
+    std::string strings;
+};
+
+static void quantapdf_qpdf_dispose_form_model(
+    quantapdf_pdf_form_model *model) noexcept
+{
+    if (model == nullptr)
+        return;
+    for (size_t index = 0; index < model->option_count; ++index)
+        std::free(model->options[index].button_state);
+    std::free(model->fields);
+    std::free(model->values);
+    std::free(model->options);
+    std::free(model->widgets);
+    std::free(model->strings);
+    std::free(model);
+}
+
+static quantapdf_status quantapdf_qpdf_form_append_string(
+    quantapdf_qpdf_form_capture *capture,
+    std::string const& value,
+    quantapdf_pdf_form_string *out_string)
+{
+    if (capture->strings.size() > SIZE_MAX - value.size() - 1u)
+        return QUANTAPDF_ERROR_NOMEM;
+    out_string->offset = capture->strings.size();
+    out_string->size = value.size();
+    out_string->present = 1;
+    capture->strings.append(value);
+    capture->strings.push_back('\0');
+    return QUANTAPDF_OK;
+}
+
+static quantapdf_status quantapdf_qpdf_form_read_uint32(
+    QPDFObjectHandle const& object,
+    char const *key,
+    uint32_t default_value,
+    uint32_t *out_value)
+{
+    QPDFObjectHandle value = quantapdf_qpdf_inherited_value(object, key);
+    if (value.isNull()) {
+        *out_value = default_value;
+        return QUANTAPDF_OK;
+    }
+    if (!value.isInteger())
+        return QUANTAPDF_ERROR_FORMAT;
+    long long const raw = value.getIntValue();
+    if (raw < 0 || static_cast<unsigned long long>(raw) > UINT32_MAX)
+        return QUANTAPDF_ERROR_FORMAT;
+    *out_value = static_cast<uint32_t>(raw);
+    return QUANTAPDF_OK;
+}
+
+static quantapdf_form_field_type quantapdf_qpdf_form_field_type(
+    QPDFObjectHandle const& object,
+    uint32_t flags,
+    quantapdf_status *out_status)
+{
+    QPDFObjectHandle type = quantapdf_qpdf_inherited_value(object, "/FT");
+    *out_status = QUANTAPDF_OK;
+    if (type.isNull())
+        return QUANTAPDF_FORM_FIELD_UNKNOWN;
+    if (!type.isName()) {
+        *out_status = QUANTAPDF_ERROR_FORMAT;
+        return QUANTAPDF_FORM_FIELD_UNKNOWN;
+    }
+    std::string const name = type.getName();
+    if (name == "/Tx")
+        return QUANTAPDF_FORM_FIELD_TEXT;
+    if (name == "/Sig")
+        return QUANTAPDF_FORM_FIELD_SIGNATURE;
+    if (name == "/Btn") {
+        if ((flags & (1u << 16)) != 0u)
+            return QUANTAPDF_FORM_FIELD_PUSH_BUTTON;
+        if ((flags & (1u << 15)) != 0u)
+            return QUANTAPDF_FORM_FIELD_RADIO_BUTTON;
+        return QUANTAPDF_FORM_FIELD_CHECKBOX;
+    }
+    if (name == "/Ch")
+        return (flags & (1u << 17)) != 0u ?
+            QUANTAPDF_FORM_FIELD_COMBO_BOX :
+            QUANTAPDF_FORM_FIELD_LIST_BOX;
+    return QUANTAPDF_FORM_FIELD_UNKNOWN;
+}
+
+static quantapdf_status quantapdf_qpdf_form_effective_string(
+    QPDFObjectHandle const& object,
+    char const *key,
+    quantapdf_qpdf_form_capture *capture,
+    quantapdf_pdf_form_string *out_string)
+{
+    QPDFObjectHandle value = quantapdf_qpdf_inherited_value(object, key);
+    if (value.isNull())
+        return QUANTAPDF_OK;
+    if (!value.isString())
+        return QUANTAPDF_ERROR_FORMAT;
+    return quantapdf_qpdf_form_append_string(
+        capture, value.getUTF8Value(), out_string);
+}
+
+static quantapdf_status quantapdf_qpdf_form_append_option_value(
+    quantapdf_qpdf_form_capture *capture,
+    quantapdf_pdf_form_field_internal *field,
+    size_t option_index)
+{
+    quantapdf_pdf_form_value_internal value = {};
+    value.kind = QUANTAPDF_FORM_VALUE_OPTION;
+    value.option_index = option_index;
+    if (field->value_count == 0u)
+        field->first_value = capture->values.size();
+    capture->values.push_back(value);
+    ++field->value_count;
+    return QUANTAPDF_OK;
+}
+
+static quantapdf_status quantapdf_qpdf_form_append_utf8_value(
+    quantapdf_qpdf_form_capture *capture,
+    quantapdf_pdf_form_field_internal *field,
+    std::string const& text)
+{
+    quantapdf_pdf_form_value_internal value = {};
+    value.kind = QUANTAPDF_FORM_VALUE_UTF8;
+    value.option_index = SIZE_MAX;
+    quantapdf_status status = quantapdf_qpdf_form_append_string(
+        capture, text, &value.utf8);
+    if (status != QUANTAPDF_OK)
+        return status;
+    if (field->value_count == 0u)
+        field->first_value = capture->values.size();
+    capture->values.push_back(value);
+    ++field->value_count;
+    return QUANTAPDF_OK;
+}
+
+static quantapdf_status quantapdf_qpdf_form_capture_choice_options(
+    QPDFObjectHandle const& object,
+    quantapdf_qpdf_form_capture *capture,
+    quantapdf_pdf_form_field_internal *field)
+{
+    QPDFObjectHandle options = quantapdf_qpdf_inherited_value(object, "/Opt");
+    field->first_option = capture->options.size();
+    if (options.isNull())
+        return QUANTAPDF_OK;
+    if (!options.isArray())
+        return QUANTAPDF_ERROR_FORMAT;
+    int const count = options.getArrayNItems();
+    for (int index = 0; index < count; ++index) {
+        QPDFObjectHandle entry = options.getArrayItem(index);
+        QPDFObjectHandle export_value = entry;
+        QPDFObjectHandle display_value = entry;
+        if (entry.isArray()) {
+            if (entry.getArrayNItems() != 2)
+                return QUANTAPDF_ERROR_FORMAT;
+            export_value = entry.getArrayItem(0);
+            display_value = entry.getArrayItem(1);
+        }
+        if (!export_value.isString() || !display_value.isString())
+            return QUANTAPDF_ERROR_FORMAT;
+        quantapdf_pdf_form_option_internal option = {};
+        option.kind = QUANTAPDF_FORM_OPTION_CHOICE;
+        quantapdf_status status = quantapdf_qpdf_form_append_string(
+            capture, export_value.getUTF8Value(), &option.export_text);
+        if (status != QUANTAPDF_OK)
+            return status;
+        status = quantapdf_qpdf_form_append_string(
+            capture, display_value.getUTF8Value(), &option.display_text);
+        if (status != QUANTAPDF_OK)
+            return status;
+        capture->options.push_back(option);
+        capture->button_states.emplace_back();
+        ++field->option_count;
+    }
+    return QUANTAPDF_OK;
+}
+
+static std::string quantapdf_qpdf_form_option_export(
+    quantapdf_qpdf_form_capture const& capture,
+    quantapdf_pdf_form_field_internal const& field,
+    size_t index)
+{
+    quantapdf_pdf_form_option_internal const& option =
+        capture.options[field.first_option + index];
+    return capture.strings.substr(option.export_text.offset,
+                                  option.export_text.size);
+}
+
+static quantapdf_status quantapdf_qpdf_form_capture_choice_value(
+    QPDFObjectHandle const& object,
+    quantapdf_qpdf_form_capture *capture,
+    quantapdf_pdf_form_field_internal *field)
+{
+    QPDFObjectHandle value = quantapdf_qpdf_inherited_value(object, "/V");
+    QPDFObjectHandle indices = quantapdf_qpdf_inherited_value(object, "/I");
+    bool const editable = (field->flags & (1u << 18)) != 0u;
+    field->is_multiselect = (field->flags & (1u << 21)) != 0u;
+    if (value.isNull()) {
+        if (!indices.isNull())
+            return QUANTAPDF_ERROR_FORMAT;
+        field->value_presence = QUANTAPDF_FORM_VALUE_MISSING;
+        return QUANTAPDF_OK;
+    }
+    std::vector<size_t> selected;
+    if (!indices.isNull()) {
+        if (!indices.isArray())
+            return QUANTAPDF_ERROR_FORMAT;
+        int const count = indices.getArrayNItems();
+        for (int index = 0; index < count; ++index) {
+            QPDFObjectHandle item = indices.getArrayItem(index);
+            if (!item.isInteger())
+                return QUANTAPDF_ERROR_FORMAT;
+            long long const raw = item.getIntValue();
+            if (raw < 0 || static_cast<size_t>(raw) >= field->option_count ||
+                std::find(selected.begin(), selected.end(),
+                          static_cast<size_t>(raw)) != selected.end())
+                return QUANTAPDF_ERROR_FORMAT;
+            selected.push_back(static_cast<size_t>(raw));
+        }
+    }
+    std::vector<std::string> values;
+    if (value.isString()) {
+        values.push_back(value.getUTF8Value());
+    } else if (value.isArray()) {
+        int const count = value.getArrayNItems();
+        for (int index = 0; index < count; ++index) {
+            QPDFObjectHandle item = value.getArrayItem(index);
+            if (!item.isString())
+                return QUANTAPDF_ERROR_FORMAT;
+            values.push_back(item.getUTF8Value());
+        }
+    } else {
+        return QUANTAPDF_ERROR_FORMAT;
+    }
+    if (!field->is_multiselect && values.size() > 1u)
+        return QUANTAPDF_ERROR_FORMAT;
+    if (!selected.empty() && selected.size() != values.size())
+        return QUANTAPDF_ERROR_FORMAT;
+    field->value_presence = QUANTAPDF_FORM_VALUE_PRESENT;
+    for (size_t index = 0; index < values.size(); ++index) {
+        size_t option_index = SIZE_MAX;
+        if (!selected.empty()) {
+            option_index = selected[index];
+            if (quantapdf_qpdf_form_option_export(
+                    *capture, *field, option_index) != values[index])
+                return QUANTAPDF_ERROR_FORMAT;
+        } else {
+            for (size_t candidate = 0; candidate < field->option_count;
+                 ++candidate) {
+                if (quantapdf_qpdf_form_option_export(
+                        *capture, *field, candidate) == values[index]) {
+                    option_index = candidate;
+                    break;
+                }
+            }
+        }
+        quantapdf_status status;
+        if (option_index != SIZE_MAX) {
+            status = quantapdf_qpdf_form_append_option_value(
+                capture, field, option_index);
+        } else if (editable) {
+            status = quantapdf_qpdf_form_append_utf8_value(
+                capture, field, values[index]);
+        } else {
+            return QUANTAPDF_ERROR_FORMAT;
+        }
+        if (status != QUANTAPDF_OK)
+            return status;
+    }
+    return QUANTAPDF_OK;
+}
+
+static quantapdf_status quantapdf_qpdf_form_capture_scalar_value(
+    QPDFObjectHandle const& object,
+    quantapdf_qpdf_form_capture *capture,
+    quantapdf_pdf_form_field_internal *field)
+{
+    QPDFObjectHandle value = quantapdf_qpdf_inherited_value(object, "/V");
+    switch (field->type) {
+    case QUANTAPDF_FORM_FIELD_TEXT:
+        if (value.isNull()) {
+            field->value_presence = QUANTAPDF_FORM_VALUE_MISSING;
+            return QUANTAPDF_OK;
+        }
+        if (!value.isString())
+            return QUANTAPDF_ERROR_FORMAT;
+        field->value_presence = QUANTAPDF_FORM_VALUE_PRESENT;
+        return quantapdf_qpdf_form_append_utf8_value(
+            capture, field, value.getUTF8Value());
+    case QUANTAPDF_FORM_FIELD_SIGNATURE:
+        field->value_presence = QUANTAPDF_FORM_VALUE_NOT_APPLICABLE;
+        if (value.isNull())
+            return QUANTAPDF_OK;
+        if (!value.isDictionary())
+            return QUANTAPDF_ERROR_FORMAT;
+        if (!value.getKey("/Type").isNull() &&
+            (!value.getKey("/Type").isName() ||
+             value.getKey("/Type").getName() != "/Sig"))
+            return QUANTAPDF_ERROR_FORMAT;
+        field->is_signed = 1;
+        return QUANTAPDF_OK;
+    case QUANTAPDF_FORM_FIELD_PUSH_BUTTON:
+    case QUANTAPDF_FORM_FIELD_UNKNOWN:
+        field->value_presence = QUANTAPDF_FORM_VALUE_NOT_APPLICABLE;
+        return QUANTAPDF_OK;
+    default:
+        return QUANTAPDF_OK;
+    }
+}
+
+static quantapdf_status quantapdf_qpdf_form_publish(
+    quantapdf_qpdf_form_capture const& capture,
+    quantapdf_pdf_form_model **out_model)
+{
+    auto *model = static_cast<quantapdf_pdf_form_model *>(
+        std::calloc(1u, sizeof(quantapdf_pdf_form_model)));
+    if (model == nullptr)
+        return QUANTAPDF_ERROR_NOMEM;
+    auto copy_vector = [](auto const& source, auto **target) {
+        using item_type = typename std::decay_t<decltype(source)>::value_type;
+        if (source.empty())
+            return true;
+        *target = static_cast<item_type *>(
+            std::calloc(source.size(), sizeof(item_type)));
+        if (*target == nullptr)
+            return false;
+        std::memcpy(*target, source.data(), source.size() * sizeof(item_type));
+        return true;
+    };
+    if (!copy_vector(capture.fields, &model->fields) ||
+        !copy_vector(capture.values, &model->values) ||
+        !copy_vector(capture.options, &model->options) ||
+        !copy_vector(capture.widgets, &model->widgets)) {
+        quantapdf_qpdf_dispose_form_model(model);
+        return QUANTAPDF_ERROR_NOMEM;
+    }
+    model->field_count = capture.fields.size();
+    model->value_count = capture.values.size();
+    model->option_count = capture.options.size();
+    model->widget_count = capture.widgets.size();
+    if (!capture.strings.empty()) {
+        model->strings = static_cast<char *>(std::malloc(capture.strings.size()));
+        if (model->strings == nullptr) {
+            quantapdf_qpdf_dispose_form_model(model);
+            return QUANTAPDF_ERROR_NOMEM;
+        }
+        std::memcpy(model->strings, capture.strings.data(), capture.strings.size());
+    }
+    model->string_size = capture.strings.size();
+    model->string_capacity = capture.strings.size();
+    for (size_t index = 0; index < capture.button_states.size(); ++index) {
+        std::string const& state = capture.button_states[index];
+        if (state.empty())
+            continue;
+        auto *copy = static_cast<char *>(std::malloc(state.size() + 1u));
+        if (copy == nullptr) {
+            quantapdf_qpdf_dispose_form_model(model);
+            return QUANTAPDF_ERROR_NOMEM;
+        }
+        std::memcpy(copy, state.c_str(), state.size() + 1u);
+        model->options[index].button_state = copy;
+    }
+    *out_model = model;
+    return QUANTAPDF_OK;
+}
+
 extern "C" quantapdf_status quantapdf_qpdf_open_memory(
     const unsigned char *data,
     size_t size,
@@ -988,6 +1376,362 @@ extern "C" quantapdf_status quantapdf_qpdf_extract_annotations(
         snapshot->string_size = string_position;
         *out_annotations = snapshot;
         return QUANTAPDF_OK;
+    } catch (QPDFExc const& error) {
+        return quantapdf_status_from_qpdf(error);
+    } catch (std::bad_alloc const&) {
+        return QUANTAPDF_ERROR_NOMEM;
+    } catch (std::exception const&) {
+        return QUANTAPDF_ERROR_BACKEND;
+    } catch (...) {
+        return QUANTAPDF_ERROR_BACKEND;
+    }
+}
+
+extern "C" quantapdf_status quantapdf_qpdf_extract_form(
+    quantapdf_qpdf_document *document,
+    quantapdf_pdf_form_model **out_model)
+{
+    if (out_model == nullptr)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    *out_model = nullptr;
+    if (document == nullptr || document->pdf == nullptr)
+        return QUANTAPDF_ERROR_ARGUMENT;
+
+    try {
+        QPDFObjectHandle acroform = document->pdf->getRoot().getKey("/AcroForm");
+        quantapdf_qpdf_form_capture capture;
+        if (acroform.isNull())
+            return quantapdf_qpdf_form_publish(capture, out_model);
+        if (!acroform.isDictionary())
+            return QUANTAPDF_ERROR_FORMAT;
+        QPDFObjectHandle roots = acroform.getKey("/Fields");
+        if (roots.isNull())
+            return quantapdf_qpdf_form_publish(capture, out_model);
+        if (!roots.isArray())
+            return QUANTAPDF_ERROR_FORMAT;
+
+        std::vector<quantapdf_qpdf_form_group> groups;
+        std::vector<quantapdf_qpdf_form_node> nodes;
+        std::map<QPDFObjGen, size_t> node_groups;
+        std::set<std::string> names;
+        quantapdf_status tree_status = QUANTAPDF_OK;
+        std::function<void(QPDFObjectHandle, QPDFObjectHandle, size_t,
+                           std::string const&, size_t)> visit;
+        visit = [&](QPDFObjectHandle object,
+                    QPDFObjectHandle parent,
+                    size_t inherited_group,
+                    std::string const& parent_name,
+                    size_t depth) {
+            if (tree_status != QUANTAPDF_OK)
+                return;
+            if (depth > 256u) {
+                tree_status = QUANTAPDF_ERROR_UNSUPPORTED;
+                return;
+            }
+            if (!object.isDictionary() || !object.isIndirect()) {
+                tree_status = QUANTAPDF_ERROR_FORMAT;
+                return;
+            }
+            if (!node_groups.emplace(object.getObjGen(), SIZE_MAX).second) {
+                tree_status = QUANTAPDF_ERROR_FORMAT;
+                return;
+            }
+            QPDFObjectHandle actual_parent = object.getKey("/Parent");
+            if ((parent.isNull() && !actual_parent.isNull()) ||
+                (!parent.isNull() &&
+                 !quantapdf_qpdf_same_object(parent, actual_parent))) {
+                tree_status = QUANTAPDF_ERROR_FORMAT;
+                return;
+            }
+            QPDFObjectHandle partial = object.getKey("/T");
+            bool const has_partial = !partial.isNull();
+            std::string full_name = parent_name;
+            size_t group_index = inherited_group;
+            if (has_partial) {
+                if (!partial.isString()) {
+                    tree_status = QUANTAPDF_ERROR_FORMAT;
+                    return;
+                }
+                std::string const segment = partial.getUTF8Value();
+                if (segment.find('.') != std::string::npos) {
+                    tree_status = QUANTAPDF_ERROR_FORMAT;
+                    return;
+                }
+                full_name = parent_name.empty() ? segment :
+                    parent_name + "." + segment;
+                if (inherited_group != SIZE_MAX)
+                    groups[inherited_group].has_named_child = true;
+                group_index = groups.size();
+                groups.push_back({object, full_name, true});
+            } else if (group_index == SIZE_MAX) {
+                group_index = groups.size();
+                groups.push_back({object, {}, false});
+            }
+            node_groups[object.getObjGen()] = group_index;
+            QPDFObjectHandle subtype = object.getKey("/Subtype");
+            bool widget = false;
+            if (!subtype.isNull()) {
+                if (!subtype.isName()) {
+                    tree_status = QUANTAPDF_ERROR_FORMAT;
+                    return;
+                }
+                widget = subtype.getName() == "/Widget";
+            }
+            groups[group_index].has_widget =
+                groups[group_index].has_widget || widget;
+            nodes.push_back({object, group_index, widget});
+            QPDFObjectHandle kids = object.getKey("/Kids");
+            if (kids.isNull())
+                return;
+            if (!kids.isArray()) {
+                tree_status = QUANTAPDF_ERROR_FORMAT;
+                return;
+            }
+            int const count = kids.getArrayNItems();
+            for (int index = 0; index < count; ++index)
+                visit(kids.getArrayItem(index), object, group_index,
+                      full_name, depth + 1u);
+        };
+        int const root_count = roots.getArrayNItems();
+        for (int index = 0; index < root_count; ++index)
+            visit(roots.getArrayItem(index), QPDFObjectHandle::newNull(),
+                  SIZE_MAX, {}, 1u);
+        if (tree_status != QUANTAPDF_OK)
+            return tree_status;
+
+        for (size_t group_index = 0; group_index < groups.size();
+             ++group_index) {
+            for (char const *key : {"/FT", "/Ff", "/V", "/Opt", "/I",
+                                    "/TU"}) {
+                bool found = false;
+                std::string expected;
+                for (auto const& node : nodes) {
+                    if (node.group_index != group_index)
+                        continue;
+                    QPDFObjectHandle value = node.object.getKey(key);
+                    if (value.isNull())
+                        continue;
+                    std::string const serialized = value.unparse();
+                    if (!found) {
+                        found = true;
+                        expected = serialized;
+                    } else if (serialized != expected) {
+                        return QUANTAPDF_ERROR_FORMAT;
+                    }
+                }
+            }
+        }
+
+        for (size_t group_index = 0; group_index < groups.size();
+             ++group_index) {
+            quantapdf_qpdf_form_group& group = groups[group_index];
+            if (group.has_named_child) {
+                if (group.has_widget)
+                    return QUANTAPDF_ERROR_FORMAT;
+                continue;
+            }
+            if (group.name_present && !names.insert(group.full_name).second)
+                return QUANTAPDF_ERROR_FORMAT;
+            quantapdf_pdf_form_field_internal field = {};
+            field.first_value = capture.values.size();
+            field.first_option = capture.options.size();
+            quantapdf_status status = quantapdf_qpdf_form_read_uint32(
+                group.head, "/Ff", 0u, &field.flags);
+            if (status != QUANTAPDF_OK)
+                return status;
+            field.type = quantapdf_qpdf_form_field_type(
+                group.head, field.flags, &status);
+            if (status != QUANTAPDF_OK)
+                return status;
+            if (group.name_present) {
+                status = quantapdf_qpdf_form_append_string(
+                    &capture, group.full_name, &field.name);
+                if (status != QUANTAPDF_OK)
+                    return status;
+            }
+            status = quantapdf_qpdf_form_effective_string(
+                group.head, "/TU", &capture, &field.label);
+            if (status != QUANTAPDF_OK)
+                return status;
+            group.public_index = capture.fields.size();
+            capture.fields.push_back(field);
+        }
+
+        std::map<QPDFObjGen, size_t> widget_button_options;
+        for (size_t group_index = 0; group_index < groups.size();
+             ++group_index) {
+            quantapdf_qpdf_form_group const& group = groups[group_index];
+            if (group.public_index == SIZE_MAX)
+                continue;
+            quantapdf_pdf_form_field_internal& field =
+                capture.fields[group.public_index];
+            if (field.type == QUANTAPDF_FORM_FIELD_COMBO_BOX ||
+                field.type == QUANTAPDF_FORM_FIELD_LIST_BOX) {
+                quantapdf_status status =
+                    quantapdf_qpdf_form_capture_choice_options(
+                        group.head, &capture, &field);
+                if (status != QUANTAPDF_OK)
+                    return status;
+                continue;
+            }
+            if (field.type != QUANTAPDF_FORM_FIELD_CHECKBOX &&
+                field.type != QUANTAPDF_FORM_FIELD_RADIO_BUTTON)
+                continue;
+            field.first_option = capture.options.size();
+            for (auto const& node : nodes) {
+                if (!node.widget || node.group_index != group_index)
+                    continue;
+                QPDFObjectHandle normal =
+                    node.object.getKey("/AP").getKey("/N");
+                if (!normal.isDictionary())
+                    return QUANTAPDF_ERROR_FORMAT;
+                std::string state;
+                for (std::string const& key : normal.getKeys()) {
+                    if (key == "/Off")
+                        continue;
+                    if (!state.empty())
+                        return QUANTAPDF_ERROR_FORMAT;
+                    state = key.substr(1u);
+                }
+                if (state.empty())
+                    return QUANTAPDF_ERROR_FORMAT;
+                size_t option_index = SIZE_MAX;
+                for (size_t index = 0; index < field.option_count; ++index) {
+                    if (capture.button_states[field.first_option + index] ==
+                        state) {
+                        option_index = index;
+                        break;
+                    }
+                }
+                if (option_index == SIZE_MAX) {
+                    quantapdf_pdf_form_option_internal option = {};
+                    option.kind = QUANTAPDF_FORM_OPTION_BUTTON_STATE;
+                    capture.options.push_back(option);
+                    capture.button_states.push_back(state);
+                    option_index = field.option_count++;
+                }
+                widget_button_options[node.object.getObjGen()] = option_index;
+            }
+        }
+
+        std::set<QPDFObjGen> seen_widgets;
+        auto const& pages = document->pdf->getAllPages();
+        for (size_t page_index = 0; page_index < pages.size(); ++page_index) {
+            QPDFObjectHandle page = pages[page_index];
+            QPDFObjectHandle annots = page.getKey("/Annots");
+            if (!annots.isArray())
+                continue;
+            quantapdf_qpdf_page_geometry geometry = {};
+            quantapdf_status status = quantapdf_qpdf_load_page_geometry(
+                *document->pdf, static_cast<int>(page_index), &geometry);
+            if (status != QUANTAPDF_OK)
+                return status;
+            int const count = annots.getArrayNItems();
+            for (int index = 0; index < count; ++index) {
+                QPDFObjectHandle widget = annots.getArrayItem(index);
+                if (!widget.isDictionary())
+                    continue;
+                QPDFObjectHandle subtype = widget.getKey("/Subtype");
+                if (!subtype.isName() || subtype.getName() != "/Widget")
+                    continue;
+                if (!widget.isIndirect())
+                    return QUANTAPDF_ERROR_FORMAT;
+                auto const group_it = node_groups.find(widget.getObjGen());
+                if (group_it == node_groups.end() ||
+                    !seen_widgets.insert(widget.getObjGen()).second)
+                    return QUANTAPDF_ERROR_FORMAT;
+                QPDFObjectHandle owner_page = widget.getKey("/P");
+                if (!owner_page.isNull() &&
+                    !quantapdf_qpdf_same_object(owner_page, page))
+                    return QUANTAPDF_ERROR_FORMAT;
+                size_t const field_index = groups[group_it->second].public_index;
+                if (field_index == SIZE_MAX)
+                    return QUANTAPDF_ERROR_FORMAT;
+                double raw[4];
+                status = quantapdf_qpdf_read_rectangle(
+                    widget.getKey("/Rect"), raw);
+                if (status != QUANTAPDF_OK)
+                    return status;
+                quantapdf_pdf_form_widget_internal captured = {};
+                captured.field_index = field_index;
+                captured.page_index = static_cast<int>(page_index);
+                captured.bounds = quantapdf_qpdf_pdf_rectangle_to_public(
+                    geometry, raw);
+                captured.button_option_index = SIZE_MAX;
+                QPDFObjectHandle flags = widget.getKey("/F");
+                if (!flags.isNull()) {
+                    if (!flags.isInteger())
+                        return QUANTAPDF_ERROR_FORMAT;
+                    long long const raw_flags = flags.getIntValue();
+                    if (raw_flags < 0 ||
+                        static_cast<unsigned long long>(raw_flags) > UINT32_MAX)
+                        return QUANTAPDF_ERROR_FORMAT;
+                    captured.flags = static_cast<uint32_t>(raw_flags);
+                }
+                auto const option = widget_button_options.find(
+                    widget.getObjGen());
+                if (option != widget_button_options.end())
+                    captured.button_option_index = option->second;
+                capture.widgets.push_back(captured);
+                ++capture.fields[field_index].widget_count;
+            }
+        }
+        for (auto const& node : nodes) {
+            if (node.widget && seen_widgets.find(node.object.getObjGen()) ==
+                                   seen_widgets.end())
+                return QUANTAPDF_ERROR_FORMAT;
+        }
+
+        for (size_t group_index = 0; group_index < groups.size();
+             ++group_index) {
+            quantapdf_qpdf_form_group const& group = groups[group_index];
+            if (group.public_index == SIZE_MAX)
+                continue;
+            quantapdf_pdf_form_field_internal& field =
+                capture.fields[group.public_index];
+            quantapdf_status status;
+            if (field.type == QUANTAPDF_FORM_FIELD_COMBO_BOX ||
+                field.type == QUANTAPDF_FORM_FIELD_LIST_BOX) {
+                status = quantapdf_qpdf_form_capture_choice_value(
+                    group.head, &capture, &field);
+            } else if (field.type == QUANTAPDF_FORM_FIELD_CHECKBOX ||
+                       field.type == QUANTAPDF_FORM_FIELD_RADIO_BUTTON) {
+                QPDFObjectHandle value =
+                    quantapdf_qpdf_inherited_value(group.head, "/V");
+                if (value.isNull()) {
+                    field.value_presence = QUANTAPDF_FORM_VALUE_MISSING;
+                    status = QUANTAPDF_OK;
+                } else if (!value.isName()) {
+                    status = QUANTAPDF_ERROR_FORMAT;
+                } else {
+                    field.value_presence = QUANTAPDF_FORM_VALUE_PRESENT;
+                    std::string const state = value.getName().substr(1u);
+                    status = QUANTAPDF_OK;
+                    if (state != "Off") {
+                        size_t selected = SIZE_MAX;
+                        for (size_t index = 0; index < field.option_count;
+                             ++index) {
+                            if (capture.button_states[
+                                    field.first_option + index] == state) {
+                                selected = index;
+                                break;
+                            }
+                        }
+                        if (selected == SIZE_MAX)
+                            status = QUANTAPDF_ERROR_FORMAT;
+                        else
+                            status = quantapdf_qpdf_form_append_option_value(
+                                &capture, &field, selected);
+                    }
+                }
+            } else {
+                status = quantapdf_qpdf_form_capture_scalar_value(
+                    group.head, &capture, &field);
+            }
+            if (status != QUANTAPDF_OK)
+                return status;
+        }
+        return quantapdf_qpdf_form_publish(capture, out_model);
     } catch (QPDFExc const& error) {
         return quantapdf_status_from_qpdf(error);
     } catch (std::bad_alloc const&) {
