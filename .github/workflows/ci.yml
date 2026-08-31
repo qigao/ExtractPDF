@@ -1,4 +1,4 @@
-name: ExtractPDF v2 foundation
+name: QuantaPDF CI
 
 on:
   push:
@@ -16,11 +16,13 @@ permissions:
   contents: read
 
 concurrency:
-  group: extractpdf-v2-${{ github.head_ref || github.ref_name }}
+  group: quantapdf-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 env:
   VCPKG_COMMIT: f74a2eade17a628413746557d04db25ccf6e76f9
+  PDFIUM_RELEASE: chromium-8021
+  PDFIUM_VERSION: 154.0.8021.0
 
 jobs:
   linux:
@@ -28,12 +30,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Restore pinned PDFium archive
+        uses: actions/cache@v4
+        with:
+          path: build/**/_deps/downloads/pdfium-*.tgz
+          key: pdfium-${{ runner.os }}-${{ runner.arch }}-${{ env.PDFIUM_RELEASE }}
+
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/vcpkg-binary-cache
-          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json', 'vcpkg-ports/**') }}
+          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
           restore-keys: |
             vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-
 
@@ -52,13 +60,12 @@ jobs:
           git -C "$RUNNER_TEMP/vcpkg" checkout --detach FETCH_HEAD
           "$RUNNER_TEMP/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
           echo "VCPKG_ROOT=$RUNNER_TEMP/vcpkg" >> "$GITHUB_ENV"
+          echo "PROJECT_ROOT=$RUNNER_TEMP" >> "$GITHUB_ENV"
 
-      - name: Install MuPDF 1.28.2 with vcpkg
+      - name: Install qpdf with vcpkg
         shell: bash
         run: |
-          "$VCPKG_ROOT/vcpkg" install \
-            --triplet x64-linux \
-            --overlay-ports="$GITHUB_WORKSPACE/vcpkg-ports"
+          "$VCPKG_ROOT/vcpkg" install --triplet x64-linux
 
       - name: Save vcpkg binary cache
         if: steps.vcpkg-cache.outputs.cache-hit != 'true'
@@ -69,53 +76,67 @@ jobs:
 
       - name: Configure static build
         shell: bash
+        run: cmake --fresh --preset linux-release-user
+
+      - name: Audit pinned PDFium artifact
+        shell: bash
         run: |
-          cmake -S . -B build \
-            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
-            -DVCPKG_TARGET_TRIPLET=x64-linux \
-            -DVCPKG_OVERLAY_PORTS="$GITHUB_WORKSPACE/vcpkg-ports" \
-            -DBUILD_SHARED_LIBS=OFF
+          root="build/linux-gcc-release/_deps/pdfium-${PDFIUM_VERSION}-linux-x64"
+          grep -Fxq 'pdf_enable_v8 = false' "$root/args.gn"
+          grep -Fxq 'pdf_enable_xfa = false' "$root/args.gn"
+          grep -Fxq 'pdf_use_partition_alloc = false' "$root/args.gn"
+          grep -Fxq 'MAJOR=154' "$root/VERSION"
+          grep -Fxq 'MINOR=0' "$root/VERSION"
+          grep -Fxq 'BUILD=8021' "$root/VERSION"
+          grep -Fxq 'PATCH=0' "$root/VERSION"
 
       - name: Build static library and tests
-        run: cmake --build build --parallel 2
+        run: cmake --build --preset linux-release-user --parallel 2
 
       - name: Test static build
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --preset linux-release-user
 
       - name: Configure sanitizer build
         shell: bash
+        run: cmake --fresh --preset linux-dev-user
+
+      - name: Audit sanitizer PDFium artifact
+        shell: bash
         run: |
-          cmake -S . -B build-asan \
-            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
-            -DVCPKG_TARGET_TRIPLET=x64-linux \
-            -DVCPKG_OVERLAY_PORTS="$GITHUB_WORKSPACE/vcpkg-ports" \
-            -DBUILD_SHARED_LIBS=OFF \
-            -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
-            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+          root="build/linux-gcc-debug/_deps/pdfium-${PDFIUM_VERSION}-linux-x64"
+          grep -Fxq 'pdf_enable_v8 = false' "$root/args.gn"
+          grep -Fxq 'pdf_enable_xfa = false' "$root/args.gn"
+          grep -Fxq 'pdf_use_partition_alloc = false' "$root/args.gn"
+          grep -Fxq 'BUILD=8021' "$root/VERSION"
 
       - name: Build sanitizer configuration
-        run: cmake --build build-asan --parallel 2
+        run: cmake --build --preset linux-dev-user --parallel 2
 
       - name: Test sanitizer configuration
-        run: ctest --test-dir build-asan --output-on-failure
+        run: ctest --preset linux-dev-user
 
   macos:
     if: >-
       github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' &&
-       github.event.action == 'labeled' &&
-       github.event.label.name == 'full-ci')
+       contains(github.event.pull_request.labels.*.name, 'full-ci'))
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Restore pinned PDFium archive
+        uses: actions/cache@v4
+        with:
+          path: build/**/_deps/downloads/pdfium-*.tgz
+          key: pdfium-${{ runner.os }}-${{ runner.arch }}-${{ env.PDFIUM_RELEASE }}
 
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/vcpkg-binary-cache
-          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json', 'vcpkg-ports/**') }}
+          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
           restore-keys: |
             vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-
 
@@ -134,23 +155,24 @@ jobs:
           git -C "$RUNNER_TEMP/vcpkg" checkout --detach FETCH_HEAD
           "$RUNNER_TEMP/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
           echo "VCPKG_ROOT=$RUNNER_TEMP/vcpkg" >> "$GITHUB_ENV"
+          echo "PROJECT_ROOT=$RUNNER_TEMP" >> "$GITHUB_ENV"
 
       - name: Select vcpkg triplet
         shell: bash
         run: |
           case "$(uname -m)" in
-            arm64) triplet=arm64-osx ;;
-            x86_64) triplet=x64-osx ;;
+            arm64) triplet=arm64-osx; preset=macos-arm64-release-user; pdfium=mac-arm64 ;;
+            x86_64) triplet=x64-osx; preset=macos-x64-release-user; pdfium=mac-x64 ;;
             *) echo "Unsupported macOS architecture: $(uname -m)" >&2; exit 1 ;;
           esac
           echo "VCPKG_TRIPLET=$triplet" >> "$GITHUB_ENV"
+          echo "CMAKE_PRESET=$preset" >> "$GITHUB_ENV"
+          echo "PDFIUM_PLATFORM=$pdfium" >> "$GITHUB_ENV"
 
-      - name: Install MuPDF 1.28.2 with vcpkg
+      - name: Install qpdf with vcpkg
         shell: bash
         run: |
-          "$VCPKG_ROOT/vcpkg" install \
-            --triplet "$VCPKG_TRIPLET" \
-            --overlay-ports="$GITHUB_WORKSPACE/vcpkg-ports"
+          "$VCPKG_ROOT/vcpkg" install --triplet "$VCPKG_TRIPLET"
 
       - name: Save vcpkg binary cache
         if: steps.vcpkg-cache.outputs.cache-hit != 'true'
@@ -161,36 +183,57 @@ jobs:
 
       - name: Configure
         shell: bash
+        run: cmake --fresh --preset "$CMAKE_PRESET"
+
+      - name: Audit pinned PDFium artifact
+        shell: bash
         run: |
-          cmake -S . -B build \
-            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
-            -DVCPKG_TARGET_TRIPLET="$VCPKG_TRIPLET" \
-            -DVCPKG_OVERLAY_PORTS="$GITHUB_WORKSPACE/vcpkg-ports" \
-            -DBUILD_SHARED_LIBS=OFF
+          root="build/macos-clang-release/_deps/pdfium-${PDFIUM_VERSION}-${PDFIUM_PLATFORM}"
+          grep -Fxq 'pdf_enable_v8 = false' "$root/args.gn"
+          grep -Fxq 'pdf_enable_xfa = false' "$root/args.gn"
+          grep -Fxq 'pdf_use_partition_alloc = false' "$root/args.gn"
+          grep -Fxq 'MAJOR=154' "$root/VERSION"
+          grep -Fxq 'MINOR=0' "$root/VERSION"
+          grep -Fxq 'BUILD=8021' "$root/VERSION"
+          grep -Fxq 'PATCH=0' "$root/VERSION"
 
       - name: Build
-        run: cmake --build build --parallel 2
+        run: cmake --build --preset "$CMAKE_PRESET" --parallel 2
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --preset "$CMAKE_PRESET"
+
+      - name: Upload failed poster output
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-poster-split-output
+          path: build/macos-clang-release/poster-split-output.pdf
+          if-no-files-found: error
+          retention-days: 1
 
   windows:
     if: >-
       github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' &&
-       github.event.action == 'labeled' &&
-       github.event.label.name == 'full-ci')
+       contains(github.event.pull_request.labels.*.name, 'full-ci'))
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Restore pinned PDFium archive
+        uses: actions/cache@v4
+        with:
+          path: build/**/_deps/downloads/pdfium-*.tgz
+          key: pdfium-${{ runner.os }}-${{ runner.arch }}-${{ env.PDFIUM_RELEASE }}
 
       - name: Restore vcpkg binary cache
         id: vcpkg-cache
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/vcpkg-binary-cache
-          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json', 'vcpkg-ports/**') }}
+          key: vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-${{ hashFiles('vcpkg.json') }}
           restore-keys: |
             vcpkg-${{ runner.os }}-${{ runner.arch }}-${{ env.VCPKG_COMMIT }}-
 
@@ -211,13 +254,12 @@ jobs:
           git -C $root checkout --detach FETCH_HEAD
           & "$root\bootstrap-vcpkg.bat" -disableMetrics
           "VCPKG_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "PROJECT_ROOT=$env:RUNNER_TEMP" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Install static MuPDF 1.28.2 with vcpkg
+      - name: Install qpdf with vcpkg
         shell: pwsh
         run: |
-          & "$env:VCPKG_ROOT\vcpkg.exe" install `
-            --triplet x64-windows-static-md `
-            --overlay-ports="$env:GITHUB_WORKSPACE\vcpkg-ports"
+          & "$env:VCPKG_ROOT\vcpkg.exe" install --triplet x64-windows-static-md
 
       - name: Save vcpkg binary cache
         if: steps.vcpkg-cache.outputs.cache-hit != 'true'
@@ -226,17 +268,36 @@ jobs:
           path: ${{ runner.temp }}/vcpkg-binary-cache
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
 
-      - name: Configure ExtractPDF DLL
+      - name: Locate Visual Studio developer environment
         shell: pwsh
         run: |
-          cmake -S . -B build -A x64 `
-            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" `
-            -DVCPKG_TARGET_TRIPLET=x64-windows-static-md `
-            -DVCPKG_OVERLAY_PORTS="$env:GITHUB_WORKSPACE\vcpkg-ports" `
-            -DBUILD_SHARED_LIBS=ON
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          $installation = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $installation) { throw "Visual Studio C++ toolchain not found" }
+          $vsdev = Join-Path $installation "Common7\Tools\VsDevCmd.bat"
+          "VSDEVCMD=$vsdev" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Configure QuantaPDF DLL
+        shell: cmd
+        run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && set "VCPKG_ROOT=%RUNNER_TEMP%\vcpkg" && cmake --fresh --preset win-release-user
+
+      - name: Audit pinned PDFium artifact
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:GITHUB_WORKSPACE "build\Msvc-Release\_deps\pdfium-$env:PDFIUM_VERSION-win-x64"
+          $args = Get-Content (Join-Path $root "args.gn")
+          $version = Get-Content (Join-Path $root "VERSION")
+          foreach ($line in @("pdf_enable_v8 = false", "pdf_enable_xfa = false", "pdf_use_partition_alloc = false")) {
+            if ($args -notcontains $line) { throw "PDFium build audit failed: $line" }
+          }
+          foreach ($line in @("MAJOR=154", "MINOR=0", "BUILD=8021", "PATCH=0")) {
+            if ($version -notcontains $line) { throw "PDFium version audit failed: $line" }
+          }
 
       - name: Build
-        run: cmake --build build --config Release
+        shell: cmd
+        run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && set "VCPKG_ROOT=%RUNNER_TEMP%\vcpkg" && cmake --build --preset win-release-user
 
       - name: Test
-        run: ctest --test-dir build -C Release --output-on-failure
+        shell: cmd
+        run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && set "VCPKG_ROOT=%RUNNER_TEMP%\vcpkg" && ctest --preset win-release-user

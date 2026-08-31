@@ -1,42 +1,51 @@
-# ExtractPDF
+# QuantaPDF
 
-ExtractPDF is a small C11 library that keeps MuPDF behind a stable C ABI suitable for native callers and .NET P/Invoke.
+**QuantaPDF — PDF made easy.**
 
-The v2 implementation targets **MuPDF 1.28.2**. It replaces the original 2015 MuPDF 1.3 proof of concept with explicit ownership, stable status handling, deterministic tests, CMake/CTest, and exact-head Windows/Linux/macOS CI.
+QuantaPDF is a compact native PDF kernel with a versioned C11 ABI suitable for
+native callers and .NET P/Invoke.
 
-## Current v2 API
+> **Backends:** QuantaPDF uses pinned PDFium `154.0.8021.0` for document
+> inspection, rendering, and extraction, plus qpdf `12.4.0` for structural
+> transforms and editing. Both remain private implementation dependencies.
+
+## Current v2 ABI
+
+The v2 ABI uses the `quantapdf_*` symbol/type prefix and `QUANTAPDF_*`
+constants throughout. `<quantapdf/quantapdf.h>` is the sole public header;
+the previous namespace and compatibility wrappers are not retained.
 
 Document lifecycle remains the root of the API:
 
 ```c
-#include <extractpdf/extractpdf.h>
+#include <quantapdf/quantapdf.h>
 
-extractpdf_document *doc = NULL;
+quantapdf_document *doc = NULL;
 int pages = 0;
 
-if (extractpdf_open("file.pdf", NULL, &doc) == EXTRACTPDF_OK) {
-    if (extractpdf_page_count(doc, &pages) == EXTRACTPDF_OK) {
+if (quantapdf_open("file.pdf", NULL, &doc) == QUANTAPDF_OK) {
+    if (quantapdf_page_count(doc, &pages) == QUANTAPDF_OK) {
         /* use pages */
     }
-    extractpdf_close(doc);
+    quantapdf_close(doc);
 }
 ```
 
 Page + Render adds opaque page and bitmap handles:
 
 ```c
-extractpdf_page *page = NULL;
-extractpdf_bitmap *bitmap = NULL;
+quantapdf_page *page = NULL;
+quantapdf_bitmap *bitmap = NULL;
 int width, height, stride, components;
 
-if (extractpdf_load_page(doc, 0, &page) == EXTRACTPDF_OK) {
-    if (extractpdf_render_page(page, &bitmap) == EXTRACTPDF_OK) {
-        extractpdf_bitmap_dimensions(
+if (quantapdf_load_page(doc, 0, &page) == QUANTAPDF_OK) {
+    if (quantapdf_render_page(page, &bitmap) == QUANTAPDF_OK) {
+        quantapdf_bitmap_dimensions(
             bitmap, &width, &height, &stride, &components);
         /* inspect bitmap data */
-        extractpdf_drop_bitmap(bitmap);
+        quantapdf_drop_bitmap(bitmap);
     }
-    extractpdf_drop_page(page);
+    quantapdf_drop_page(page);
 }
 ```
 
@@ -49,46 +58,95 @@ The current supported surface includes:
 - DPI/zoom, rotation, and page-space clipping
 - aspect-preserving thumbnail rendering
 - bitmap dimensions and borrowed sample access
-- stable status strings
-
-Plain UTF-8 text, structured text/search, page images, and links are tracked as the next Content phase in issue #2.
+- plain UTF-8 text extraction
+- immutable structured-text snapshots and geometric text search
+- page-image enumeration and image bitmap rendering
+- URI/internal links, annotations, document metadata, and outlines
+- immutable AcroForm snapshots and isolated PDF edit sessions
+- page export/range export, output merging, and file saving
+- immutable CropBox crop, MediaBox trim, poster-split, interactive-content
+  flattening, and lossless rewrite/GC transforms
+- stable status strings and one allocator-matched `quantapdf_free()` entry point
 
 ## API contract
 
-- The public header contains no MuPDF types.
-- Each `extractpdf_document` owns one MuPDF context and document.
-- `extractpdf_page` and `extractpdf_bitmap` borrow their parent document. The document must outlive all derived page and bitmap handles.
+- The public header contains no PDFium or qpdf types.
+- Backend handles and C++ exceptions remain private to the library.
+- `quantapdf_page` and `quantapdf_bitmap` borrow their parent document. The document must outlive all derived page and bitmap handles.
 - A bitmap does not borrow its source page after rendering, so the page may be dropped before the bitmap, provided the document remains alive.
-- ExtractPDF keeps no mutable process-global or thread-local document state.
+- PDFium process state is private, initialized once, and serialized by the
+  backend runtime because PDFium's public API is not thread-safe.
 - Input paths are UTF-8.
 - `password == NULL` means no password was supplied.
-- Missing or incorrect passwords return `EXTRACTPDF_ERROR_PASSWORD`.
-- `extractpdf_open` leaves the output handle NULL on failure.
-- `extractpdf_close(NULL)`, `extractpdf_drop_page(NULL)`, and `extractpdf_drop_bitmap(NULL)` are safe.
-- MuPDF exceptions are caught inside the library and translated to `extractpdf_status`.
-- The current runtime contract is deliberately single-threaded. Separate handles may coexist and be used sequentially/interleaved on one thread; concurrent MuPDF calls are not yet part of the contract.
+- Missing or incorrect passwords return `QUANTAPDF_ERROR_PASSWORD`.
+- `quantapdf_open` accepts PDF input; non-PDF data returns
+  `QUANTAPDF_ERROR_FORMAT`.
+- `quantapdf_open` leaves the output handle NULL on failure.
+- `quantapdf_close(NULL)`, `quantapdf_drop_page(NULL)`, and `quantapdf_drop_bitmap(NULL)` are safe.
+- qpdf and standard C++ exceptions are caught inside the private bridge and
+  translated to `quantapdf_status`.
+- ABI v2 requires external serialization: applications must not execute
+  `quantapdf_*` calls concurrently, including calls that use different
+  documents or otherwise unrelated handles.
+
+Snapshot/output ownership is explicit:
+
+- `quantapdf_text_page`, `quantapdf_link_page`, `quantapdf_outline`,
+  `quantapdf_annotation_page`, `quantapdf_form`, and `quantapdf_output`
+  own their copied observations and remain valid for their documented snapshot lifetime;
+- pointers returned by snapshot string/data accessors are borrowed until the
+  corresponding snapshot/output is dropped;
+- strings returned through `char **` outputs are caller-owned and must be
+  released with `quantapdf_free()`;
+- `quantapdf_pdf_edit` owns a private PDF graph and never mutates its source
+  `quantapdf_document`.
+
+## ABI-sized structures
+
+The installed header publishes `QUANTAPDF_VERSION_MAJOR`,
+`QUANTAPDF_VERSION_MINOR`, `QUANTAPDF_VERSION_PATCH`, and
+`QUANTAPDF_ABI_VERSION`. ABI version 2 follows these compatibility rules:
+
+- existing exported functions, enum numeric values, structure fields, and
+  ownership rules are not removed, reordered, or reinterpreted;
+- new functions and enum values may be appended;
+- incompatible changes require a new ABI version and shared-library major
+  version.
+
+`struct_size` has two distinct contracts:
+
+- Single option/info structures are append-only. A library reads or writes
+  only fields covered by the caller-provided size.
+- Structures traversed as C array elements have fixed V1 layouts because an
+  array has no independent element-stride metadata. These currently include
+  `quantapdf_page_crop`, `quantapdf_page_trim`,
+  `quantapdf_page_poster_split`, `quantapdf_search_result`, and
+  `quantapdf_form_value_input`. Their accepted `struct_size` range is the
+  matching `QUANTAPDF_*_V1_MIN_SIZE` through `QUANTAPDF_*_V1_SIZE`; values
+  larger than the fixed V1 layout are rejected. Future extensions require a
+  new type/API or an API carrying an explicit element stride.
 
 ## Page coordinates
 
-All public page rectangles use **Fitz page space** rather than raw PDF object coordinates:
+All public page rectangles use **displayed page space** rather than raw PDF object coordinates:
 
 - the CropBox top-left is the page-space origin `(0, 0)`;
 - x increases to the right;
 - y increases downward;
 - values are page points before render scaling (`72 points = 1 inch`).
 
-`extractpdf_page_box_bounds(..., EXTRACTPDF_PAGE_BOX_MEDIA, ...)` may therefore have negative coordinates when MediaBox extends outside CropBox.
+`quantapdf_page_box_bounds(..., QUANTAPDF_PAGE_BOX_MEDIA, ...)` may therefore have negative coordinates when MediaBox extends outside CropBox.
 
 This same page-space contract is intended for later text geometry, search quads, images, links, and annotations.
 
-Intrinsic format-specific rotation metadata is intentionally not part of the generic Page API. Fitz bounds already describe displayed page geometry; PDF `/Rotate`, if needed by callers, belongs in a later PDF-specific metadata surface. Rendering rotation is explicit and per-call.
+Intrinsic format-specific rotation metadata is intentionally not part of the generic Page API. Page bounds already describe displayed geometry, including `/Rotate` and `/UserUnit`; raw rotation metadata, if needed by callers, belongs in a later PDF-specific metadata surface. Rendering rotation is explicit and per-call.
 
 ## Rendering
 
 The convenience call:
 
 ```c
-extractpdf_render_page(page, &bitmap);
+quantapdf_render_page(page, &bitmap);
 ```
 
 renders the full page at 72 DPI, zero additional rotation, opaque DeviceRGB, and a white background.
@@ -96,109 +154,154 @@ renders the full page at 72 DPI, zero additional rotation, opaque DeviceRGB, and
 For explicit rendering use a versioned options struct:
 
 ```c
-extractpdf_render_options options = {
-    sizeof(extractpdf_render_options),
+quantapdf_render_options options = {
+    sizeof(quantapdf_render_options),
     144.0f, /* dpi */
     0.0f,   /* rotation_degrees */
     0,      /* clip_enabled */
-    { 0 },  /* clip in Fitz page space */
+    { 0 },  /* clip in displayed page space */
     0       /* alpha */
 };
 
-extractpdf_render_page_with_options(page, &options, &bitmap);
+quantapdf_render_page_with_options(page, &options, &bitmap);
 ```
 
-`struct_size` is part of the ABI contract. Callers should initialize it to the size of the struct they compiled against. New fields are append-only; the library ignores fields beyond the caller-provided size so older binaries retain their original defaults.
+`struct_size` is part of the ABI contract. Callers should initialize it to the size of the struct they compiled against. Render options are a single append-only structure; the library ignores fields beyond the caller-provided size so older binaries retain their original defaults.
 
-`dpi` is the canonical zoom/resolution input: 72 DPI is scale 1.0, 144 DPI is scale 2.0. Rotation is in degrees and is applied only to that render call. When clipping is enabled, `clip` is expressed in Fitz page space and is transformed by the same DPI/rotation matrix; ExtractPDF renders directly into the clipped device bbox rather than allocating a full-page intermediate image.
+`dpi` is the canonical zoom/resolution input: 72 DPI is scale 1.0, 144 DPI is scale 2.0. Rotation is in degrees and is applied only to that render call. When clipping is enabled, `clip` is expressed in displayed page space and is transformed by the same DPI/rotation matrix; QuantaPDF renders directly into the clipped device bbox rather than allocating a full-page intermediate image.
 
 `alpha` accepts only 0 or 1:
 
 - `0`: 8-bit interleaved RGB, opaque white untouched pixels;
 - `1`: 8-bit interleaved RGBA, transparent untouched pixels.
 
-RGBA samples produced by the renderer use **premultiplied alpha**, matching MuPDF's rendered pixmap contract. `stride` returned by `extractpdf_bitmap_dimensions` is the authoritative byte distance between rows; callers must not assume a different packing rule. The pointer returned by `extractpdf_bitmap_data` is borrowed read-only storage and remains valid only until `extractpdf_drop_bitmap`.
+RGBA samples produced by the renderer use **premultiplied alpha**. `stride` returned by `quantapdf_bitmap_dimensions` is the authoritative byte distance between rows; callers must not assume a different packing rule. The pointer returned by `quantapdf_bitmap_data` is borrowed read-only storage and remains valid only until `quantapdf_drop_bitmap`.
 
 ## Thumbnails
 
 ```c
-extractpdf_render_thumbnail(page, max_width, max_height, &bitmap);
+quantapdf_render_thumbnail(page, max_width, max_height, &bitmap);
 ```
 
 renders opaque RGB while preserving the page aspect ratio. The result fits inside the requested pixel box and never upscales beyond the page's 72-DPI size. Thumbnail rendering derives a DPI and reuses the same renderer rather than maintaining a separate raster path.
 
-## Dependency model
+## Lossless rewrite and garbage collection
 
-The canonical dependency path on **all supported desktop platforms is vcpkg manifest mode**.
+```c
+quantapdf_output *rewritten = NULL;
 
-- `vcpkg.json` pins the vcpkg registry baseline used by CI.
-- `vcpkg-ports/libmupdf` is an overlay port that pins MuPDF **1.28.2** and the MuJS gitlink required by that release.
-- MuPDF itself is not copied into this repository; the overlay fetches the pinned upstream sources during the vcpkg build.
-- Project CMake consumes only `unofficial::libmupdf::libmupdf`.
-- There is no `MUPDF_ROOT`, MuPDF DLL-client, or `mupdfcpp64` build path in v2.
-
-On Windows, MuPDF and its third-party dependencies are static libraries built with the dynamic CRT triplet `x64-windows-static-md`. They are linked **privately** into the shared ExtractPDF wrapper:
-
-```text
-MuPDF 1.28.2 static libraries
-          |
-          | PRIVATE
-          v
-     extractpdf.dll
-          |
-          v
-   C / C++ / .NET callers
+if (quantapdf_rewrite_lossless(doc, &rewritten) == QUANTAPDF_OK) {
+    quantapdf_output_save_file(rewritten, "canonical.pdf");
+    quantapdf_drop_output(rewritten);
+}
 ```
 
-Only the `extractpdf_*` ABI is exported by the wrapper.
+`quantapdf_rewrite_lossless()` performs a deterministic full rewrite with a
+fixed policy. It removes indirect objects unreachable from the trailer graph,
+rebuilds the cross-reference state, preserves existing stream encodings, and
+does not deduplicate distinct reachable objects. Repeated calls on identical
+input—and rewriting a reopened result—produce byte-identical output.
 
-## Build with vcpkg
+This API is deliberately strict. It does not repair damaged PDFs, recompress
+images, or flatten interactive content. It neither preserves nor creates
+encryption: encrypted input is rejected with `QUANTAPDF_ERROR_UNSUPPORTED`.
+Inputs requiring structural recovery return `QUANTAPDF_ERROR_FORMAT`, and
+already signed inputs return `QUANTAPDF_ERROR_UNSUPPORTED`. The returned
+output owns its bytes independently of the source document.
 
-Set `VCPKG_ROOT` to a vcpkg checkout compatible with the baseline in `vcpkg.json`. CI bootstraps the exact pinned commit declared by the repository workflow.
+## Flatten interactive content
+
+```c
+quantapdf_output *flattened = NULL;
+
+if (quantapdf_flatten_interactive(
+        doc,
+        QUANTAPDF_FLATTEN_ANNOTATIONS | QUANTAPDF_FLATTEN_WIDGETS,
+        &flattened) == QUANTAPDF_OK) {
+    quantapdf_output_save_file(flattened, "flattened.pdf");
+    quantapdf_drop_output(flattened);
+}
+```
+
+`quantapdf_flatten_interactive()` bakes existing normal appearance streams
+into page content. Annotation and Widget selection are independent flags, and
+the source document remains immutable. Widget flattening also prunes the
+affected AcroForm field tree and calculation order.
+
+The transform never synthesizes appearances, applies redactions, executes
+form actions, or flattens Links. It fails closed for missing or malformed
+appearances, unsupported interactive semantics, visible Links on changed
+pages, tagged PDFs that require structure updates, encryption, and signatures.
+Output is deterministic and idempotent.
+
+## Dependency model
+
+The backend foundation has two pinned dependency paths:
+
+- `cmake/QuantaPDFPdfium.cmake` downloads the exact platform PDFium artifact,
+  verifies its SHA-256, version, disabled V8/XFA settings, and license payload,
+  and rejects unsupported platforms.
+- `vcpkg.json` resolves qpdf `12.4.0` from the pinned registry baseline with
+  optional OpenSSL, GnuTLS, and Zopfli features disabled.
+- PDFium and qpdf remain private implementation dependencies; only the
+  `quantapdf_*` C ABI is public.
+
+The target architecture is:
+
+```text
+PDFium public C API ----+
+                       +--> QuantaPDF private adapters --> quantapdf_* C ABI
+qpdf C++ object graph --+
+```
+
+Only the `quantapdf_*` ABI is exported by the wrapper.
+
+## Build with CMake Presets and vcpkg
+
+Set `PROJECT_ROOT` to the parent package workspace and `VCPKG_ROOT` to a
+vcpkg checkout containing the baseline in `vcpkg.json`. The configure presets
+run manifest installation automatically. Public
+configure, build, and test entry points live in the versioned
+`CMakeUserPresets.json`.
 
 ### Linux x64
 
 ```sh
-"$VCPKG_ROOT/vcpkg" install \
-  --triplet x64-linux \
-  --overlay-ports="$PWD/vcpkg-ports"
+export PROJECT_ROOT=/opt
+export VCPKG_ROOT=/opt/vcpkg
 
-cmake -S . -B build \
-  -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
-  -DVCPKG_TARGET_TRIPLET=x64-linux \
-  -DVCPKG_OVERLAY_PORTS="$PWD/vcpkg-ports" \
-  -DBUILD_SHARED_LIBS=OFF
-
-cmake --build build
-ctest --test-dir build --output-on-failure
+cmake --fresh --preset linux-release-user
+cmake --build --preset linux-release-user
+ctest --preset linux-release-user
 ```
 
 ### macOS
 
-Use `arm64-osx` on Apple Silicon or `x64-osx` on Intel, then run the same manifest/overlay flow.
+Use `macos-arm64-release-user` on Apple Silicon or
+`macos-x64-release-user` on Intel, then run the same configure, build, and
+CTest preset sequence.
 
 ### Windows x64 DLL
 
-```powershell
-& "$env:VCPKG_ROOT\vcpkg.exe" install `
-  --triplet x64-windows-static-md `
-  --overlay-ports="$PWD\vcpkg-ports"
+Run from an x64 Visual Studio Developer Command Prompt so `cl`, Ninja, and
+the MSVC runtime are available:
 
-cmake -S . -B build -A x64 `
-  -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" `
-  -DVCPKG_TARGET_TRIPLET=x64-windows-static-md `
-  -DVCPKG_OVERLAY_PORTS="$PWD\vcpkg-ports" `
-  -DBUILD_SHARED_LIBS=ON
+```bat
+set PROJECT_ROOT=C:\projects\cpp
+set VCPKG_ROOT=C:\tools\vcpkg
 
-cmake --build build --config Release
-ctest --test-dir build -C Release --output-on-failure
+cmake --fresh --preset win-release-user
+cmake --build --preset win-release-user
+ctest --preset win-release-user
 ```
 
-The test build stages `extractpdf.dll` beside every Windows test executable. Consumers are responsible for deploying `extractpdf.dll` beside their executable or otherwise making it available through normal Windows DLL search rules.
+Use `win-dev-user` for the isolated Debug + AddressSanitizer profile.
+
+The test build stages `quantapdf.dll` beside every Windows test executable. Consumers are responsible for deploying `quantapdf.dll` beside their executable or otherwise making it available through normal Windows DLL search rules.
 
 ## Tests
 
-CTest covers the document lifecycle plus Page + Render contracts, including invalid arguments, page geometry, MediaBox/CropBox coordinates, RGB/RGBA output, versioned render options, DPI, rotation, clipping, thumbnails, encrypted PDFs, malformed input, repeated lifecycle stress, interleaved handles, and UTF-8 paths.
+CTest covers the document lifecycle plus Page + Render contracts, including invalid arguments, page geometry, MediaBox/CropBox coordinates, RGB/RGBA output, versioned render options, DPI, rotation, clipping, thumbnails, encrypted PDFs, malformed input, repeated lifecycle stress, interleaved handles, UTF-8 paths, deterministic lossless rewrite/GC, and strict interactive-content flattening.
 
 Linux additionally runs AddressSanitizer and UndefinedBehaviorSanitizer.
 
@@ -206,16 +309,17 @@ Linux additionally runs AddressSanitizer and UndefinedBehaviorSanitizer.
 
 Normal pull-request updates use Linux as the fast development loop. Windows and macOS are reserved for explicit `full-ci` checkpoints, manual workflow dispatch, and pushes to `master`.
 
-The workflow persists vcpkg binary packages through GitHub Actions cache, keyed by OS/architecture, pinned vcpkg commit, manifest, and overlay content. This avoids rebuilding the MuPDF/HarfBuzz/FreeType dependency graph on each RED/GREEN iteration while leaving vcpkg's package ABI checks authoritative.
+The workflow persists vcpkg binary packages and the exact hash-verified PDFium
+archive. Cache identities include OS/architecture, the pinned vcpkg commit,
+manifest content, and literal PDFium release `chromium-8021`.
 
 A feature is not considered cross-platform complete until Linux, macOS, and Windows pass on the same exact head SHA. Older green runs do not satisfy acceptance for a newer head.
 
-## Legacy implementation
-
-The root `libpdf.c` is the original MuPDF 1.3 experiment from 2015. It remains untouched during the v2 migration for historical reference and is not the supported v2 API.
-
 ## License
 
-ExtractPDF is distributed under **AGPL-3.0-or-later**. See `LICENSE`.
+QuantaPDF source is distributed under the **Apache License 2.0**. See
+`LICENSE` and `THIRD_PARTY.md`.
 
-MuPDF is an upstream dependency with its own AGPL/commercial licensing options. Downstream users should review the applicable licenses for their distribution model.
+The PDFium and qpdf backend dependencies use permissive licenses. Their pinned
+license payloads and redistribution notices are installed with QuantaPDF; see
+`THIRD_PARTY.md` for details.

@@ -1,4 +1,4 @@
-#include <extractpdf/extractpdf.h>
+#include <quantapdf/quantapdf.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -68,29 +68,29 @@ static void expect_exact_file_bytes(
 }
 
 static void expect_page(
-    extractpdf_document *document,
+    quantapdf_document *document,
     int page_index,
     const char *needle,
     float width,
     float height)
 {
-    extractpdf_page *page = NULL;
-    extractpdf_rect bounds;
+    quantapdf_page *page = NULL;
+    quantapdf_rect bounds;
     char *text = NULL;
     size_t text_size = 0;
 
-    CHECK(extractpdf_load_page(document, page_index, &page) == EXTRACTPDF_OK);
-    CHECK(extractpdf_page_bounds(page, &bounds) == EXTRACTPDF_OK);
+    CHECK(quantapdf_load_page(document, page_index, &page) == QUANTAPDF_OK);
+    CHECK(quantapdf_page_bounds(page, &bounds) == QUANTAPDF_OK);
     CHECK(bounds.x0 == 0.0f);
     CHECK(bounds.y0 == 0.0f);
     CHECK(bounds.x1 == width);
     CHECK(bounds.y1 == height);
-    CHECK(extractpdf_extract_text(page, &text, &text_size) == EXTRACTPDF_OK);
+    CHECK(quantapdf_extract_text(page, &text, &text_size) == QUANTAPDF_OK);
     CHECK(text != NULL);
     CHECK(strstr(text, needle) != NULL);
 
-    extractpdf_free(text);
-    extractpdf_drop_page(page);
+    quantapdf_free(text);
+    quantapdf_drop_page(page);
 }
 
 static void expect_saved_pdf(
@@ -102,15 +102,15 @@ static void expect_saved_pdf(
     float second_width,
     float second_height)
 {
-    extractpdf_document *document = NULL;
+    quantapdf_document *document = NULL;
     int page_count = 0;
 
-    CHECK(extractpdf_open(path, NULL, &document) == EXTRACTPDF_OK);
-    CHECK(extractpdf_page_count(document, &page_count) == EXTRACTPDF_OK);
+    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_page_count(document, &page_count) == QUANTAPDF_OK);
     CHECK(page_count == 2);
     expect_page(document, 0, first_text, first_width, first_height);
     expect_page(document, 1, second_text, second_width, second_height);
-    extractpdf_close(document);
+    quantapdf_close(document);
 }
 
 static void remove_missing_parent_if_empty(void)
@@ -125,8 +125,8 @@ static void remove_missing_parent_if_empty(void)
 
 int main(void)
 {
-    extractpdf_document *source = NULL;
-    extractpdf_output *output = NULL;
+    quantapdf_document *source = NULL;
+    quantapdf_output *output = NULL;
     const unsigned char *before_data = NULL;
     const unsigned char *after_data = NULL;
     size_t before_size = 0;
@@ -136,60 +136,60 @@ int main(void)
     (void)remove(ASCII_OUTPUT_PDF);
     remove_missing_parent_if_empty();
 
-    CHECK(extractpdf_output_save_file(NULL, ASCII_OUTPUT_PDF) ==
-          EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(quantapdf_output_save_file(NULL, ASCII_OUTPUT_PDF) ==
+          QUANTAPDF_ERROR_ARGUMENT);
 
-    CHECK(extractpdf_open(COMPOSITION_PDF, NULL, &source) == EXTRACTPDF_OK);
-    CHECK(extractpdf_export_pages(source, indices, 2, &output) == EXTRACTPDF_OK);
+    CHECK(quantapdf_open(COMPOSITION_PDF, NULL, &source) == QUANTAPDF_OK);
+    CHECK(quantapdf_export_pages(source, indices, 2, &output) == QUANTAPDF_OK);
     CHECK(output != NULL);
-    extractpdf_close(source);
+    quantapdf_close(source);
     source = NULL;
 
-    CHECK(extractpdf_output_data(output, &before_data, &before_size) ==
-          EXTRACTPDF_OK);
+    CHECK(quantapdf_output_data(output, &before_data, &before_size) ==
+          QUANTAPDF_OK);
     CHECK(before_data != NULL);
     CHECK(before_size > 0);
 
-    CHECK(extractpdf_output_save_file(output, NULL) ==
-          EXTRACTPDF_ERROR_ARGUMENT);
-    CHECK(extractpdf_output_save_file(output, "") ==
-          EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(quantapdf_output_save_file(output, NULL) ==
+          QUANTAPDF_ERROR_ARGUMENT);
+    CHECK(quantapdf_output_save_file(output, "") ==
+          QUANTAPDF_ERROR_ARGUMENT);
 
     CHECK(write_stale_file(ASCII_OUTPUT_PDF, before_data, before_size));
-    CHECK(extractpdf_output_save_file(output, ASCII_OUTPUT_PDF) ==
-          EXTRACTPDF_OK);
+    CHECK(quantapdf_output_save_file(output, ASCII_OUTPUT_PDF) ==
+          QUANTAPDF_OK);
     expect_exact_file_bytes(ASCII_OUTPUT_PDF, before_data, before_size);
     expect_saved_pdf(
         ASCII_OUTPUT_PDF,
         "PAGE-C", 300.0f, 150.0f,
         "PAGE-A", 200.0f, 200.0f);
 
-    CHECK(extractpdf_output_save_file(output, UTF8_OUTPUT_PDF) ==
-          EXTRACTPDF_OK);
+    CHECK(quantapdf_output_save_file(output, UTF8_OUTPUT_PDF) ==
+          QUANTAPDF_OK);
     expect_saved_pdf(
         UTF8_OUTPUT_PDF,
         "PAGE-C", 300.0f, 150.0f,
         "PAGE-A", 200.0f, 200.0f);
 
     remove_missing_parent_if_empty();
-    CHECK(extractpdf_output_save_file(output, MISSING_PARENT_PDF) ==
-          EXTRACTPDF_ERROR_IO);
+    CHECK(quantapdf_output_save_file(output, MISSING_PARENT_PDF) ==
+          QUANTAPDF_ERROR_IO);
 
 #ifdef _WIN32
     {
         const char invalid_utf8[] = { (char)0xC3, (char)0x28, '\0' };
-        CHECK(extractpdf_output_save_file(output, invalid_utf8) ==
-              EXTRACTPDF_ERROR_ARGUMENT);
+        CHECK(quantapdf_output_save_file(output, invalid_utf8) ==
+              QUANTAPDF_ERROR_ARGUMENT);
     }
 #endif
 
-    CHECK(extractpdf_output_data(output, &after_data, &after_size) ==
-          EXTRACTPDF_OK);
+    CHECK(quantapdf_output_data(output, &after_data, &after_size) ==
+          QUANTAPDF_OK);
     CHECK(after_data != NULL);
     CHECK(after_size == before_size);
     CHECK(memcmp(after_data, before_data, before_size) == 0);
 
-    extractpdf_drop_output(output);
+    quantapdf_drop_output(output);
     (void)remove(ASCII_OUTPUT_PDF);
     return EXIT_SUCCESS;
 }

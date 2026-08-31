@@ -1,7 +1,11 @@
-#ifndef EXTRACTPDF_TEST_PDF_CROP_INTERNAL_H
-#define EXTRACTPDF_TEST_PDF_CROP_INTERNAL_H
+#ifndef QUANTAPDF_TEST_PDF_CROP_INTERNAL_H
+#define QUANTAPDF_TEST_PDF_CROP_INTERNAL_H
 
 #include <stddef.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 int crop_raw_expect_local_cropbox(
     const unsigned char *data,
@@ -20,5 +24,9 @@ int crop_raw_expect_preserved_graph(
     size_t before_size,
     const unsigned char *after,
     size_t after_size);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

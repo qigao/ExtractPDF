@@ -1,0 +1,15 @@
+{
+  "version": 6,
+  "include": ["ConfigurePresets.json"],
+  "testPresets": [
+    {
+      "name": "base-test",
+      "hidden": true,
+      "execution": {
+        "noTestsAction": "error",
+        "stopOnFailure": false
+      },
+      "output": { "outputOnFailure": true }
+    }
+  ]
+}

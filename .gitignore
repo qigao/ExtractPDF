@@ -1,0 +1,6 @@
+/build/
+/vcpkg_installed/
+/.vs/
+/.vscode/
+/.worktrees/
+*.log

@@ -1,187 +1,262 @@
-add_executable(extractpdf_test_status test_status.c)
-target_link_libraries(extractpdf_test_status PRIVATE ExtractPDF::ExtractPDF)
-add_test(NAME extractpdf.status COMMAND extractpdf_test_status)
-set_tests_properties(extractpdf.status PROPERTIES TIMEOUT 10)
+add_executable(quantapdf_test_backend_foundation test_backend_foundation.c)
+target_include_directories(quantapdf_test_backend_foundation PRIVATE
+  "${CMAKE_SOURCE_DIR}/include"
+  "${CMAKE_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_backend_foundation PRIVATE
+  quantapdf_backend
+  QuantaPDF::PDFium)
+target_compile_definitions(quantapdf_test_backend_foundation PRIVATE
+  ONE_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
+  POSTER_BASIC_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/poster-basic.pdf")
+add_test(NAME quantapdf.backend_foundation
+  COMMAND quantapdf_test_backend_foundation)
+set_tests_properties(quantapdf.backend_foundation PROPERTIES TIMEOUT 30)
 
-set(UTF8_PDF "${CMAKE_CURRENT_BINARY_DIR}/extractpdf-测试.pdf")
+add_executable(quantapdf_test_status test_status.c)
+target_link_libraries(quantapdf_test_status PRIVATE QuantaPDF::QuantaPDF)
+add_test(NAME quantapdf.status COMMAND quantapdf_test_status)
+
+add_executable(quantapdf_test_version test_version.c)
+target_link_libraries(quantapdf_test_version PRIVATE QuantaPDF::QuantaPDF)
+add_test(NAME quantapdf.version COMMAND quantapdf_test_version)
+
+add_executable(quantapdf_test_pdf_rewrite_lossless
+  test_pdf_rewrite_lossless.c
+  rewrite_test_helpers.cpp)
+target_link_libraries(quantapdf_test_pdf_rewrite_lossless PRIVATE
+  QuantaPDF::QuantaPDF
+  qpdf::libqpdf
+  ZLIB::ZLIB)
+target_compile_features(quantapdf_test_pdf_rewrite_lossless PRIVATE cxx_std_20)
+target_compile_definitions(quantapdf_test_pdf_rewrite_lossless PRIVATE
+  ONE_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
+  TEXT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/text-one-page.pdf"
+  OUTLINE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/outline-tree.pdf"
+  LINKS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/page-links.pdf"
+  ANNOTATIONS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotations-mixed.pdf"
+  ACROFORM_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-choice.pdf"
+  ENCRYPTED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/encrypted-one-page.pdf"
+  SIGNED_FIELD_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotation-mutation-signed.pdf"
+  UNSIGNED_SIGNATURE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotation-mutation-unsigned-signature.pdf"
+  REPAIRABLE_BAD_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/outline-repairable-bad.pdf"
+  REWRITE_GC_PDF="${CMAKE_CURRENT_BINARY_DIR}/rewrite-gc-input.pdf"
+  REWRITE_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/rewrite-output.pdf"
+  REWRITE_SEMANTIC_PDF="${CMAKE_CURRENT_BINARY_DIR}/rewrite-semantic.pdf"
+  REWRITE_METADATA_PDF="${CMAKE_CURRENT_BINARY_DIR}/rewrite-metadata.pdf"
+  REWRITE_VALIDATED_PDF="${CMAKE_CURRENT_BINARY_DIR}/rewrite-validated.pdf"
+  REWRITE_SIGNED_PDF="${CMAKE_CURRENT_BINARY_DIR}/rewrite-signed.pdf"
+  REWRITE_POLICY_PDF="${CMAKE_CURRENT_BINARY_DIR}/rewrite-policy.pdf"
+  REWRITE_ROOT_PARENT_SIGNED_PDF="${CMAKE_CURRENT_BINARY_DIR}/rewrite-root-parent-signed.pdf"
+  REWRITE_PARENT_MISMATCH_SIGNED_PDF="${CMAKE_CURRENT_BINARY_DIR}/rewrite-parent-mismatch-signed.pdf")
+add_test(NAME quantapdf.pdf_rewrite_lossless
+  COMMAND quantapdf_test_pdf_rewrite_lossless)
+set_tests_properties(quantapdf.pdf_rewrite_lossless PROPERTIES TIMEOUT 30)
+
+if(WIN32 AND BUILD_SHARED_LIBS)
+  find_program(QUANTAPDF_DUMPBIN_EXECUTABLE NAMES dumpbin REQUIRED)
+  add_test(NAME quantapdf.abi_exports
+    COMMAND "${CMAKE_COMMAND}"
+      "-DQUANTAPDF_DUMPBIN=${QUANTAPDF_DUMPBIN_EXECUTABLE}"
+      "-DQUANTAPDF_LIBRARY=$<TARGET_FILE:quantapdf>"
+      "-DQUANTAPDF_EXPORT_BASELINE=${CMAKE_CURRENT_SOURCE_DIR}/../abi/quantapdf-v2.exports"
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/../cmake/CheckQuantaPDFExports.cmake")
+  set_tests_properties(quantapdf.abi_exports PROPERTIES TIMEOUT 10)
+
+  add_executable(quantapdf_test_fake_dumpbin fake_dumpbin.c)
+  add_test(NAME quantapdf.abi_checker_rejects_extra_export
+    COMMAND "${CMAKE_COMMAND}"
+      "-DQUANTAPDF_DUMPBIN=$<TARGET_FILE:quantapdf_test_fake_dumpbin>"
+      "-DQUANTAPDF_LIBRARY=${CMAKE_CURRENT_SOURCE_DIR}/../abi/quantapdf-v2.exports"
+      "-DQUANTAPDF_EXPORT_BASELINE=${CMAKE_CURRENT_SOURCE_DIR}/../abi/quantapdf-v2.exports"
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/../cmake/CheckQuantaPDFExports.cmake")
+  set_tests_properties(quantapdf.abi_checker_rejects_extra_export PROPERTIES
+    TIMEOUT 10
+    WILL_FAIL TRUE)
+endif()
+set_tests_properties(quantapdf.status PROPERTIES TIMEOUT 10)
+
+set(UTF8_PDF "${CMAKE_CURRENT_BINARY_DIR}/quantapdf-测试.pdf")
 configure_file(
   "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
   "${UTF8_PDF}"
   COPYONLY)
 
-add_executable(extractpdf_test_document test_document.c)
-target_link_libraries(extractpdf_test_document PRIVATE ExtractPDF::ExtractPDF)
-target_compile_definitions(extractpdf_test_document PRIVATE
+add_executable(quantapdf_test_document test_document.c)
+target_link_libraries(quantapdf_test_document PRIVATE QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_test_document PRIVATE
   ONE_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
   TWO_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/two-page.pdf"
   PAGE_BOXES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/page-boxes.pdf"
   ENCRYPTED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/encrypted-one-page.pdf"
+  NON_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-non-pdf.txt"
   TRUNCATED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/truncated.pdf"
   MISSING_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/does-not-exist.pdf"
   UTF8_PDF="${UTF8_PDF}")
 if(MSVC)
-  target_compile_options(extractpdf_test_document PRIVATE /utf-8)
+  target_compile_options(quantapdf_test_document PRIVATE /utf-8)
 endif()
-add_test(NAME extractpdf.document COMMAND extractpdf_test_document)
-set_tests_properties(extractpdf.document PROPERTIES TIMEOUT 60)
+add_test(NAME quantapdf.document COMMAND quantapdf_test_document)
+set_tests_properties(quantapdf.document PROPERTIES TIMEOUT 60)
 
-add_executable(extractpdf_test_render test_render.c)
-target_link_libraries(extractpdf_test_render PRIVATE ExtractPDF::ExtractPDF)
-target_compile_definitions(extractpdf_test_render PRIVATE
+add_executable(quantapdf_test_render test_render.c)
+target_link_libraries(quantapdf_test_render PRIVATE QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_test_render PRIVATE
   ONE_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
   PAGE_BOXES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/page-boxes.pdf")
-add_test(NAME extractpdf.render COMMAND extractpdf_test_render)
-set_tests_properties(extractpdf.render PROPERTIES TIMEOUT 30)
+add_test(NAME quantapdf.render COMMAND quantapdf_test_render)
+set_tests_properties(quantapdf.render PROPERTIES TIMEOUT 30)
 
-add_executable(extractpdf_test_text test_text.c)
-target_link_libraries(extractpdf_test_text PRIVATE ExtractPDF::ExtractPDF)
-target_compile_definitions(extractpdf_test_text PRIVATE
+add_executable(quantapdf_test_text test_text.c)
+target_link_libraries(quantapdf_test_text PRIVATE QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_test_text PRIVATE
   ONE_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
   TEXT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/text-one-page.pdf")
-add_test(NAME extractpdf.text COMMAND extractpdf_test_text)
-set_tests_properties(extractpdf.text PROPERTIES TIMEOUT 30)
+add_test(NAME quantapdf.text COMMAND quantapdf_test_text)
+set_tests_properties(quantapdf.text PROPERTIES TIMEOUT 30)
 
-add_executable(extractpdf_test_structured_text test_structured_text.c)
-target_link_libraries(extractpdf_test_structured_text PRIVATE ExtractPDF::ExtractPDF)
-target_compile_definitions(extractpdf_test_structured_text PRIVATE
+add_executable(quantapdf_test_structured_text test_structured_text.c)
+target_link_libraries(quantapdf_test_structured_text PRIVATE QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_test_structured_text PRIVATE
   ONE_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
   STRUCTURED_TEXT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/structured-text.pdf")
-add_test(NAME extractpdf.structured_text COMMAND extractpdf_test_structured_text)
-set_tests_properties(extractpdf.structured_text PROPERTIES TIMEOUT 30)
+add_test(NAME quantapdf.structured_text COMMAND quantapdf_test_structured_text)
+set_tests_properties(quantapdf.structured_text PROPERTIES TIMEOUT 30)
 
-add_executable(extractpdf_test_text_search test_text_search.c)
-target_link_libraries(extractpdf_test_text_search PRIVATE ExtractPDF::ExtractPDF)
-target_compile_definitions(extractpdf_test_text_search PRIVATE
+add_executable(quantapdf_test_text_search test_text_search.c)
+target_link_libraries(quantapdf_test_text_search PRIVATE QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_test_text_search PRIVATE
   STRUCTURED_TEXT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/structured-text.pdf")
-add_test(NAME extractpdf.text_search COMMAND extractpdf_test_text_search)
-set_tests_properties(extractpdf.text_search PROPERTIES TIMEOUT 30)
+add_test(NAME quantapdf.text_search COMMAND quantapdf_test_text_search)
+set_tests_properties(quantapdf.text_search PROPERTIES TIMEOUT 30)
 
-add_executable(extractpdf_test_images test_images.c)
-target_link_libraries(extractpdf_test_images PRIVATE ExtractPDF::ExtractPDF)
-target_compile_definitions(extractpdf_test_images PRIVATE
+add_executable(quantapdf_test_images test_images.c)
+target_link_libraries(quantapdf_test_images PRIVATE QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_test_images PRIVATE
   ONE_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
   PAGE_IMAGES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/page-images.pdf")
-add_test(NAME extractpdf.images COMMAND extractpdf_test_images)
-set_tests_properties(extractpdf.images PROPERTIES TIMEOUT 30)
+add_test(NAME quantapdf.images COMMAND quantapdf_test_images)
+set_tests_properties(quantapdf.images PROPERTIES TIMEOUT 30)
 
-add_executable(extractpdf_test_image_bitmap test_image_bitmap.c)
-target_link_libraries(extractpdf_test_image_bitmap PRIVATE ExtractPDF::ExtractPDF)
-target_compile_definitions(extractpdf_test_image_bitmap PRIVATE
+add_executable(quantapdf_test_image_bitmap test_image_bitmap.c)
+target_link_libraries(quantapdf_test_image_bitmap PRIVATE QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_test_image_bitmap PRIVATE
   PAGE_IMAGES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/page-images.pdf"
   PAGE_IMAGES_ALPHA_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/page-images-alpha.pdf")
-add_test(NAME extractpdf.image_bitmap COMMAND extractpdf_test_image_bitmap)
-set_tests_properties(extractpdf.image_bitmap PROPERTIES TIMEOUT 30)
+add_test(NAME quantapdf.image_bitmap COMMAND quantapdf_test_image_bitmap)
+set_tests_properties(quantapdf.image_bitmap PROPERTIES TIMEOUT 30)
 
-add_executable(extractpdf_test_links test_links.c)
-target_link_libraries(extractpdf_test_links PRIVATE ExtractPDF::ExtractPDF)
-target_compile_definitions(extractpdf_test_links PRIVATE
+add_executable(quantapdf_test_links test_links.c)
+target_link_libraries(quantapdf_test_links PRIVATE QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_test_links PRIVATE
   PAGE_LINKS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/page-links.pdf")
-add_test(NAME extractpdf.links COMMAND extractpdf_test_links)
-set_tests_properties(extractpdf.links PROPERTIES TIMEOUT 30)
+add_test(NAME quantapdf.links COMMAND quantapdf_test_links)
+set_tests_properties(quantapdf.links PROPERTIES TIMEOUT 30)
 
-add_executable(extractpdf_test_pdf_export test_pdf_export.c)
-target_link_libraries(extractpdf_test_pdf_export PRIVATE ExtractPDF::ExtractPDF)
-target_compile_definitions(extractpdf_test_pdf_export PRIVATE
+add_executable(quantapdf_test_pdf_export test_pdf_export.c)
+target_link_libraries(quantapdf_test_pdf_export PRIVATE QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_test_pdf_export PRIVATE
   COMPOSITION_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-three-page.pdf"
   COMPOSITION_NON_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-non-pdf.txt"
   COMPOSITION_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/composition-export-output.pdf")
-add_test(NAME extractpdf.pdf_export COMMAND extractpdf_test_pdf_export)
-set_tests_properties(extractpdf.pdf_export PROPERTIES TIMEOUT 30)
+add_test(NAME quantapdf.pdf_export COMMAND quantapdf_test_pdf_export)
+set_tests_properties(quantapdf.pdf_export PROPERTIES TIMEOUT 30)
 
-add_executable(extractpdf_test_pdf_range test_pdf_range.c)
-target_link_libraries(extractpdf_test_pdf_range PRIVATE ExtractPDF::ExtractPDF)
-target_compile_definitions(extractpdf_test_pdf_range PRIVATE
+add_executable(quantapdf_test_pdf_range test_pdf_range.c)
+target_link_libraries(quantapdf_test_pdf_range PRIVATE QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_test_pdf_range PRIVATE
   COMPOSITION_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-three-page.pdf"
   COMPOSITION_NON_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-non-pdf.txt"
   RANGE_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/composition-range-output.pdf")
-add_test(NAME extractpdf.pdf_range COMMAND extractpdf_test_pdf_range)
-set_tests_properties(extractpdf.pdf_range PROPERTIES TIMEOUT 30)
+add_test(NAME quantapdf.pdf_range COMMAND quantapdf_test_pdf_range)
+set_tests_properties(quantapdf.pdf_range PROPERTIES TIMEOUT 30)
 
-add_executable(extractpdf_test_pdf_order test_pdf_order.c)
-target_link_libraries(extractpdf_test_pdf_order PRIVATE ExtractPDF::ExtractPDF)
-target_compile_definitions(extractpdf_test_pdf_order PRIVATE
+add_executable(quantapdf_test_pdf_order test_pdf_order.c)
+target_link_libraries(quantapdf_test_pdf_order PRIVATE QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_test_pdf_order PRIVATE
   COMPOSITION_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-three-page.pdf"
   ORDER_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/composition-order-output.pdf")
-add_test(NAME extractpdf.pdf_order COMMAND extractpdf_test_pdf_order)
-set_tests_properties(extractpdf.pdf_order PROPERTIES TIMEOUT 30)
+add_test(NAME quantapdf.pdf_order COMMAND quantapdf_test_pdf_order)
+set_tests_properties(quantapdf.pdf_order PROPERTIES TIMEOUT 30)
 
-add_executable(extractpdf_test_pdf_delete test_pdf_delete.c)
-target_link_libraries(extractpdf_test_pdf_delete PRIVATE ExtractPDF::ExtractPDF)
-target_compile_definitions(extractpdf_test_pdf_delete PRIVATE
+add_executable(quantapdf_test_pdf_delete test_pdf_delete.c)
+target_link_libraries(quantapdf_test_pdf_delete PRIVATE QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_test_pdf_delete PRIVATE
   COMPOSITION_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-three-page.pdf"
   DELETE_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/composition-delete-output.pdf")
-add_test(NAME extractpdf.pdf_delete COMMAND extractpdf_test_pdf_delete)
-set_tests_properties(extractpdf.pdf_delete PROPERTIES TIMEOUT 30)
+add_test(NAME quantapdf.pdf_delete COMMAND quantapdf_test_pdf_delete)
+set_tests_properties(quantapdf.pdf_delete PROPERTIES TIMEOUT 30)
 
-add_executable(extractpdf_test_pdf_merge test_pdf_merge.c)
-target_link_libraries(extractpdf_test_pdf_merge PRIVATE ExtractPDF::ExtractPDF)
-target_compile_definitions(extractpdf_test_pdf_merge PRIVATE
+add_executable(quantapdf_test_pdf_merge test_pdf_merge.c)
+target_link_libraries(quantapdf_test_pdf_merge PRIVATE QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_test_pdf_merge PRIVATE
   COMPOSITION_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-three-page.pdf"
   TEXT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/text-one-page.pdf"
   MERGE_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/composition-merge-output.pdf")
-add_test(NAME extractpdf.pdf_merge COMMAND extractpdf_test_pdf_merge)
-set_tests_properties(extractpdf.pdf_merge PROPERTIES TIMEOUT 30)
+add_test(NAME quantapdf.pdf_merge COMMAND quantapdf_test_pdf_merge)
+set_tests_properties(quantapdf.pdf_merge PROPERTIES TIMEOUT 30)
 
 set(OUTPUT_FILE_ASCII "${CMAKE_CURRENT_BINARY_DIR}/composition-save-output.pdf")
 set(OUTPUT_FILE_UTF8 "${CMAKE_CURRENT_BINARY_DIR}/composition-save-测试.pdf")
 set(OUTPUT_FILE_MISSING_PARENT_DIR
-  "${CMAKE_CURRENT_BINARY_DIR}/extractpdf-save-missing-parent")
+  "${CMAKE_CURRENT_BINARY_DIR}/quantapdf-save-missing-parent")
 set(OUTPUT_FILE_MISSING_PARENT
   "${OUTPUT_FILE_MISSING_PARENT_DIR}/output.pdf")
 
-add_executable(extractpdf_test_output_file test_output_file.c)
-target_link_libraries(extractpdf_test_output_file PRIVATE ExtractPDF::ExtractPDF)
-target_compile_definitions(extractpdf_test_output_file PRIVATE
+add_executable(quantapdf_test_output_file test_output_file.c)
+target_link_libraries(quantapdf_test_output_file PRIVATE QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_test_output_file PRIVATE
   COMPOSITION_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-three-page.pdf"
   ASCII_OUTPUT_PDF="${OUTPUT_FILE_ASCII}"
   UTF8_OUTPUT_PDF="${OUTPUT_FILE_UTF8}"
   MISSING_PARENT_DIR="${OUTPUT_FILE_MISSING_PARENT_DIR}"
   MISSING_PARENT_PDF="${OUTPUT_FILE_MISSING_PARENT}")
 if(MSVC)
-  target_compile_options(extractpdf_test_output_file PRIVATE /utf-8)
+  target_compile_options(quantapdf_test_output_file PRIVATE /utf-8)
 endif()
-add_test(NAME extractpdf.output_file COMMAND extractpdf_test_output_file)
-set_tests_properties(extractpdf.output_file PROPERTIES TIMEOUT 30)
+add_test(NAME quantapdf.output_file COMMAND quantapdf_test_output_file)
+set_tests_properties(quantapdf.output_file PROPERTIES TIMEOUT 30)
 
-add_executable(extractpdf_test_pdf_metadata test_pdf_metadata.c)
-target_link_libraries(extractpdf_test_pdf_metadata PRIVATE ExtractPDF::ExtractPDF)
-target_compile_definitions(extractpdf_test_pdf_metadata PRIVATE
+add_executable(quantapdf_test_pdf_metadata test_pdf_metadata.c)
+target_link_libraries(quantapdf_test_pdf_metadata PRIVATE QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_test_pdf_metadata PRIVATE
   METADATA_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/metadata-info.pdf"
   COMPOSITION_NON_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-non-pdf.txt")
-add_test(NAME extractpdf.pdf_metadata COMMAND extractpdf_test_pdf_metadata)
-set_tests_properties(extractpdf.pdf_metadata PROPERTIES TIMEOUT 30)
+add_test(NAME quantapdf.pdf_metadata COMMAND quantapdf_test_pdf_metadata)
+set_tests_properties(quantapdf.pdf_metadata PROPERTIES TIMEOUT 30)
 
-add_executable(extractpdf_test_pdf_outline test_pdf_outline.c)
-target_link_libraries(extractpdf_test_pdf_outline PRIVATE ExtractPDF::ExtractPDF)
-target_compile_definitions(extractpdf_test_pdf_outline PRIVATE
+add_executable(quantapdf_test_pdf_outline test_pdf_outline.c)
+target_link_libraries(quantapdf_test_pdf_outline PRIVATE QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_test_pdf_outline PRIVATE
   OUTLINE_TREE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/outline-tree.pdf"
   OUTLINE_REPAIRABLE_BAD_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/outline-repairable-bad.pdf"
   OUTLINE_CYCLE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/outline-cycle.pdf"
   OUTLINE_DEPTH_257_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/outline-depth-257.pdf"
   EMPTY_OUTLINE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-three-page.pdf"
   COMPOSITION_NON_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-non-pdf.txt")
-add_test(NAME extractpdf.pdf_outline COMMAND extractpdf_test_pdf_outline)
-set_tests_properties(extractpdf.pdf_outline PROPERTIES TIMEOUT 30)
+add_test(NAME quantapdf.pdf_outline COMMAND quantapdf_test_pdf_outline)
+set_tests_properties(quantapdf.pdf_outline PROPERTIES TIMEOUT 30)
 
-add_executable(extractpdf_test_pdf_annotations test_pdf_annotations.c)
-target_link_libraries(extractpdf_test_pdf_annotations PRIVATE ExtractPDF::ExtractPDF)
-target_compile_definitions(extractpdf_test_pdf_annotations PRIVATE
+add_executable(quantapdf_test_pdf_annotations test_pdf_annotations.c)
+target_link_libraries(quantapdf_test_pdf_annotations PRIVATE QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_test_pdf_annotations PRIVATE
   ANNOTATIONS_MIXED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotations-mixed.pdf"
   ANNOTATIONS_NONARRAY_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotations-nonarray.pdf"
   ANNOTATIONS_FILTERED_ONLY_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotations-filtered-only.pdf"
   ANNOTATIONS_LATE_MALFORMED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotations-late-malformed.pdf"
   EMPTY_ANNOTATIONS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf")
-add_test(NAME extractpdf.pdf_annotations COMMAND extractpdf_test_pdf_annotations)
-set_tests_properties(extractpdf.pdf_annotations PROPERTIES TIMEOUT 30)
+add_test(NAME quantapdf.pdf_annotations COMMAND quantapdf_test_pdf_annotations)
+set_tests_properties(quantapdf.pdf_annotations PROPERTIES TIMEOUT 30)
 
 set(MUTATION_OUTPUT_A "${CMAKE_CURRENT_BINARY_DIR}/annotation-mutation-a.pdf")
 set(MUTATION_OUTPUT_B "${CMAKE_CURRENT_BINARY_DIR}/annotation-mutation-b.pdf")
 set(MUTATION_OUTPUT_JS "${CMAKE_CURRENT_BINARY_DIR}/annotation-mutation-js-output.pdf")
 
-add_executable(extractpdf_test_pdf_annotation_mutation
-  test_pdf_annotation_mutation.c)
-target_link_libraries(extractpdf_test_pdf_annotation_mutation PRIVATE ExtractPDF::ExtractPDF)
-target_compile_definitions(extractpdf_test_pdf_annotation_mutation PRIVATE
+add_executable(quantapdf_test_pdf_annotation_mutation
+  test_pdf_annotation_mutation.c
+  pdf_edit_fault_hook.c)
+target_link_libraries(quantapdf_test_pdf_annotation_mutation PRIVATE QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_test_pdf_annotation_mutation PRIVATE
+  QUANTAPDF_TESTING=1
   MUTATION_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotation-mutation.pdf"
   SIGNED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotation-mutation-signed.pdf"
   UNSIGNED_SIGNATURE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotation-mutation-unsigned-signature.pdf"
@@ -192,13 +267,13 @@ target_compile_definitions(extractpdf_test_pdf_annotation_mutation PRIVATE
   OUTPUT_A_PDF="${MUTATION_OUTPUT_A}"
   OUTPUT_B_PDF="${MUTATION_OUTPUT_B}"
   OUTPUT_JS_PDF="${MUTATION_OUTPUT_JS}")
-add_test(NAME extractpdf.pdf_annotation_mutation
-  COMMAND extractpdf_test_pdf_annotation_mutation)
-set_tests_properties(extractpdf.pdf_annotation_mutation PROPERTIES TIMEOUT 60)
+add_test(NAME quantapdf.pdf_annotation_mutation
+  COMMAND quantapdf_test_pdf_annotation_mutation)
+set_tests_properties(quantapdf.pdf_annotation_mutation PROPERTIES TIMEOUT 60)
 
-add_executable(extractpdf_test_pdf_form test_pdf_form.c)
-target_link_libraries(extractpdf_test_pdf_form PRIVATE ExtractPDF::ExtractPDF)
-target_compile_definitions(extractpdf_test_pdf_form PRIVATE
+add_executable(quantapdf_test_pdf_form test_pdf_form.c)
+target_link_libraries(quantapdf_test_pdf_form PRIVATE QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_test_pdf_form PRIVATE
   ACROFORM_STRUCTURE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-structure.pdf"
   ACROFORM_WIDGETS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-widgets.pdf"
   ACROFORM_SCALARS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-scalars.pdf"
@@ -238,79 +313,43 @@ target_compile_definitions(extractpdf_test_pdf_form PRIVATE
   ACROFORM_LATE_MALFORMED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-late-malformed.pdf"
   NON_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-non-pdf.txt"
   NO_ACROFORM_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf")
-add_test(NAME extractpdf.pdf_form COMMAND extractpdf_test_pdf_form)
-set_tests_properties(extractpdf.pdf_form PROPERTIES TIMEOUT 60)
+add_test(NAME quantapdf.pdf_form COMMAND quantapdf_test_pdf_form)
+set_tests_properties(quantapdf.pdf_form PROPERTIES TIMEOUT 60)
 
-if(WIN32 AND BUILD_SHARED_LIBS)
-  foreach(test_target IN ITEMS
-      extractpdf_test_status
-      extractpdf_test_document
-      extractpdf_test_render
-      extractpdf_test_text
-      extractpdf_test_structured_text
-      extractpdf_test_text_search
-      extractpdf_test_images
-      extractpdf_test_image_bitmap
-      extractpdf_test_links
-      extractpdf_test_pdf_export
-      extractpdf_test_pdf_range
-      extractpdf_test_pdf_order
-      extractpdf_test_pdf_delete
-      extractpdf_test_pdf_merge
-      extractpdf_test_output_file
-      extractpdf_test_pdf_metadata
-      extractpdf_test_pdf_outline
-      extractpdf_test_pdf_annotations
-      extractpdf_test_pdf_annotation_mutation
-      extractpdf_test_pdf_form)
-    add_custom_command(TARGET ${test_target} POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        $<TARGET_FILE:extractpdf>
-        $<TARGET_FILE_DIR:${test_target}>
-      VERBATIM)
-  endforeach()
-endif()
-
-add_executable(extractpdf_test_pdf_form_mutation
+add_executable(quantapdf_test_pdf_form_mutation
   test_pdf_form_mutation.c
   test_pdf_form_appearance.c
-  test_pdf_form_mutation_main.c)
+  test_pdf_form_mutation_main.c
+  pdf_edit_fault_hook.c)
 set_source_files_properties(test_pdf_form_mutation.c PROPERTIES
-  COMPILE_DEFINITIONS "main=extractpdf_pdf_form_mutation_base_main")
-target_link_libraries(extractpdf_test_pdf_form_mutation PRIVATE ExtractPDF::ExtractPDF)
-target_compile_definitions(extractpdf_test_pdf_form_mutation PRIVATE
+  COMPILE_DEFINITIONS "main=quantapdf_pdf_form_mutation_base_main")
+target_link_libraries(quantapdf_test_pdf_form_mutation PRIVATE QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_test_pdf_form_mutation PRIVATE
+  QUANTAPDF_TESTING=1
   FORM_MUTATION_BASIC_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-basic.pdf"
   FORM_MUTATION_CHOICE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-choice.pdf"
-  FORM_MUTATION_GROUPS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-groups.pdf"
-  FORM_MUTATION_MODES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-modes.pdf"
+  FORM_MUTATION_GROUPS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-groups-pdfium.pdf"
+  FORM_MUTATION_MODES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-modes-pdfium.pdf"
   FORM_MUTATION_EVENTS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-events.pdf"
   FORM_MUTATION_NEED_APPEARANCES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-need-appearances.pdf"
   FORM_MUTATION_XFA_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-xfa.pdf"
   FORM_MUTATION_BAD_NEED_APPEARANCES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-bad-need-appearances.pdf"
-  FORM_MUTATION_DIRECT_FIELD_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-direct-field.pdf")
-add_test(NAME extractpdf.pdf_form_mutation
-  COMMAND extractpdf_test_pdf_form_mutation)
-set_tests_properties(extractpdf.pdf_form_mutation PROPERTIES TIMEOUT 60)
+  FORM_MUTATION_DIRECT_FIELD_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-direct-field-pdfium.pdf")
+add_test(NAME quantapdf.pdf_form_mutation
+  COMMAND quantapdf_test_pdf_form_mutation)
+set_tests_properties(quantapdf.pdf_form_mutation PROPERTIES TIMEOUT 60)
 
-if(WIN32 AND BUILD_SHARED_LIBS)
-  add_custom_command(TARGET extractpdf_test_pdf_form_mutation POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      $<TARGET_FILE:extractpdf>
-      $<TARGET_FILE_DIR:extractpdf_test_pdf_form_mutation>
-    VERBATIM)
-endif()
-
-add_executable(extractpdf_test_pdf_crop
+add_executable(quantapdf_test_pdf_crop
   test_pdf_crop.c
-  test_pdf_crop_raw.c
-  test_pdf_crop_defaults.c
+  qpdf_test_helpers.cpp
   test_pdf_crop_transforms.c)
 set_source_files_properties(test_pdf_crop.c PROPERTIES
-  COMPILE_DEFINITIONS "main=extractpdf_pdf_crop_base_main")
-target_link_libraries(extractpdf_test_pdf_crop PRIVATE
-  ExtractPDF::ExtractPDF
-  unofficial::libmupdf::libmupdf)
-target_compile_definitions(extractpdf_test_pdf_crop PRIVATE
+  COMPILE_DEFINITIONS "main=quantapdf_pdf_crop_base_main")
+target_link_libraries(quantapdf_test_pdf_crop PRIVATE
+  QuantaPDF::QuantaPDF
+  qpdf::libqpdf)
+target_compile_features(quantapdf_test_pdf_crop PRIVATE cxx_std_20)
+target_compile_definitions(quantapdf_test_pdf_crop PRIVATE
   CROP_INTERACTIVE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/crop-interactive.pdf"
   CROP_INHERITED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/crop-inherited.pdf"
   CROP_ROTATE_90_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/crop-rotate-90.pdf"
@@ -323,58 +362,90 @@ target_compile_definitions(extractpdf_test_pdf_crop PRIVATE
   ENCRYPTED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/encrypted-one-page.pdf"
   NON_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-non-pdf.txt"
   CROP_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/crop-output.pdf")
-add_test(NAME extractpdf.pdf_crop COMMAND extractpdf_test_pdf_crop)
-set_tests_properties(extractpdf.pdf_crop PROPERTIES TIMEOUT 60)
+add_test(NAME quantapdf.pdf_crop COMMAND quantapdf_test_pdf_crop)
+set_tests_properties(quantapdf.pdf_crop PROPERTIES TIMEOUT 60)
 
-if(WIN32 AND BUILD_SHARED_LIBS)
-  add_custom_command(TARGET extractpdf_test_pdf_crop POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      $<TARGET_FILE:extractpdf>
-      $<TARGET_FILE_DIR:extractpdf_test_pdf_crop>
-    VERBATIM)
-endif()
-
-add_executable(extractpdf_test_pdf_trim test_pdf_trim.c)
-target_link_libraries(extractpdf_test_pdf_trim PRIVATE ExtractPDF::ExtractPDF)
-target_compile_definitions(extractpdf_test_pdf_trim PRIVATE
+add_executable(quantapdf_test_pdf_trim test_pdf_trim.c)
+target_link_libraries(quantapdf_test_pdf_trim PRIVATE QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_test_pdf_trim PRIVATE
   TRIM_INTERACTIVE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/trim-interactive.pdf")
-add_test(NAME extractpdf.pdf_trim COMMAND extractpdf_test_pdf_trim)
-set_tests_properties(extractpdf.pdf_trim PROPERTIES TIMEOUT 60)
+add_test(NAME quantapdf.pdf_trim COMMAND quantapdf_test_pdf_trim)
+set_tests_properties(quantapdf.pdf_trim PROPERTIES TIMEOUT 60)
 
-if(WIN32 AND BUILD_SHARED_LIBS)
-  add_custom_command(TARGET extractpdf_test_pdf_trim POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      $<TARGET_FILE:extractpdf>
-      $<TARGET_FILE_DIR:extractpdf_test_pdf_trim>
-    VERBATIM)
-endif()
-
-add_executable(extractpdf_test_pdf_poster_split test_pdf_poster_split.c)
-target_link_libraries(extractpdf_test_pdf_poster_split PRIVATE ExtractPDF::ExtractPDF)
-target_compile_definitions(extractpdf_test_pdf_poster_split PRIVATE
+add_executable(quantapdf_test_pdf_poster_split
+  test_pdf_poster_split.c
+  pdf_poster_fault_hook.c)
+target_link_libraries(quantapdf_test_pdf_poster_split PRIVATE QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_test_pdf_poster_split PRIVATE
+  QUANTAPDF_TESTING=1
   POSTER_BASIC_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/poster-basic.pdf")
-add_test(NAME extractpdf.pdf_poster_split COMMAND extractpdf_test_pdf_poster_split)
-set_tests_properties(extractpdf.pdf_poster_split PROPERTIES TIMEOUT 60)
+add_test(NAME quantapdf.pdf_poster_split COMMAND quantapdf_test_pdf_poster_split)
+set_tests_properties(quantapdf.pdf_poster_split PROPERTIES TIMEOUT 60)
 
-if(WIN32 AND BUILD_SHARED_LIBS)
-  add_custom_command(TARGET extractpdf_test_pdf_poster_split POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      $<TARGET_FILE:extractpdf>
-      $<TARGET_FILE_DIR:extractpdf_test_pdf_poster_split>
-    VERBATIM)
-endif()
+add_executable(quantapdf_test_pdf_flatten test_pdf_flatten.c)
+target_link_libraries(quantapdf_test_pdf_flatten PRIVATE QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_test_pdf_flatten PRIVATE
+  FLATTEN_BASIC_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-basic.pdf"
+  FLATTEN_NO_ANNOTATIONS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
+  FLATTEN_APPEARANCE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-appearance.pdf"
+  FLATTEN_APPEARANCE_MALFORMED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-appearance-malformed.pdf"
+  FLATTEN_CONTENTS_MALFORMED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-contents-malformed.pdf"
+  FLATTEN_WIDGETS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-widgets.pdf"
+  FLATTEN_WIDGET_AS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-widget-as.pdf"
+  FLATTEN_WIDGET_RADIO_AS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-widget-radio-as.pdf"
+  FLATTEN_COMBINED_ORDER_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-combined-order.pdf"
+  FLATTEN_FORM_COW_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-form-cow.pdf"
+  FLATTEN_FORM_KIDS_COW_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-form-kids-cow.pdf"
+  FLATTEN_FORM_CO_COW_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-form-co-cow.pdf"
+  FLATTEN_FORM_CLOSURE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-form-closure.pdf"
+  FLATTEN_FORM_ANCESTOR_SURVIVES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-form-ancestor-survives.pdf"
+  FLATTEN_MULTI_WIDGET_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-multi-widget.pdf"
+  FLATTEN_FORM_MULTI_ROOT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-form-multi-root.pdf"
+  FLATTEN_FORM_DEEP_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-form-deep.pdf"
+  FLATTEN_FORM_DEEP_SURVIVOR_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-form-deep-survivor.pdf"
+  FLATTEN_REDACT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-subtype-redact.pdf"
+  FLATTEN_LINK_DEFAULT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-link-default.pdf"
+  FLATTEN_TAGGED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-tagged.pdf"
+  FLATTEN_TAGGED_NOOP_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-tagged-noop.pdf"
+  FLATTEN_NEED_APPEARANCES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-needappearances-true.pdf"
+  FLATTEN_XFA_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-xfa.pdf"
+  FLATTEN_ANNOTATION_WITH_WIDGET_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-annotation-with-widget.pdf"
+  FLATTEN_LINK_BS0_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-link-bs0.pdf"
+  FLATTEN_LINK_BORDER0_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-link-border0.pdf"
+  FLATTEN_LINK_BS0_BORDER4_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-link-bs0-border4.pdf"
+  FLATTEN_LINK_BS4_BORDER0_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-link-bs4-border0.pdf"
+  FLATTEN_LINK_BS_MISSING_W_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-link-bs-missing-w.pdf"
+  FLATTEN_LINK_APN_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-link-apn.pdf"
+  FLATTEN_LINK_BS_MALFORMED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-link-bs-malformed.pdf"
+  FLATTEN_LINK_BAD_W_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-link-bad-w.pdf"
+  FLATTEN_LINK_BAD_BORDER_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-link-bad-border.pdf"
+  FLATTEN_POPUP_PARENT_REVERSE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-popup-parent-reverse.pdf"
+  FLATTEN_POPUP_DIRECT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-popup-direct.pdf"
+  FLATTEN_IRT_FORWARD_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-irt-forward.pdf"
+  FLATTEN_IRT_REVERSE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-irt-reverse.pdf"
+  FLATTEN_FILE_ATTACHMENT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-subtype-file-attachment.pdf"
+  FLATTEN_RICH_MEDIA_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-subtype-rich-media.pdf"
+  FLATTEN_UNKNOWN_SUBTYPE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-subtype-unknown.pdf"
+  FLATTEN_NEED_APPEARANCES_MALFORMED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-needappearances-malformed.pdf"
+  FLATTEN_NEED_APPEARANCES_FALSE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-needappearances-false.pdf"
+  FLATTEN_NOOP_NEUTRAL_LINK_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-noop-neutral-link.pdf"
+  FLATTEN_NOOP_ZERO_WIDGET_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-noop-zero-widget.pdf"
+  FLATTEN_NOOP_MALFORMED_ANNOTS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-noop-malformed-annots.pdf"
+  FLATTEN_NOOP_MALFORMED_ACROFORM_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-noop-malformed-acroform.pdf"
+  FLATTEN_ENCRYPTED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/encrypted-one-page.pdf"
+  FLATTEN_SIGNED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotation-mutation-signed.pdf"
+  FLATTEN_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/flatten-output.pdf")
+add_test(NAME quantapdf.pdf_flatten COMMAND quantapdf_test_pdf_flatten)
+set_tests_properties(quantapdf.pdf_flatten PROPERTIES TIMEOUT 60)
 
-add_executable(extractpdf_test_pdf_flatten test_pdf_flatten.c)
-target_link_libraries(extractpdf_test_pdf_flatten PRIVATE ExtractPDF::ExtractPDF)
-target_compile_definitions(extractpdf_test_pdf_flatten PRIVATE
-  FLATTEN_BASIC_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-basic.pdf")
-add_test(NAME extractpdf.pdf_flatten COMMAND extractpdf_test_pdf_flatten)
-set_tests_properties(extractpdf.pdf_flatten PROPERTIES TIMEOUT 60)
-
-if(WIN32 AND BUILD_SHARED_LIBS)
-  add_custom_command(TARGET extractpdf_test_pdf_flatten POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      $<TARGET_FILE:extractpdf>
-      $<TARGET_FILE_DIR:extractpdf_test_pdf_flatten>
-    VERBATIM)
+get_property(_quantapdf_tests DIRECTORY PROPERTY TESTS)
+if(WIN32)
+  set_property(TEST ${_quantapdf_tests} PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST ${_quantapdf_tests} PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST ${_quantapdf_tests} PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()

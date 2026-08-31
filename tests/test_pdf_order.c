@@ -1,4 +1,4 @@
-#include <extractpdf/extractpdf.h>
+#include <quantapdf/quantapdf.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,26 +18,26 @@ static int write_bytes(const char *path, const unsigned char *data, size_t size)
 }
 
 static int expect_page(
-    extractpdf_document *document,
+    quantapdf_document *document,
     int index,
     const char *needle,
     float width,
     float height)
 {
-    extractpdf_page *page = NULL;
-    extractpdf_rect bounds;
+    quantapdf_page *page = NULL;
+    quantapdf_rect bounds;
     char *text = NULL;
     size_t text_size = 0;
     int ok = 0;
 
-    if (extractpdf_load_page(document, index, &page) != EXTRACTPDF_OK)
+    if (quantapdf_load_page(document, index, &page) != QUANTAPDF_OK)
         goto done;
-    if (extractpdf_page_bounds(page, &bounds) != EXTRACTPDF_OK)
+    if (quantapdf_page_bounds(page, &bounds) != QUANTAPDF_OK)
         goto done;
     if (bounds.x0 != 0.0f || bounds.y0 != 0.0f ||
         bounds.x1 != width || bounds.y1 != height)
         goto done;
-    if (extractpdf_extract_text(page, &text, &text_size) != EXTRACTPDF_OK)
+    if (quantapdf_extract_text(page, &text, &text_size) != QUANTAPDF_OK)
         goto done;
     if (text == NULL || strstr(text, needle) == NULL)
         goto done;
@@ -45,22 +45,22 @@ static int expect_page(
     ok = 1;
 
 done:
-    extractpdf_free(text);
-    extractpdf_drop_page(page);
+    quantapdf_free(text);
+    quantapdf_drop_page(page);
     return ok;
 }
 
 static int verify_export_contract(
-    extractpdf_document *source,
+    quantapdf_document *source,
     const int *indices,
     size_t index_count,
     const char *const *expected_text,
     const float *expected_width,
     const float *expected_height)
 {
-    extractpdf_output *first = NULL;
-    extractpdf_output *second = NULL;
-    extractpdf_document *reopened = NULL;
+    quantapdf_output *first = NULL;
+    quantapdf_output *second = NULL;
+    quantapdf_document *reopened = NULL;
     const unsigned char *first_data = NULL;
     const unsigned char *second_data = NULL;
     size_t first_size = 0;
@@ -71,27 +71,27 @@ static int verify_export_contract(
 
     (void)remove(ORDER_OUTPUT_PDF);
 
-    if (extractpdf_export_pages(source, indices, index_count, &first) != EXTRACTPDF_OK ||
+    if (quantapdf_export_pages(source, indices, index_count, &first) != QUANTAPDF_OK ||
         first == NULL)
         goto done;
-    if (extractpdf_export_pages(source, indices, index_count, &second) != EXTRACTPDF_OK ||
+    if (quantapdf_export_pages(source, indices, index_count, &second) != QUANTAPDF_OK ||
         second == NULL)
         goto done;
 
-    if (extractpdf_output_data(first, &first_data, &first_size) != EXTRACTPDF_OK ||
+    if (quantapdf_output_data(first, &first_data, &first_size) != QUANTAPDF_OK ||
         first_data == NULL || first_size < 5 ||
         memcmp(first_data, "%PDF-", 5) != 0)
         goto done;
-    if (extractpdf_output_data(second, &second_data, &second_size) != EXTRACTPDF_OK ||
+    if (quantapdf_output_data(second, &second_data, &second_size) != QUANTAPDF_OK ||
         second_data == NULL || second_size != first_size ||
         memcmp(first_data, second_data, first_size) != 0)
         goto done;
 
     if (!write_bytes(ORDER_OUTPUT_PDF, first_data, first_size))
         goto done;
-    if (extractpdf_open(ORDER_OUTPUT_PDF, NULL, &reopened) != EXTRACTPDF_OK)
+    if (quantapdf_open(ORDER_OUTPUT_PDF, NULL, &reopened) != QUANTAPDF_OK)
         goto done;
-    if (extractpdf_page_count(reopened, &reopened_count) != EXTRACTPDF_OK ||
+    if (quantapdf_page_count(reopened, &reopened_count) != QUANTAPDF_OK ||
         reopened_count != (int)index_count)
         goto done;
 
@@ -108,16 +108,16 @@ static int verify_export_contract(
     ok = 1;
 
 done:
-    extractpdf_close(reopened);
-    extractpdf_drop_output(first);
-    extractpdf_drop_output(second);
+    quantapdf_close(reopened);
+    quantapdf_drop_output(first);
+    quantapdf_drop_output(second);
     (void)remove(ORDER_OUTPUT_PDF);
     return ok;
 }
 
 int main(void)
 {
-    extractpdf_document *source = NULL;
+    quantapdf_document *source = NULL;
     int page_count = 0;
     int reorder_indices[] = {2, 0, 1};
     const char *reorder_text[] = {"PAGE-C", "PAGE-A", "PAGE-B"};
@@ -129,12 +129,12 @@ int main(void)
     float duplicate_height[] = {180.0f, 180.0f, 150.0f, 180.0f};
     int result = 1;
 
-    if (extractpdf_open(COMPOSITION_PDF, NULL, &source) != EXTRACTPDF_OK) {
+    if (quantapdf_open(COMPOSITION_PDF, NULL, &source) != QUANTAPDF_OK) {
         fprintf(stderr, "could not open composition source PDF\n");
         goto cleanup;
     }
 
-    if (extractpdf_page_count(source, &page_count) != EXTRACTPDF_OK || page_count != 3 ||
+    if (quantapdf_page_count(source, &page_count) != QUANTAPDF_OK || page_count != 3 ||
         !expect_page(source, 0, "PAGE-A", 200.0f, 200.0f) ||
         !expect_page(source, 1, "PAGE-B", 240.0f, 180.0f) ||
         !expect_page(source, 2, "PAGE-C", 300.0f, 150.0f)) {
@@ -164,7 +164,7 @@ int main(void)
         goto cleanup;
     }
 
-    if (extractpdf_page_count(source, &page_count) != EXTRACTPDF_OK || page_count != 3 ||
+    if (quantapdf_page_count(source, &page_count) != QUANTAPDF_OK || page_count != 3 ||
         !expect_page(source, 0, "PAGE-A", 200.0f, 200.0f) ||
         !expect_page(source, 1, "PAGE-B", 240.0f, 180.0f) ||
         !expect_page(source, 2, "PAGE-C", 300.0f, 150.0f)) {
@@ -175,7 +175,7 @@ int main(void)
     result = 0;
 
 cleanup:
-    extractpdf_close(source);
+    quantapdf_close(source);
     (void)remove(ORDER_OUTPUT_PDF);
     return result;
 }
