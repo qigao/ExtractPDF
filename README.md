@@ -203,10 +203,11 @@ does not deduplicate distinct reachable objects. Repeated calls on identical
 input—and rewriting a reopened result—produce byte-identical output.
 
 This API is deliberately strict. It does not repair damaged PDFs, recompress
-images, flatten interactive content, or change encryption. Inputs requiring
-structural recovery return `QUANTAPDF_ERROR_FORMAT`; encrypted or already
-signed inputs return `QUANTAPDF_ERROR_UNSUPPORTED`. The returned output owns
-its bytes independently of the source document.
+images, or flatten interactive content. It neither preserves nor creates
+encryption: encrypted input is rejected with `QUANTAPDF_ERROR_UNSUPPORTED`.
+Inputs requiring structural recovery return `QUANTAPDF_ERROR_FORMAT`, and
+already signed inputs return `QUANTAPDF_ERROR_UNSUPPORTED`. The returned
+output owns its bytes independently of the source document.
 
 ## Dependency model
 

@@ -659,13 +659,21 @@ static bool quantapdf_qpdf_rewrite_forbidden(QPDF& pdf)
 
 static quantapdf_status quantapdf_qpdf_lossless_field_preflight(
     QPDFObjectHandle field,
+    QPDFObjectHandle expected_parent,
     std::string const& inherited_type,
+    QPDFObjectHandle inherited_value,
     size_t depth,
     std::set<QPDFObjGen> *seen)
 {
     if (depth > 256u || !field.isDictionary())
         return QUANTAPDF_ERROR_FORMAT;
     if (field.isIndirect() && !seen->insert(field.getObjGen()).second)
+        return QUANTAPDF_ERROR_FORMAT;
+
+    QPDFObjectHandle actual_parent = field.getKey("/Parent");
+    if ((expected_parent.isNull() && !actual_parent.isNull()) ||
+        (!expected_parent.isNull() &&
+         !quantapdf_qpdf_same_object(expected_parent, actual_parent)))
         return QUANTAPDF_ERROR_FORMAT;
 
     std::string field_type = inherited_type;
@@ -676,6 +684,8 @@ static quantapdf_status quantapdf_qpdf_lossless_field_preflight(
         field_type = type.getName();
     }
     QPDFObjectHandle value = field.getKey("/V");
+    if (value.isNull())
+        value = inherited_value;
     if (field_type == "/Sig" && !value.isNull()) {
         if (!value.isDictionary())
             return QUANTAPDF_ERROR_FORMAT;
@@ -696,7 +706,8 @@ static quantapdf_status quantapdf_qpdf_lossless_field_preflight(
     for (int index = 0; index < count; ++index) {
         quantapdf_status const status =
             quantapdf_qpdf_lossless_field_preflight(
-                kids.getArrayItem(index), field_type, depth + 1u, seen);
+                kids.getArrayItem(index), field, field_type, value,
+                depth + 1u, seen);
         if (status != QUANTAPDF_OK)
             return status;
     }
@@ -745,7 +756,8 @@ static quantapdf_status quantapdf_qpdf_lossless_preflight(QPDF& pdf)
     for (int index = 0; index < count; ++index) {
         quantapdf_status const status =
             quantapdf_qpdf_lossless_field_preflight(
-                fields.getArrayItem(index), std::string(), 1u, &seen);
+                fields.getArrayItem(index), QPDFObjectHandle::newNull(),
+                std::string(), QPDFObjectHandle::newNull(), 1u, &seen);
         if (status != QUANTAPDF_OK)
             return status;
     }

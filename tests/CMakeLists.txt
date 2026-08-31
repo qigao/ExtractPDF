@@ -25,7 +25,8 @@ add_executable(quantapdf_test_pdf_rewrite_lossless
   rewrite_test_helpers.cpp)
 target_link_libraries(quantapdf_test_pdf_rewrite_lossless PRIVATE
   QuantaPDF::QuantaPDF
-  qpdf::libqpdf)
+  qpdf::libqpdf
+  ZLIB::ZLIB)
 target_compile_features(quantapdf_test_pdf_rewrite_lossless PRIVATE cxx_std_20)
 target_compile_definitions(quantapdf_test_pdf_rewrite_lossless PRIVATE
   ONE_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
@@ -43,7 +44,10 @@ target_compile_definitions(quantapdf_test_pdf_rewrite_lossless PRIVATE
   REWRITE_SEMANTIC_PDF="${CMAKE_CURRENT_BINARY_DIR}/rewrite-semantic.pdf"
   REWRITE_METADATA_PDF="${CMAKE_CURRENT_BINARY_DIR}/rewrite-metadata.pdf"
   REWRITE_VALIDATED_PDF="${CMAKE_CURRENT_BINARY_DIR}/rewrite-validated.pdf"
-  REWRITE_SIGNED_PDF="${CMAKE_CURRENT_BINARY_DIR}/rewrite-signed.pdf")
+  REWRITE_SIGNED_PDF="${CMAKE_CURRENT_BINARY_DIR}/rewrite-signed.pdf"
+  REWRITE_POLICY_PDF="${CMAKE_CURRENT_BINARY_DIR}/rewrite-policy.pdf"
+  REWRITE_ROOT_PARENT_SIGNED_PDF="${CMAKE_CURRENT_BINARY_DIR}/rewrite-root-parent-signed.pdf"
+  REWRITE_PARENT_MISMATCH_SIGNED_PDF="${CMAKE_CURRENT_BINARY_DIR}/rewrite-parent-mismatch-signed.pdf")
 add_test(NAME quantapdf.pdf_rewrite_lossless
   COMMAND quantapdf_test_pdf_rewrite_lossless)
 set_tests_properties(quantapdf.pdf_rewrite_lossless PROPERTIES TIMEOUT 30)
