@@ -107,6 +107,37 @@ static void check_field_name(
     RAW_CHECK(strcmp(text, expected) == 0);
 }
 
+static pdf_obj *find_field_by_name(
+    fz_context *ctx,
+    pdf_document *document,
+    const char *expected)
+{
+    int number;
+    int count = pdf_xref_len(ctx, document);
+
+    for (number = 1; number < count; ++number) {
+        pdf_obj *candidate = pdf_load_object(ctx, document, number);
+        pdf_obj *name;
+        const char *text;
+        pdf_obj *result = NULL;
+
+        if (candidate == NULL)
+            continue;
+        if (pdf_is_dict(ctx, candidate)) {
+            name = pdf_dict_get(ctx, candidate, PDF_NAME(T));
+            if (pdf_is_string(ctx, name)) {
+                text = pdf_to_text_string(ctx, name);
+                if (text != NULL && strcmp(text, expected) == 0)
+                    result = pdf_keep_obj(ctx, candidate);
+            }
+        }
+        pdf_drop_obj(ctx, candidate);
+        if (result != NULL)
+            return result;
+    }
+    return NULL;
+}
+
 static void check_fully_pruned_output(const extractpdf_output *output)
 {
     fz_context *ctx = fz_new_context(NULL, NULL, FZ_STORE_DEFAULT);
@@ -193,9 +224,8 @@ static void check_deep_survivor_output(const extractpdf_output *output)
         check_field_name(ctx, field, "keep");
         RAW_CHECK(pdf_dict_get(ctx, field, PDF_NAME(Kids)) == NULL);
 
-        removed = pdf_load_object(ctx, document, 9);
+        removed = find_field_by_name(ctx, document, "selected");
         RAW_CHECK(removed != NULL);
-        check_field_name(ctx, removed, "selected");
         RAW_CHECK(pdf_dict_get(ctx, removed, PDF_NAME(Kids)) == NULL);
 
         page = pdf_lookup_page_obj(ctx, document, 0);
