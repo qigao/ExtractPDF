@@ -88,5 +88,13 @@ int extractpdf_test_pdf_flatten_policy(void)
         FLATTEN_POLICY_IRT_REVERSE_PDF,
         EXTRACTPDF_FLATTEN_ANNOTATIONS,
         EXTRACTPDF_ERROR_UNSUPPORTED) == 0);
+    CHECK(expect_flatten_status(
+        FLATTEN_TAGGED_PDF,
+        EXTRACTPDF_FLATTEN_ANNOTATIONS,
+        EXTRACTPDF_ERROR_UNSUPPORTED) == 0);
+    CHECK(expect_flatten_status(
+        FLATTEN_TAGGED_NOOP_PDF,
+        EXTRACTPDF_FLATTEN_ANNOTATIONS,
+        EXTRACTPDF_OK) == 0);
     return 0;
 }
