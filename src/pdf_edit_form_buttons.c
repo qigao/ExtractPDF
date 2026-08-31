@@ -182,6 +182,9 @@ quantapdf_status quantapdf_pdf_edit_form_apply_button(
     if (status != QUANTAPDF_OK)
         return status;
 
+    fz_var(selected_state);
+    fz_var(missing);
+    fz_var(off);
     fz_var(operation_open);
     fz_var(caught_code);
     fz_try(edit->ctx)

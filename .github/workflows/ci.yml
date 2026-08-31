@@ -208,6 +208,15 @@ jobs:
       - name: Test
         run: ctest --preset "$CMAKE_PRESET"
 
+      - name: Upload failed poster output
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-poster-split-output
+          path: build/macos-clang-release/poster-split-output.pdf
+          if-no-files-found: error
+          retention-days: 1
+
   windows:
     if: >-
       github.event_name == 'push' ||
