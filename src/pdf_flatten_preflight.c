@@ -873,6 +873,23 @@ cleanup:
     return status;
 }
 
+static extractpdf_status flatten_validate_real_bake_catalog(
+    fz_context *ctx,
+    pdf_document *document,
+    const extractpdf_pdf_flatten_plan *plan)
+{
+    pdf_obj *root;
+
+    if (!plan->any_changed)
+        return EXTRACTPDF_OK;
+    root = pdf_dict_get(ctx, pdf_trailer(ctx, document), PDF_NAME(Root));
+    if (!pdf_is_dict(ctx, root))
+        return EXTRACTPDF_ERROR_FORMAT;
+    if (flatten_dict_has_key(ctx, root, PDF_NAME(StructTreeRoot)))
+        return EXTRACTPDF_ERROR_UNSUPPORTED;
+    return EXTRACTPDF_OK;
+}
+
 void extractpdf_pdf_flatten_drop_plan(
     extractpdf_pdf_flatten_plan *plan)
 {
@@ -932,6 +949,9 @@ extractpdf_status extractpdf_pdf_flatten_build_plan(
     }
 
     plan->any_changed = plan->target_count != 0;
+    status = flatten_validate_real_bake_catalog(ctx, document, plan);
+    if (status != EXTRACTPDF_OK)
+        goto fail;
     *out_plan = plan;
     return EXTRACTPDF_OK;
 
