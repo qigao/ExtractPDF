@@ -13,7 +13,6 @@
 #include <fpdf_edit.h>
 #include <fpdf_doc.h>
 #include <fpdf_text.h>
-#include <fpdf_transformpage.h>
 
 #include <algorithm>
 #include <cmath>
@@ -155,30 +154,15 @@ quantapdf_status load_page_geometry(
     FPDF_PAGE page,
     page_geometry *out_geometry)
 {
-    float media_left = 0.0f;
-    float media_bottom = 0.0f;
-    float media_right = 0.0f;
-    float media_top = 0.0f;
-    float crop_left = 0.0f;
-    float crop_bottom = 0.0f;
-    float crop_right = 0.0f;
-    float crop_top = 0.0f;
+    FS_RECTF visible = {};
     FS_SIZEF size = {};
 
-    if (!FPDFPage_GetMediaBox(
-            page, &media_left, &media_bottom, &media_right, &media_top))
+    if (!FPDF_GetPageBoundingBox(page, &visible))
         return QUANTAPDF_ERROR_FORMAT;
-    if (!FPDFPage_GetCropBox(
-            page, &crop_left, &crop_bottom, &crop_right, &crop_top)) {
-        crop_left = media_left;
-        crop_bottom = media_bottom;
-        crop_right = media_right;
-        crop_top = media_top;
-    }
-    out_geometry->left = std::max(media_left, crop_left);
-    out_geometry->bottom = std::max(media_bottom, crop_bottom);
-    out_geometry->right = std::min(media_right, crop_right);
-    out_geometry->top = std::min(media_top, crop_top);
+    out_geometry->left = std::min(visible.left, visible.right);
+    out_geometry->bottom = std::min(visible.bottom, visible.top);
+    out_geometry->right = std::max(visible.left, visible.right);
+    out_geometry->top = std::max(visible.bottom, visible.top);
     if (!std::isfinite(out_geometry->left) ||
         !std::isfinite(out_geometry->bottom) ||
         !std::isfinite(out_geometry->right) ||

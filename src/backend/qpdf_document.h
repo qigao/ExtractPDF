@@ -70,6 +70,13 @@ quantapdf_status quantapdf_qpdf_crop_pages(
     unsigned char **out_data,
     size_t *out_size);
 
+quantapdf_status quantapdf_qpdf_trim_pages(
+    quantapdf_qpdf_document *document,
+    const quantapdf_page_trim *trims,
+    size_t trim_count,
+    unsigned char **out_data,
+    size_t *out_size);
+
 quantapdf_status quantapdf_qpdf_rewrite_memory(
     const unsigned char *data,
     size_t size,

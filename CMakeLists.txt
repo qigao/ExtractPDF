@@ -59,7 +59,6 @@ add_library(quantapdf
   src/pdf_page_box_common.c
   src/pdf_crop.c
   src/pdf_trim.c
-  src/pdf_trim_preflight.c
   src/pdf_poster.c
   src/pdf_poster_preflight.c
   src/pdf_poster_annotations.c
