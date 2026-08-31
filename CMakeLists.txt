@@ -178,5 +178,6 @@ if(EXTRACTPDF_BUILD_TESTS)
     FLATTEN_POLICY_LINK_BS_MISSING_W_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-policy-link-bs-missing-w.pdf"
     FLATTEN_POLICY_LINK_APN_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-policy-link-apn.pdf"
     FLATTEN_POLICY_LINK_BS_MALFORMED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-policy-link-bs-malformed.pdf"
-    FLATTEN_POLICY_ANNOTATION_WITH_WIDGET_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-policy-annotation-with-widget.pdf")
+    FLATTEN_POLICY_ANNOTATION_WITH_WIDGET_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-policy-annotation-with-widget.pdf"
+    FLATTEN_POLICY_POPUP_PARENT_REVERSE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-policy-popup-parent-reverse.pdf")
 endif()
