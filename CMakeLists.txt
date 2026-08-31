@@ -72,7 +72,10 @@ target_include_directories(quantapdf PUBLIC
   $<INSTALL_INTERFACE:include>)
 target_link_libraries(quantapdf PRIVATE
   quantapdf_backend)
-set_target_properties(quantapdf PROPERTIES LINKER_LANGUAGE CXX)
+set_target_properties(quantapdf PROPERTIES
+  LINKER_LANGUAGE CXX
+  VERSION "${PROJECT_VERSION}"
+  SOVERSION "${PROJECT_VERSION_MAJOR}")
 
 if(BUILD_SHARED_LIBS)
   target_compile_definitions(quantapdf

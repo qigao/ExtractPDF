@@ -15,6 +15,10 @@ set_tests_properties(quantapdf.backend_foundation PROPERTIES TIMEOUT 30)
 add_executable(quantapdf_test_status test_status.c)
 target_link_libraries(quantapdf_test_status PRIVATE QuantaPDF::QuantaPDF)
 add_test(NAME quantapdf.status COMMAND quantapdf_test_status)
+
+add_executable(quantapdf_test_version test_version.c)
+target_link_libraries(quantapdf_test_version PRIVATE QuantaPDF::QuantaPDF)
+add_test(NAME quantapdf.version COMMAND quantapdf_test_version)
 set_tests_properties(quantapdf.status PROPERTIES TIMEOUT 10)
 
 set(UTF8_PDF "${CMAKE_CURRENT_BINARY_DIR}/quantapdf-测试.pdf")

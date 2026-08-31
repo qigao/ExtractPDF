@@ -18,6 +18,11 @@ extern "C" {
 #  define QUANTAPDF_API
 #endif
 
+#define QUANTAPDF_VERSION_MAJOR 2
+#define QUANTAPDF_VERSION_MINOR 0
+#define QUANTAPDF_VERSION_PATCH 0
+#define QUANTAPDF_ABI_VERSION 2
+
 typedef struct quantapdf_document quantapdf_document;
 typedef struct quantapdf_page quantapdf_page;
 typedef struct quantapdf_bitmap quantapdf_bitmap;
