@@ -152,10 +152,12 @@ static void check_deep_survivor_output(const extractpdf_output *output)
     pdf_obj *field;
     pdf_obj *kids;
     pdf_obj *page;
+    pdf_obj *removed = NULL;
     int caught_code = FZ_ERROR_NONE;
 
     RAW_CHECK(ctx != NULL);
     fz_var(document);
+    fz_var(removed);
     fz_var(caught_code);
     fz_try(ctx)
     {
@@ -191,12 +193,18 @@ static void check_deep_survivor_output(const extractpdf_output *output)
         check_field_name(ctx, field, "keep");
         RAW_CHECK(pdf_dict_get(ctx, field, PDF_NAME(Kids)) == NULL);
 
+        removed = pdf_load_object(ctx, document, 9);
+        RAW_CHECK(removed != NULL);
+        check_field_name(ctx, removed, "selected");
+        RAW_CHECK(pdf_dict_get(ctx, removed, PDF_NAME(Kids)) == NULL);
+
         page = pdf_lookup_page_obj(ctx, document, 0);
         RAW_CHECK(pdf_is_dict(ctx, page));
         RAW_CHECK(pdf_dict_get(ctx, page, PDF_NAME(Annots)) == NULL);
     }
     fz_always(ctx)
     {
+        pdf_drop_obj(ctx, removed);
         pdf_drop_document(ctx, document);
     }
     fz_catch(ctx)
