@@ -6,7 +6,8 @@ target_link_libraries(quantapdf_test_backend_foundation PRIVATE
   quantapdf_backend
   QuantaPDF::PDFium)
 target_compile_definitions(quantapdf_test_backend_foundation PRIVATE
-  ONE_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf")
+  ONE_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
+  POSTER_BASIC_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/poster-basic.pdf")
 add_test(NAME quantapdf.backend_foundation
   COMMAND quantapdf_test_backend_foundation)
 set_tests_properties(quantapdf.backend_foundation PROPERTIES TIMEOUT 30)

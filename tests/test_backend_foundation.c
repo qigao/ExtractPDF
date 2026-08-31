@@ -137,6 +137,27 @@ int main(void)
     free(rewritten_data);
 
     free(data);
+    data = read_fixture(POSTER_BASIC_PDF, &size);
+    CHECK(data != NULL);
+    pdfium_document = NULL;
+    pdfium_page = NULL;
+    pdfium_page_count = 0;
+    bounds = (quantapdf_rect){ -1.0f, -2.0f, -3.0f, -4.0f };
+    CHECK(quantapdf_pdfium_open_memory(
+        data, size, NULL, &pdfium_document) == QUANTAPDF_OK);
+    CHECK(quantapdf_pdfium_page_count(
+        pdfium_document, &pdfium_page_count) == QUANTAPDF_OK);
+    CHECK(pdfium_page_count == 3);
+    CHECK(quantapdf_pdfium_load_page(
+        pdfium_document, 0, &pdfium_page) == QUANTAPDF_OK);
+    CHECK(quantapdf_pdfium_page_bounds(pdfium_page, &bounds) == QUANTAPDF_OK);
+    CHECK(bounds.x0 == 0.0f);
+    CHECK(bounds.y0 == 0.0f);
+    CHECK(bounds.x1 == 200.0f);
+    CHECK(bounds.y1 == 200.0f);
+    quantapdf_pdfium_drop_page(pdfium_page);
+    quantapdf_pdfium_close(pdfium_document);
+    free(data);
     fprintf(stderr, "[quantapdf.backend_foundation] complete\n");
     return EXIT_SUCCESS;
 }
