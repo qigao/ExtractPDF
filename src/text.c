@@ -15,6 +15,7 @@ quantapdf_status quantapdf_extract_text(
     char *copy;
     size_t size = 0;
     int caught_code = FZ_ERROR_NONE;
+    quantapdf_status status;
 
     if (out_utf8 != NULL)
         *out_utf8 = NULL;
@@ -23,6 +24,10 @@ quantapdf_status quantapdf_extract_text(
 
     if (page == NULL || out_utf8 == NULL || out_size == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
+
+    status = quantapdf_page_ensure_mupdf(page);
+    if (status != QUANTAPDF_OK)
+        return status;
 
     ctx = page->document->ctx;
     fz_var(buffer);

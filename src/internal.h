@@ -132,5 +132,6 @@ quantapdf_status quantapdf_document_page_user_unit(
     quantapdf_document *document,
     int page_index,
     double *out_user_unit);
+quantapdf_status quantapdf_page_ensure_mupdf(quantapdf_page *page);
 
 #endif

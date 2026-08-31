@@ -127,6 +127,7 @@ quantapdf_status quantapdf_extract_images(
     fz_device *device = NULL;
     fz_context *ctx;
     int caught_code = FZ_ERROR_NONE;
+    quantapdf_status status;
 
     if (out_images == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
@@ -134,6 +135,10 @@ quantapdf_status quantapdf_extract_images(
 
     if (page == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
+
+    status = quantapdf_page_ensure_mupdf(page);
+    if (status != QUANTAPDF_OK)
+        return status;
 
     images = (quantapdf_image_page *)calloc(1, sizeof(*images));
     if (images == NULL)
@@ -164,7 +169,7 @@ quantapdf_status quantapdf_extract_images(
         fz_drop_device(ctx, device);
 
     if (caught_code != FZ_ERROR_NONE) {
-        quantapdf_status status = quantapdf_status_from_backend(caught_code);
+        status = quantapdf_status_from_backend(caught_code);
         quantapdf_dispose_image_page(images);
         return status;
     }

@@ -318,6 +318,7 @@ quantapdf_status quantapdf_extract_structured_text(
     size_t line_count = 0;
     size_t char_count = 0;
     int caught_code = FZ_ERROR_NONE;
+    quantapdf_status status;
 
     if (out_text == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
@@ -325,6 +326,10 @@ quantapdf_status quantapdf_extract_structured_text(
 
     if (page == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
+
+    status = quantapdf_page_ensure_mupdf(page);
+    if (status != QUANTAPDF_OK)
+        return status;
 
     ctx = page->document->ctx;
     fz_var(source);

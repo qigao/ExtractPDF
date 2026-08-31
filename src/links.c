@@ -59,14 +59,19 @@ quantapdf_status quantapdf_extract_links(
     size_t count = 0;
     size_t index = 0;
     int caught_code = FZ_ERROR_NONE;
+    quantapdf_status status;
 
     if (out_links == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
     *out_links = NULL;
 
-    if (page == NULL || page->page == NULL || page->document == NULL ||
+    if (page == NULL || page->document == NULL ||
         page->document->ctx == NULL || page->document->doc == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
+
+    status = quantapdf_page_ensure_mupdf(page);
+    if (status != QUANTAPDF_OK)
+        return status;
 
     snapshot = (quantapdf_link_page *)calloc(1, sizeof(*snapshot));
     if (snapshot == NULL)
@@ -89,7 +94,7 @@ quantapdf_status quantapdf_extract_links(
     }
 
     if (caught_code != FZ_ERROR_NONE) {
-        quantapdf_status status = quantapdf_status_from_backend(caught_code);
+        status = quantapdf_status_from_backend(caught_code);
         quantapdf_dispose_link_page(snapshot);
         return status;
     }
@@ -161,7 +166,7 @@ quantapdf_status quantapdf_extract_links(
             }
 
             if (caught_code != FZ_ERROR_NONE) {
-                quantapdf_status status = quantapdf_status_from_backend(caught_code);
+                status = quantapdf_status_from_backend(caught_code);
                 fz_drop_link(ctx, head);
                 quantapdf_dispose_link_page(snapshot);
                 return status;

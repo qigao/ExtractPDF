@@ -12,7 +12,6 @@ quantapdf_status quantapdf_load_page(
     quantapdf_page **out_page)
 {
     quantapdf_page *page;
-    int caught_code = FZ_ERROR_NONE;
     quantapdf_status status;
 
     if (out_page == NULL)
@@ -34,26 +33,38 @@ quantapdf_status quantapdf_load_page(
         free(page);
         return status;
     }
-    caught_code = FZ_ERROR_NONE;
-    fz_var(caught_code);
-
-    fz_try(document->ctx)
-    {
-        page->page = fz_load_page(document->ctx, document->doc, page_index);
-    }
-    fz_catch(document->ctx)
-    {
-        caught_code = fz_caught(document->ctx);
-        fz_report_error(document->ctx);
-    }
-
-    if (caught_code != FZ_ERROR_NONE) {
-        quantapdf_pdfium_drop_page(page->pdfium_page);
-        free(page);
-        return quantapdf_status_from_backend(caught_code);
-    }
-
     *out_page = page;
+    return QUANTAPDF_OK;
+}
+
+quantapdf_status quantapdf_page_ensure_mupdf(quantapdf_page *page)
+{
+    int caught_code = FZ_ERROR_NONE;
+
+    if (page == NULL || page->document == NULL ||
+        page->document->ctx == NULL || page->document->doc == NULL)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    if (page->page != NULL)
+        return QUANTAPDF_OK;
+
+    fz_var(caught_code);
+    fz_try(page->document->ctx)
+    {
+        page->page = fz_load_page(
+            page->document->ctx,
+            page->document->doc,
+            page->page_index);
+    }
+    fz_catch(page->document->ctx)
+    {
+        caught_code = fz_caught(page->document->ctx);
+        fz_report_error(page->document->ctx);
+    }
+
+    if (caught_code != FZ_ERROR_NONE)
+        return quantapdf_status_from_backend(caught_code);
+    if (page->page == NULL)
+        return QUANTAPDF_ERROR_BACKEND;
     return QUANTAPDF_OK;
 }
 
@@ -97,9 +108,14 @@ quantapdf_status quantapdf_page_box_bounds(
     fz_box_type mupdf_box;
     fz_rect bounds;
     int caught_code = FZ_ERROR_NONE;
+    quantapdf_status status;
 
     if (page == NULL || out_bounds == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
+
+    status = quantapdf_page_ensure_mupdf(page);
+    if (status != QUANTAPDF_OK)
+        return status;
 
     switch (box) {
     case QUANTAPDF_PAGE_BOX_MEDIA:

@@ -17,6 +17,7 @@ static quantapdf_status quantapdf_render_page_transformed(
     fz_device *device = NULL;
     fz_matrix transform;
     int caught_code = FZ_ERROR_NONE;
+    quantapdf_status status;
 
     if (out_bitmap == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
@@ -25,6 +26,10 @@ static quantapdf_status quantapdf_render_page_transformed(
     if (page == NULL || !isfinite(dpi) || dpi <= 0.0f ||
         !isfinite(rotation_degrees) || (alpha != 0 && alpha != 1))
         return QUANTAPDF_ERROR_ARGUMENT;
+
+    status = quantapdf_page_ensure_mupdf(page);
+    if (status != QUANTAPDF_OK)
+        return status;
 
     bitmap = (quantapdf_bitmap *)calloc(1, sizeof(*bitmap));
     if (bitmap == NULL)

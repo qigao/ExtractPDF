@@ -128,9 +128,13 @@ quantapdf_status quantapdf_extract_annotations(
         return QUANTAPDF_ERROR_ARGUMENT;
     *out_annotations = NULL;
 
-    if (page == NULL || page->page == NULL || page->document == NULL ||
+    if (page == NULL || page->document == NULL ||
         page->document->ctx == NULL || page->document->doc == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
+
+    status = quantapdf_page_ensure_mupdf(page);
+    if (status != QUANTAPDF_OK)
+        return status;
 
     ctx = page->document->ctx;
 
