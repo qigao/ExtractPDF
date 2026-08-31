@@ -382,8 +382,13 @@ target_compile_definitions(quantapdf_test_pdf_poster_split PRIVATE
 add_test(NAME quantapdf.pdf_poster_split COMMAND quantapdf_test_pdf_poster_split)
 set_tests_properties(quantapdf.pdf_poster_split PROPERTIES TIMEOUT 60)
 
-add_executable(quantapdf_test_pdf_flatten test_pdf_flatten.c)
-target_link_libraries(quantapdf_test_pdf_flatten PRIVATE QuantaPDF::QuantaPDF)
+add_executable(quantapdf_test_pdf_flatten
+  test_pdf_flatten.c
+  flatten_test_helpers.cpp)
+target_link_libraries(quantapdf_test_pdf_flatten PRIVATE
+  QuantaPDF::QuantaPDF
+  qpdf::libqpdf)
+target_compile_features(quantapdf_test_pdf_flatten PRIVATE cxx_std_20)
 target_compile_definitions(quantapdf_test_pdf_flatten PRIVATE
   FLATTEN_BASIC_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-basic.pdf"
   FLATTEN_NO_ANNOTATIONS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"

@@ -3185,24 +3185,6 @@ static quantapdf_status quantapdf_qpdf_flatten_field(
         survivors.reserve(static_cast<size_t>(count));
         for (int index = 0; index < count; ++index) {
             QPDFObjectHandle child = kids.getArrayItem(index);
-            if (!child.isDictionary() || !child.isIndirect())
-                return QUANTAPDF_ERROR_FORMAT;
-            QPDFObjectHandle child_subtype = child.getKey("/Subtype");
-            if (!child_subtype.isNull() && !child_subtype.isName())
-                return QUANTAPDF_ERROR_FORMAT;
-            bool const widget = child_subtype.isName() &&
-                child_subtype.getName() == "/Widget";
-            if (widget) {
-                QPDFObjectHandle child_parent = child.getKey("/Parent");
-                if (!quantapdf_qpdf_same_object(child_parent, field))
-                    return QUANTAPDF_ERROR_FORMAT;
-                QPDFObjGen const widget_identity = child.getObjGen();
-                if (selected_widgets.count(widget_identity) == 0u ||
-                    !plan->found_widgets.insert(widget_identity).second)
-                    return QUANTAPDF_ERROR_FORMAT;
-                changed = true;
-                continue;
-            }
             bool remove_child = false;
             quantapdf_status const status = quantapdf_qpdf_flatten_field(
                 child, field, selected_widgets, plan, &remove_child,
@@ -3219,11 +3201,10 @@ static quantapdf_status quantapdf_qpdf_flatten_field(
 
     bool const remove = merged_widget ||
         (changed && survivors.empty());
-    if (remove) {
+    if (remove)
         plan->removed_fields.insert(identity);
-    } else if (changed) {
+    if (changed)
         plan->changes.push_back({field, survivors});
-    }
     *out_remove = remove;
     return QUANTAPDF_OK;
 }
@@ -3379,13 +3360,6 @@ static bool quantapdf_qpdf_flatten_has_signed_field(
 static bool quantapdf_qpdf_flatten_is_signed(QPDF& pdf)
 {
     QPDFObjectHandle root = pdf.getRoot();
-    QPDFObjectHandle permissions = root.getKey("/Perms");
-    if (permissions.isDictionary()) {
-        for (char const *key : {"/DocMDP", "/UR", "/UR3"}) {
-            if (!permissions.getKey(key).isNull())
-                return true;
-        }
-    }
     QPDFObjectHandle acroform = root.getKey("/AcroForm");
     if (!acroform.isDictionary())
         return false;
@@ -3401,6 +3375,34 @@ static bool quantapdf_qpdf_flatten_is_signed(QPDF& pdf)
             return true;
     }
     return false;
+}
+
+static quantapdf_status quantapdf_qpdf_flatten_security(QPDF& pdf)
+{
+    if (pdf.isEncrypted())
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    QPDFObjectHandle root = pdf.getRoot();
+    if (!root.isDictionary())
+        return QUANTAPDF_ERROR_FORMAT;
+    QPDFObjectHandle permissions = root.getKey("/Perms");
+    if (!permissions.isNull()) {
+        if (!permissions.isDictionary())
+            return QUANTAPDF_ERROR_FORMAT;
+        for (char const *key : {"/DocMDP", "/UR", "/UR3"}) {
+            QPDFObjectHandle signature = permissions.getKey(key);
+            if (signature.isNull())
+                continue;
+            if (!signature.isDictionary())
+                return QUANTAPDF_ERROR_FORMAT;
+            QPDFObjectHandle type = signature.getKey("/Type");
+            if (!type.isNull() &&
+                (!type.isName() || type.getName() != "/Sig"))
+                return QUANTAPDF_ERROR_FORMAT;
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        }
+    }
+    return quantapdf_qpdf_flatten_is_signed(pdf) ?
+        QUANTAPDF_ERROR_UNSUPPORTED : QUANTAPDF_OK;
 }
 
 static bool quantapdf_qpdf_flatten_initial_warnings_are_safe(QPDF& pdf)
@@ -3441,8 +3443,10 @@ extern "C" quantapdf_status quantapdf_qpdf_flatten_interactive(
             reinterpret_cast<char const *>(document->source_data),
             document->source_size,
             document->password.c_str());
-        if (pdf->isEncrypted())
-            return QUANTAPDF_ERROR_UNSUPPORTED;
+        quantapdf_status const security_status =
+            quantapdf_qpdf_flatten_security(*pdf);
+        if (security_status != QUANTAPDF_OK)
+            return security_status;
         std::set<QPDFObjGen> raw_page_nodes;
         quantapdf_status const raw_page_status =
             quantapdf_qpdf_flatten_validate_raw_page_tree(
@@ -3451,8 +3455,6 @@ extern "C" quantapdf_status quantapdf_qpdf_flatten_interactive(
                 1u);
         if (raw_page_status != QUANTAPDF_OK)
             return raw_page_status;
-        if (quantapdf_qpdf_flatten_is_signed(*pdf))
-            return QUANTAPDF_ERROR_UNSUPPORTED;
         auto const& pages = pdf->getAllPages();
         (void)pdf->getAllObjects();
         if (!quantapdf_qpdf_flatten_initial_warnings_are_safe(*pdf))
@@ -3556,10 +3558,6 @@ extern "C" quantapdf_status quantapdf_qpdf_flatten_interactive(
         if (!plans.empty()) {
             if (!pdf->getRoot().getKey("/StructTreeRoot").isNull())
                 return QUANTAPDF_ERROR_UNSUPPORTED;
-            quantapdf_status const security =
-                quantapdf_qpdf_lossless_preflight(*pdf);
-            if (security != QUANTAPDF_OK)
-                return security;
         }
 
         for (QPDFObjectHandle const& annotation : all_annotations) {
@@ -3639,8 +3637,12 @@ extern "C" quantapdf_status quantapdf_qpdf_flatten_interactive(
         }
 
         for (auto& change : form_plan.changes) {
-            change.field.replaceKey(
-                "/Kids", QPDFObjectHandle::newArray(change.children));
+            if (change.children.empty()) {
+                change.field.removeKey("/Kids");
+            } else {
+                change.field.replaceKey(
+                    "/Kids", QPDFObjectHandle::newArray(change.children));
+            }
         }
         if (!selected_widgets.empty()) {
             if (form_plan.roots.empty()) {

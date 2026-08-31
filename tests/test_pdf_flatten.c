@@ -14,6 +14,17 @@ static void check_impl(int ok, const char *expr, int line)
 }
 #define CHECK(x) check_impl((x), #x, __LINE__)
 
+int quantapdf_flatten_raw_check_combined(
+    const unsigned char *data,
+    size_t size);
+int quantapdf_flatten_raw_check_form_closure(
+    const unsigned char *data,
+    size_t size,
+    int ancestor_survives);
+int quantapdf_flatten_raw_check_calculation_order(
+    const unsigned char *data,
+    size_t size);
+
 static size_t annotation_count(const char *path)
 {
     quantapdf_document *document = NULL;
@@ -105,6 +116,59 @@ static void check_form_transform(
     quantapdf_close(result);
     quantapdf_drop_output(output);
     quantapdf_close(source);
+}
+
+static void check_raw_form_closure(const char *path, int ancestor_survives)
+{
+    quantapdf_document *document = NULL;
+    quantapdf_output *output = NULL;
+    const unsigned char *data = NULL;
+    size_t size = 0;
+
+    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_flatten_interactive(
+        document, QUANTAPDF_FLATTEN_WIDGETS, &output) == QUANTAPDF_OK);
+    CHECK(quantapdf_output_data(output, &data, &size) == QUANTAPDF_OK);
+    CHECK(quantapdf_flatten_raw_check_form_closure(
+        data, size, ancestor_survives));
+    quantapdf_drop_output(output);
+    quantapdf_close(document);
+}
+
+static void check_raw_combined(void)
+{
+    quantapdf_document *document = NULL;
+    quantapdf_output *output = NULL;
+    const unsigned char *data = NULL;
+    size_t size = 0;
+
+    CHECK(quantapdf_open(FLATTEN_COMBINED_ORDER_PDF, NULL, &document) ==
+        QUANTAPDF_OK);
+    CHECK(quantapdf_flatten_interactive(
+        document,
+        QUANTAPDF_FLATTEN_ANNOTATIONS | QUANTAPDF_FLATTEN_WIDGETS,
+        &output) == QUANTAPDF_OK);
+    CHECK(quantapdf_output_data(output, &data, &size) == QUANTAPDF_OK);
+    CHECK(quantapdf_flatten_raw_check_combined(data, size));
+    quantapdf_drop_output(output);
+    quantapdf_close(document);
+}
+
+static void check_raw_calculation_order(void)
+{
+    quantapdf_document *document = NULL;
+    quantapdf_output *output = NULL;
+    const unsigned char *data = NULL;
+    size_t size = 0;
+
+    CHECK(quantapdf_open(FLATTEN_FORM_CO_COW_PDF, NULL, &document) ==
+        QUANTAPDF_OK);
+    CHECK(quantapdf_flatten_interactive(
+        document, QUANTAPDF_FLATTEN_WIDGETS, &output) == QUANTAPDF_OK);
+    CHECK(quantapdf_output_data(output, &data, &size) == QUANTAPDF_OK);
+    CHECK(quantapdf_flatten_raw_check_calculation_order(data, size));
+    quantapdf_drop_output(output);
+    quantapdf_close(document);
 }
 
 static void compare_rendered_page(
@@ -312,6 +376,10 @@ int main(void)
     check_form_transform(FLATTEN_FORM_MULTI_ROOT_PDF, 2, 2, 0, 0);
     check_form_transform(FLATTEN_FORM_DEEP_PDF, 1, 1, 0, 0);
     check_form_transform(FLATTEN_FORM_DEEP_SURVIVOR_PDF, 2, 1, 1, 0);
+    check_raw_form_closure(FLATTEN_FORM_CLOSURE_PDF, 0);
+    check_raw_form_closure(FLATTEN_FORM_ANCESTOR_SURVIVES_PDF, 1);
+    check_raw_combined();
+    check_raw_calculation_order();
 
     CHECK(flatten_status(
         FLATTEN_APPEARANCE_MALFORMED_PDF,
@@ -409,6 +477,9 @@ int main(void)
     CHECK(flatten_status(
         FLATTEN_NOOP_MALFORMED_ACROFORM_PDF,
         QUANTAPDF_FLATTEN_WIDGETS) == QUANTAPDF_ERROR_FORMAT);
+    CHECK(flatten_status(
+        FLATTEN_NOOP_MALFORMED_ACROFORM_PDF,
+        QUANTAPDF_FLATTEN_ANNOTATIONS) == QUANTAPDF_OK);
     CHECK(flatten_status_with_password(
         FLATTEN_ENCRYPTED_PDF,
         "user-pass",
