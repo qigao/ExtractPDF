@@ -581,6 +581,7 @@ static extractpdf_status flatten_discover_widgets(
         size_t appearance_slots = 0;
         int annot_count;
         int annot_index;
+        int page_has_ordinary_annotation = 0;
 
         if (!pdf_is_dict(ctx, page)) {
             status = EXTRACTPDF_ERROR_FORMAT;
@@ -625,8 +626,12 @@ static extractpdf_status flatten_discover_widgets(
                 status = EXTRACTPDF_ERROR_FORMAT;
                 goto widget_page_cleanup;
             }
-            if (!pdf_name_eq(ctx, subtype, PDF_NAME(Widget)))
+            if (!pdf_name_eq(ctx, subtype, PDF_NAME(Widget))) {
+                if (!pdf_name_eq(ctx, subtype, PDF_NAME(Link)) &&
+                    !pdf_name_eq(ctx, subtype, PDF_NAME(Popup)))
+                    page_has_ordinary_annotation = 1;
                 continue;
+            }
 
             status = extractpdf_pdf_appearance_resolve(
                 ctx, document, annotation, &view, &form);
@@ -664,6 +669,10 @@ static extractpdf_status flatten_discover_widgets(
         }
 
         if (page_selected != 0) {
+            if (page_has_ordinary_annotation) {
+                status = EXTRACTPDF_ERROR_UNSUPPORTED;
+                goto widget_page_cleanup;
+            }
             status = flatten_validate_changed_page_links(ctx, page);
             if (status == EXTRACTPDF_OK)
                 status = flatten_validate_changed_page(
