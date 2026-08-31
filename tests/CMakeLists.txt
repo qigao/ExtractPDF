@@ -267,36 +267,6 @@ target_compile_definitions(quantapdf_test_pdf_form PRIVATE
 add_test(NAME quantapdf.pdf_form COMMAND quantapdf_test_pdf_form)
 set_tests_properties(quantapdf.pdf_form PROPERTIES TIMEOUT 60)
 
-if(WIN32 AND BUILD_SHARED_LIBS)
-  foreach(test_target IN ITEMS
-      quantapdf_test_status
-      quantapdf_test_document
-      quantapdf_test_render
-      quantapdf_test_text
-      quantapdf_test_structured_text
-      quantapdf_test_text_search
-      quantapdf_test_images
-      quantapdf_test_image_bitmap
-      quantapdf_test_links
-      quantapdf_test_pdf_export
-      quantapdf_test_pdf_range
-      quantapdf_test_pdf_order
-      quantapdf_test_pdf_delete
-      quantapdf_test_pdf_merge
-      quantapdf_test_output_file
-      quantapdf_test_pdf_metadata
-      quantapdf_test_pdf_outline
-      quantapdf_test_pdf_annotations
-      quantapdf_test_pdf_annotation_mutation
-      quantapdf_test_pdf_form)
-    add_custom_command(TARGET ${test_target} POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        $<TARGET_FILE:quantapdf>
-        $<TARGET_FILE_DIR:${test_target}>
-      VERBATIM)
-  endforeach()
-endif()
-
 add_executable(quantapdf_test_pdf_form_mutation
   test_pdf_form_mutation.c
   test_pdf_form_appearance.c
@@ -317,14 +287,6 @@ target_compile_definitions(quantapdf_test_pdf_form_mutation PRIVATE
 add_test(NAME quantapdf.pdf_form_mutation
   COMMAND quantapdf_test_pdf_form_mutation)
 set_tests_properties(quantapdf.pdf_form_mutation PROPERTIES TIMEOUT 60)
-
-if(WIN32 AND BUILD_SHARED_LIBS)
-  add_custom_command(TARGET quantapdf_test_pdf_form_mutation POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      $<TARGET_FILE:quantapdf>
-      $<TARGET_FILE_DIR:quantapdf_test_pdf_form_mutation>
-    VERBATIM)
-endif()
 
 add_executable(quantapdf_test_pdf_crop
   test_pdf_crop.c
@@ -352,28 +314,12 @@ target_compile_definitions(quantapdf_test_pdf_crop PRIVATE
 add_test(NAME quantapdf.pdf_crop COMMAND quantapdf_test_pdf_crop)
 set_tests_properties(quantapdf.pdf_crop PROPERTIES TIMEOUT 60)
 
-if(WIN32 AND BUILD_SHARED_LIBS)
-  add_custom_command(TARGET quantapdf_test_pdf_crop POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      $<TARGET_FILE:quantapdf>
-      $<TARGET_FILE_DIR:quantapdf_test_pdf_crop>
-    VERBATIM)
-endif()
-
 add_executable(quantapdf_test_pdf_trim test_pdf_trim.c)
 target_link_libraries(quantapdf_test_pdf_trim PRIVATE QuantaPDF::QuantaPDF)
 target_compile_definitions(quantapdf_test_pdf_trim PRIVATE
   TRIM_INTERACTIVE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/trim-interactive.pdf")
 add_test(NAME quantapdf.pdf_trim COMMAND quantapdf_test_pdf_trim)
 set_tests_properties(quantapdf.pdf_trim PROPERTIES TIMEOUT 60)
-
-if(WIN32 AND BUILD_SHARED_LIBS)
-  add_custom_command(TARGET quantapdf_test_pdf_trim POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      $<TARGET_FILE:quantapdf>
-      $<TARGET_FILE_DIR:quantapdf_test_pdf_trim>
-    VERBATIM)
-endif()
 
 add_executable(quantapdf_test_pdf_poster_split test_pdf_poster_split.c)
 target_link_libraries(quantapdf_test_pdf_poster_split PRIVATE QuantaPDF::QuantaPDF)
@@ -382,10 +328,3 @@ target_compile_definitions(quantapdf_test_pdf_poster_split PRIVATE
 add_test(NAME quantapdf.pdf_poster_split COMMAND quantapdf_test_pdf_poster_split)
 set_tests_properties(quantapdf.pdf_poster_split PROPERTIES TIMEOUT 60)
 
-if(WIN32 AND BUILD_SHARED_LIBS)
-  add_custom_command(TARGET quantapdf_test_pdf_poster_split POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      $<TARGET_FILE:quantapdf>
-      $<TARGET_FILE_DIR:quantapdf_test_pdf_poster_split>
-    VERBATIM)
-endif()

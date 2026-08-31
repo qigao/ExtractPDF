@@ -117,6 +117,13 @@ if(QUANTAPDF_BUILD_TESTS)
   target_compile_definitions(quantapdf PRIVATE QUANTAPDF_TESTING=1)
   include(CTest)
   add_subdirectory(tests)
+  if(WIN32 AND BUILD_SHARED_LIBS)
+    add_custom_command(TARGET quantapdf POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:quantapdf>
+        "${CMAKE_CURRENT_BINARY_DIR}/tests"
+      VERBATIM)
+  endif()
   target_sources(quantapdf_test_pdf_form_mutation PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_form_rollback.c")
   set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_trim.c"

@@ -48,12 +48,12 @@ Change each assertion to this form:
 
 ```c
 _Static_assert(
-    (int)QUANTAPDF_TEST_PDF_POSTER_FAULT_NONE ==
-        (int)QUANTAPDF_TEST_POSTER_FAULT_NONE,
+    (unsigned int)QUANTAPDF_TEST_PDF_POSTER_FAULT_NONE ==
+        (unsigned int)QUANTAPDF_TEST_POSTER_FAULT_NONE,
     "poster fault enums must match");
 ```
 
-Apply the same explicit cast to all four public/internal enum pairs. Do not merge the enum types; they belong to different private test interfaces.
+Apply the same explicit cast to all four public/internal enum pairs. MSVC 19.44 retains enum provenance through an `(int)` cast, so the unsigned cast is required for C5287. Do not merge the enum types; they belong to different private test interfaces.
 
 - [ ] **Step 3: Protect link-loop state across MuPDF longjmp during the transitional build**
 
@@ -77,7 +77,7 @@ Run:
 ```powershell
 git diff --check
 rg -n "fz_var\((count|index)\)" src/links.c
-rg -n "\(int\)QUANTAPDF_TEST_.*FAULT" tests/pdf_poster_fault_hook.c
+rg -n "\(unsigned int\)QUANTAPDF_TEST_.*FAULT" tests/pdf_poster_fault_hook.c
 rg -n "ERROR_MUPDF|status_from_mupdf|MuPDF error" include src tests
 ```
 
