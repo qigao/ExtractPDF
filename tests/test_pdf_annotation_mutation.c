@@ -388,12 +388,8 @@ static void test_begin_lifetime_and_fail_closed(void)
     quantapdf_drop_pdf_edit(edit);
     quantapdf_close(source);
 
-    CHECK(quantapdf_open(NON_PDF, NULL, &source) == QUANTAPDF_OK);
-    edit = (quantapdf_pdf_edit *)(uintptr_t)1;
-    CHECK(quantapdf_pdf_edit_begin(source, &edit) ==
-          QUANTAPDF_ERROR_UNSUPPORTED);
-    CHECK(edit == NULL);
-    quantapdf_close(source);
+    CHECK(quantapdf_open(NON_PDF, NULL, &source) == QUANTAPDF_ERROR_FORMAT);
+    CHECK(source == NULL);
 }
 
 static void test_discovery_and_refs(void)

@@ -2,8 +2,6 @@
 #include "test_pdf_trim_internal.h"
 
 #include <math.h>
-#include <mupdf/fitz.h>
-#include <mupdf/pdf.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -108,100 +106,6 @@ static int write_bytes(const char *path, const unsigned char *data, size_t size)
     return fclose(file) == 0;
 }
 
-static int raw_box_matches(
-    fz_context *ctx,
-    pdf_obj *box,
-    const float expected[4])
-{
-    int index;
-
-    if (!pdf_is_array(ctx, box) || pdf_array_len(ctx, box) != 4)
-        return 0;
-    for (index = 0; index < 4; ++index) {
-        pdf_obj *value = pdf_array_get(ctx, box, index);
-        if (!pdf_is_number(ctx, value) ||
-            fabsf(pdf_to_real(ctx, value) - expected[index]) >= 0.001f)
-            return 0;
-    }
-    return 1;
-}
-
-static int raw_expect_outside_relation(
-    const unsigned char *data,
-    size_t size,
-    const float expected_media[4],
-    const float expected_crop[4])
-{
-    fz_context *ctx = NULL;
-    fz_stream *stream = NULL;
-    pdf_document *document = NULL;
-    int ok = 0;
-
-    ctx = fz_new_context(NULL, NULL, FZ_STORE_DEFAULT);
-    if (ctx == NULL)
-        return 0;
-
-    fz_var(stream);
-    fz_var(document);
-    fz_var(ok);
-    fz_try(ctx)
-    {
-        pdf_obj *page;
-        pdf_obj *media;
-        pdf_obj *crop;
-        float mx0;
-        float my0;
-        float mx1;
-        float my1;
-        float cx0;
-        float cy0;
-        float cx1;
-        float cy1;
-
-        stream = fz_open_memory(ctx, data, size);
-        document = pdf_open_document_with_stream(ctx, stream);
-        page = pdf_lookup_page_obj(ctx, document, 0);
-        media = pdf_dict_get_inheritable(ctx, page, PDF_NAME(MediaBox));
-        crop = pdf_dict_get_inheritable(ctx, page, PDF_NAME(CropBox));
-        if (!raw_box_matches(ctx, media, expected_media) ||
-            !raw_box_matches(ctx, crop, expected_crop))
-            break;
-
-        mx0 = fminf(pdf_to_real(ctx, pdf_array_get(ctx, media, 0)),
-                    pdf_to_real(ctx, pdf_array_get(ctx, media, 2)));
-        my0 = fminf(pdf_to_real(ctx, pdf_array_get(ctx, media, 1)),
-                    pdf_to_real(ctx, pdf_array_get(ctx, media, 3)));
-        mx1 = fmaxf(pdf_to_real(ctx, pdf_array_get(ctx, media, 0)),
-                    pdf_to_real(ctx, pdf_array_get(ctx, media, 2)));
-        my1 = fmaxf(pdf_to_real(ctx, pdf_array_get(ctx, media, 1)),
-                    pdf_to_real(ctx, pdf_array_get(ctx, media, 3)));
-        cx0 = fminf(pdf_to_real(ctx, pdf_array_get(ctx, crop, 0)),
-                    pdf_to_real(ctx, pdf_array_get(ctx, crop, 2)));
-        cy0 = fminf(pdf_to_real(ctx, pdf_array_get(ctx, crop, 1)),
-                    pdf_to_real(ctx, pdf_array_get(ctx, crop, 3)));
-        cx1 = fmaxf(pdf_to_real(ctx, pdf_array_get(ctx, crop, 0)),
-                    pdf_to_real(ctx, pdf_array_get(ctx, crop, 2)));
-        cy1 = fmaxf(pdf_to_real(ctx, pdf_array_get(ctx, crop, 1)),
-                    pdf_to_real(ctx, pdf_array_get(ctx, crop, 3)));
-
-        ok = (cx0 < mx0 || cy0 < my0 || cx1 > mx1 || cy1 > my1) &&
-            fmaxf(mx0, cx0) < fminf(mx1, cx1) &&
-            fmaxf(my0, cy0) < fminf(my1, cy1);
-    }
-    fz_always(ctx)
-    {
-        pdf_drop_document(ctx, document);
-        fz_drop_stream(ctx, stream);
-    }
-    fz_catch(ctx)
-    {
-        ok = 0;
-    }
-
-    fz_drop_context(ctx);
-    return ok;
-}
-
 int trim_run_outside_crop_test(void)
 {
     static const float source_media_raw[4] = {0, 0, 300, 200};
@@ -234,7 +138,7 @@ int trim_run_outside_crop_test(void)
     CHECK(baseline != NULL);
     CHECK(quantapdf_output_data(
               baseline, &baseline_data, &baseline_size) == QUANTAPDF_OK);
-    CHECK(raw_expect_outside_relation(
+    CHECK(trim_raw_expect_outside_relation(
               baseline_data, baseline_size, source_media_raw, crop_raw));
 
     trim = make_trim((quantapdf_rect){10, 0, 290, 180});
@@ -242,7 +146,7 @@ int trim_run_outside_crop_test(void)
     CHECK(changed != NULL);
     CHECK(quantapdf_output_data(
               changed, &changed_data, &changed_size) == QUANTAPDF_OK);
-    CHECK(raw_expect_outside_relation(
+    CHECK(trim_raw_expect_outside_relation(
               changed_data, changed_size, changed_media_raw, crop_raw));
     CHECK(trim_raw_expect_preserved_cropbox(
               baseline_data, baseline_size, changed_data, changed_size, 0));

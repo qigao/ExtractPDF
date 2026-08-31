@@ -45,7 +45,7 @@ int main(void)
     CHECK(text != NULL);
     CHECK(size >= sizeof(expected_prefix));
 
-    /* The returned text owns its bytes independently of MuPDF handles. */
+    /* The returned text owns its bytes independently of backend handles. */
     quantapdf_drop_page(page);
     quantapdf_close(document);
     page = NULL;

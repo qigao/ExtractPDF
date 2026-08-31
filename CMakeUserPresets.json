@@ -130,6 +130,7 @@
       ],
       "cacheVariables": {
         "BUILD_SHARED_LIBS": "OFF",
+        "CMAKE_OSX_ARCHITECTURES": "x86_64",
         "VCPKG_TARGET_TRIPLET": "x64-osx",
         "CMAKE_PREFIX_PATH": "$env{VCPKG_INSTALLED_DIR}/x64-osx",
         "CMAKE_INSTALL_PREFIX": "$env{PKG_ROOT}/quantapdf/release"
@@ -147,6 +148,7 @@
       ],
       "cacheVariables": {
         "BUILD_SHARED_LIBS": "OFF",
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
         "VCPKG_TARGET_TRIPLET": "arm64-osx",
         "CMAKE_PREFIX_PATH": "$env{VCPKG_INSTALLED_DIR}/arm64-osx",
         "CMAKE_INSTALL_PREFIX": "$env{PKG_ROOT}/quantapdf/release"
@@ -162,7 +164,13 @@
     { "name": "linux-dev-user", "configurePreset": "linux-dev-user" },
     { "name": "linux-release-user", "configurePreset": "linux-release-user" },
     { "name": "macos-x64-release-user", "configurePreset": "macos-x64-release-user" },
-    { "name": "macos-arm64-release-user", "configurePreset": "macos-arm64-release-user" }
+    { "name": "macos-arm64-release-user", "configurePreset": "macos-arm64-release-user" },
+    { "name": "install-win-dev-user", "configurePreset": "win-dev-user", "targets": ["install"] },
+    { "name": "install-win-release-user", "configurePreset": "win-release-user", "targets": ["install"] },
+    { "name": "install-linux-dev-user", "configurePreset": "linux-dev-user", "targets": ["install"] },
+    { "name": "install-linux-release-user", "configurePreset": "linux-release-user", "targets": ["install"] },
+    { "name": "install-macos-x64-release-user", "configurePreset": "macos-x64-release-user", "targets": ["install"] },
+    { "name": "install-macos-arm64-release-user", "configurePreset": "macos-arm64-release-user", "targets": ["install"] }
   ],
   "testPresets": [
     { "name": "win-dev-user", "inherits": "base-test", "configurePreset": "win-dev-user" },

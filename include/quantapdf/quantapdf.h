@@ -333,7 +333,7 @@ typedef enum quantapdf_status {
     QUANTAPDF_ERROR_FORMAT = 4,
     QUANTAPDF_ERROR_UNSUPPORTED = 5,
     QUANTAPDF_ERROR_NOMEM = 6,
-    QUANTAPDF_ERROR_MUPDF = 7,
+    QUANTAPDF_ERROR_BACKEND = 7,
     QUANTAPDF_ERROR_STATE = 8
 } quantapdf_status;
 

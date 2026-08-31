@@ -5,8 +5,7 @@
       "name": "pkg-vcpkg",
       "hidden": true,
       "cacheVariables": {
-        "VCPKG_MANIFEST_MODE": "ON",
-        "VCPKG_OVERLAY_PORTS": "${sourceDir}/vcpkg-ports"
+        "VCPKG_MANIFEST_MODE": "ON"
       }
     },
     {

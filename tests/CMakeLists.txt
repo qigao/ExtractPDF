@@ -1,3 +1,17 @@
+add_executable(quantapdf_test_backend_foundation test_backend_foundation.c)
+target_include_directories(quantapdf_test_backend_foundation PRIVATE
+  "${CMAKE_SOURCE_DIR}/include"
+  "${CMAKE_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_backend_foundation PRIVATE
+  quantapdf_backend
+  QuantaPDF::PDFium)
+target_compile_definitions(quantapdf_test_backend_foundation PRIVATE
+  ONE_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
+  POSTER_BASIC_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/poster-basic.pdf")
+add_test(NAME quantapdf.backend_foundation
+  COMMAND quantapdf_test_backend_foundation)
+set_tests_properties(quantapdf.backend_foundation PROPERTIES TIMEOUT 30)
+
 add_executable(quantapdf_test_status test_status.c)
 target_link_libraries(quantapdf_test_status PRIVATE QuantaPDF::QuantaPDF)
 add_test(NAME quantapdf.status COMMAND quantapdf_test_status)
@@ -16,6 +30,7 @@ target_compile_definitions(quantapdf_test_document PRIVATE
   TWO_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/two-page.pdf"
   PAGE_BOXES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/page-boxes.pdf"
   ENCRYPTED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/encrypted-one-page.pdf"
+  NON_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-non-pdf.txt"
   TRUNCATED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/truncated.pdf"
   MISSING_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/does-not-exist.pdf"
   UTF8_PDF="${UTF8_PDF}")
@@ -241,36 +256,6 @@ target_compile_definitions(quantapdf_test_pdf_form PRIVATE
 add_test(NAME quantapdf.pdf_form COMMAND quantapdf_test_pdf_form)
 set_tests_properties(quantapdf.pdf_form PROPERTIES TIMEOUT 60)
 
-if(WIN32 AND BUILD_SHARED_LIBS)
-  foreach(test_target IN ITEMS
-      quantapdf_test_status
-      quantapdf_test_document
-      quantapdf_test_render
-      quantapdf_test_text
-      quantapdf_test_structured_text
-      quantapdf_test_text_search
-      quantapdf_test_images
-      quantapdf_test_image_bitmap
-      quantapdf_test_links
-      quantapdf_test_pdf_export
-      quantapdf_test_pdf_range
-      quantapdf_test_pdf_order
-      quantapdf_test_pdf_delete
-      quantapdf_test_pdf_merge
-      quantapdf_test_output_file
-      quantapdf_test_pdf_metadata
-      quantapdf_test_pdf_outline
-      quantapdf_test_pdf_annotations
-      quantapdf_test_pdf_annotation_mutation
-      quantapdf_test_pdf_form)
-    add_custom_command(TARGET ${test_target} POST_BUILD
-      COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        $<TARGET_FILE:quantapdf>
-        $<TARGET_FILE_DIR:${test_target}>
-      VERBATIM)
-  endforeach()
-endif()
-
 add_executable(quantapdf_test_pdf_form_mutation
   test_pdf_form_mutation.c
   test_pdf_form_appearance.c
@@ -281,35 +266,27 @@ target_link_libraries(quantapdf_test_pdf_form_mutation PRIVATE QuantaPDF::Quanta
 target_compile_definitions(quantapdf_test_pdf_form_mutation PRIVATE
   FORM_MUTATION_BASIC_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-basic.pdf"
   FORM_MUTATION_CHOICE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-choice.pdf"
-  FORM_MUTATION_GROUPS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-groups.pdf"
-  FORM_MUTATION_MODES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-modes.pdf"
+  FORM_MUTATION_GROUPS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-groups-pdfium.pdf"
+  FORM_MUTATION_MODES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-modes-pdfium.pdf"
   FORM_MUTATION_EVENTS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-events.pdf"
   FORM_MUTATION_NEED_APPEARANCES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-need-appearances.pdf"
   FORM_MUTATION_XFA_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-xfa.pdf"
   FORM_MUTATION_BAD_NEED_APPEARANCES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-bad-need-appearances.pdf"
-  FORM_MUTATION_DIRECT_FIELD_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-direct-field.pdf")
+  FORM_MUTATION_DIRECT_FIELD_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-direct-field-pdfium.pdf")
 add_test(NAME quantapdf.pdf_form_mutation
   COMMAND quantapdf_test_pdf_form_mutation)
 set_tests_properties(quantapdf.pdf_form_mutation PROPERTIES TIMEOUT 60)
 
-if(WIN32 AND BUILD_SHARED_LIBS)
-  add_custom_command(TARGET quantapdf_test_pdf_form_mutation POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      $<TARGET_FILE:quantapdf>
-      $<TARGET_FILE_DIR:quantapdf_test_pdf_form_mutation>
-    VERBATIM)
-endif()
-
 add_executable(quantapdf_test_pdf_crop
   test_pdf_crop.c
-  test_pdf_crop_raw.c
-  test_pdf_crop_defaults.c
+  qpdf_test_helpers.cpp
   test_pdf_crop_transforms.c)
 set_source_files_properties(test_pdf_crop.c PROPERTIES
   COMPILE_DEFINITIONS "main=quantapdf_pdf_crop_base_main")
 target_link_libraries(quantapdf_test_pdf_crop PRIVATE
   QuantaPDF::QuantaPDF
-  unofficial::libmupdf::libmupdf)
+  qpdf::libqpdf)
+target_compile_features(quantapdf_test_pdf_crop PRIVATE cxx_std_20)
 target_compile_definitions(quantapdf_test_pdf_crop PRIVATE
   CROP_INTERACTIVE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/crop-interactive.pdf"
   CROP_INHERITED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/crop-inherited.pdf"
@@ -326,28 +303,12 @@ target_compile_definitions(quantapdf_test_pdf_crop PRIVATE
 add_test(NAME quantapdf.pdf_crop COMMAND quantapdf_test_pdf_crop)
 set_tests_properties(quantapdf.pdf_crop PROPERTIES TIMEOUT 60)
 
-if(WIN32 AND BUILD_SHARED_LIBS)
-  add_custom_command(TARGET quantapdf_test_pdf_crop POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      $<TARGET_FILE:quantapdf>
-      $<TARGET_FILE_DIR:quantapdf_test_pdf_crop>
-    VERBATIM)
-endif()
-
 add_executable(quantapdf_test_pdf_trim test_pdf_trim.c)
 target_link_libraries(quantapdf_test_pdf_trim PRIVATE QuantaPDF::QuantaPDF)
 target_compile_definitions(quantapdf_test_pdf_trim PRIVATE
   TRIM_INTERACTIVE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/trim-interactive.pdf")
 add_test(NAME quantapdf.pdf_trim COMMAND quantapdf_test_pdf_trim)
 set_tests_properties(quantapdf.pdf_trim PROPERTIES TIMEOUT 60)
-
-if(WIN32 AND BUILD_SHARED_LIBS)
-  add_custom_command(TARGET quantapdf_test_pdf_trim POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      $<TARGET_FILE:quantapdf>
-      $<TARGET_FILE_DIR:quantapdf_test_pdf_trim>
-    VERBATIM)
-endif()
 
 add_executable(quantapdf_test_pdf_poster_split test_pdf_poster_split.c)
 target_link_libraries(quantapdf_test_pdf_poster_split PRIVATE QuantaPDF::QuantaPDF)
@@ -356,10 +317,14 @@ target_compile_definitions(quantapdf_test_pdf_poster_split PRIVATE
 add_test(NAME quantapdf.pdf_poster_split COMMAND quantapdf_test_pdf_poster_split)
 set_tests_properties(quantapdf.pdf_poster_split PROPERTIES TIMEOUT 60)
 
-if(WIN32 AND BUILD_SHARED_LIBS)
-  add_custom_command(TARGET quantapdf_test_pdf_poster_split POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      $<TARGET_FILE:quantapdf>
-      $<TARGET_FILE_DIR:quantapdf_test_pdf_poster_split>
-    VERBATIM)
+get_property(_quantapdf_tests DIRECTORY PROPERTY TESTS)
+if(WIN32)
+  set_property(TEST ${_quantapdf_tests} PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST ${_quantapdf_tests} PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST ${_quantapdf_tests} PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
 endif()

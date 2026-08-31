@@ -2,20 +2,20 @@
 #include "pdf_poster_test_api.h"
 
 _Static_assert(
-    QUANTAPDF_TEST_PDF_POSTER_FAULT_NONE ==
-        QUANTAPDF_TEST_POSTER_FAULT_NONE,
+    (unsigned int)QUANTAPDF_TEST_PDF_POSTER_FAULT_NONE ==
+        (unsigned int)QUANTAPDF_TEST_POSTER_FAULT_NONE,
     "poster fault enums must match");
 _Static_assert(
-    QUANTAPDF_TEST_PDF_POSTER_FAULT_ANNOTATION_PREFLIGHT ==
-        QUANTAPDF_TEST_POSTER_FAULT_ANNOTATION_PREFLIGHT,
+    (unsigned int)QUANTAPDF_TEST_PDF_POSTER_FAULT_ANNOTATION_PREFLIGHT ==
+        (unsigned int)QUANTAPDF_TEST_POSTER_FAULT_ANNOTATION_PREFLIGHT,
     "poster fault enums must match");
 _Static_assert(
-    QUANTAPDF_TEST_PDF_POSTER_FAULT_WIDGET_PREFLIGHT ==
-        QUANTAPDF_TEST_POSTER_FAULT_WIDGET_PREFLIGHT,
+    (unsigned int)QUANTAPDF_TEST_PDF_POSTER_FAULT_WIDGET_PREFLIGHT ==
+        (unsigned int)QUANTAPDF_TEST_POSTER_FAULT_WIDGET_PREFLIGHT,
     "poster fault enums must match");
 _Static_assert(
-    QUANTAPDF_TEST_PDF_POSTER_FAULT_NAVIGATION_PREFLIGHT ==
-        QUANTAPDF_TEST_POSTER_FAULT_NAVIGATION_PREFLIGHT,
+    (unsigned int)QUANTAPDF_TEST_PDF_POSTER_FAULT_NAVIGATION_PREFLIGHT ==
+        (unsigned int)QUANTAPDF_TEST_POSTER_FAULT_NAVIGATION_PREFLIGHT,
     "poster fault enums must match");
 
 void quantapdf_test_pdf_poster_set_fault(

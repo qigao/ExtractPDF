@@ -3,6 +3,10 @@
 
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 int crop_raw_expect_local_cropbox(
     const unsigned char *data,
     size_t size,
@@ -20,5 +24,9 @@ int crop_raw_expect_preserved_graph(
     size_t before_size,
     const unsigned char *after,
     size_t after_size);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -1,4 +1,6 @@
-#include "pdf_form_common.h"
+#include "form_snapshot.h"
+#include "internal.h"
+#include "backend/qpdf_document.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -7,6 +9,22 @@
 struct quantapdf_form {
     quantapdf_pdf_form_model *model;
 };
+
+void quantapdf_pdf_form_drop_model(quantapdf_pdf_form_model *model)
+{
+    size_t index;
+
+    if (model == NULL)
+        return;
+    for (index = 0; index < model->option_count; ++index)
+        free(model->options[index].button_state);
+    free(model->fields);
+    free(model->values);
+    free(model->options);
+    free(model->widgets);
+    free(model->strings);
+    free(model);
+}
 
 static void quantapdf_form_reset_rect(quantapdf_rect *rect)
 {
@@ -27,47 +45,17 @@ quantapdf_status quantapdf_document_form(
     quantapdf_document *document,
     quantapdf_form **out_form)
 {
-    pdf_document *pdf;
     quantapdf_pdf_form_model *model = NULL;
     quantapdf_form *form;
-    quantapdf_status status = QUANTAPDF_OK;
-    int caught_code = FZ_ERROR_NONE;
+    quantapdf_status status;
 
     if (out_form == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
     *out_form = NULL;
 
-    if (document == NULL || document->ctx == NULL || document->doc == NULL)
+    if (document == NULL || document->qpdf_document == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-
-    pdf = pdf_document_from_fz_document(document->ctx, document->doc);
-    if (pdf == NULL)
-        return QUANTAPDF_ERROR_UNSUPPORTED;
-
-    fz_var(model);
-    fz_var(status);
-    fz_var(caught_code);
-
-    fz_try(document->ctx)
-    {
-        status = quantapdf_pdf_form_parse(document->ctx, pdf, &model);
-        if (status == QUANTAPDF_OK)
-            status = quantapdf_pdf_form_reconcile_widgets(
-                document->ctx, pdf, model);
-        if (status == QUANTAPDF_OK)
-            status = quantapdf_pdf_form_materialize_scalar_values(
-                document->ctx, pdf, model);
-    }
-    fz_catch(document->ctx)
-    {
-        caught_code = fz_caught(document->ctx);
-        fz_report_error(document->ctx);
-    }
-
-    if (caught_code != FZ_ERROR_NONE) {
-        quantapdf_pdf_form_drop_model(model);
-        return quantapdf_status_from_mupdf(caught_code);
-    }
+    status = quantapdf_qpdf_extract_form(document->qpdf_document, &model);
     if (status != QUANTAPDF_OK) {
         quantapdf_pdf_form_drop_model(model);
         return status;

@@ -3,6 +3,10 @@
 
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 int poster_raw_check_basic_tiles(
     const unsigned char *data,
     size_t size,
@@ -20,10 +24,18 @@ int poster_raw_check_navigation(
     const unsigned char *data,
     size_t size);
 
+int poster_create_catalog_signature_fixture(
+    const char *source_path,
+    const char *output_path);
+
 int poster_run_geometry_tests(void);
 int poster_run_policy_tests(void);
 int poster_run_interactive_tests(void);
 int poster_run_navigation_tests(void);
 int poster_run_batch_tests(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
