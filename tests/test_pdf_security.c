@@ -21,6 +21,11 @@ int pdf_security_inspect_empty_containers(
     const unsigned char *data,
     size_t size);
 
+int pdf_security_inspect_shared_container_owners(
+    const unsigned char *data,
+    size_t size,
+    int inspect_next);
+
 enum {
     PDF_SECURITY_SAFE_GOTO_MARKER = 1u << 7
 };
@@ -148,6 +153,25 @@ static int inspect_sanitized_empty_containers(quantapdf_output *output)
     if (data == NULL || size == 0)
         return -1;
     mask = pdf_security_inspect_empty_containers(data, size);
+    CHECK(mask >= 0);
+    return mask;
+}
+
+static int inspect_sanitized_shared_container_owners(
+    quantapdf_output *output,
+    int inspect_next)
+{
+    const unsigned char *data = NULL;
+    size_t size = 0;
+    int mask;
+
+    CHECK(quantapdf_output_data(output, &data, &size) == QUANTAPDF_OK);
+    CHECK(data != NULL);
+    CHECK(size != 0);
+    if (data == NULL || size == 0)
+        return -1;
+    mask = pdf_security_inspect_shared_container_owners(
+        data, size, inspect_next);
     CHECK(mask >= 0);
     return mask;
 }
@@ -668,6 +692,46 @@ static void test_sanitize_mutation_budget_exhaustion(void)
     quantapdf_close(document);
 }
 
+static void expect_sanitize_shared_container_cleanup(
+    const char *scenario,
+    int inspect_next)
+{
+    quantapdf_audit_result audit = {0};
+    quantapdf_document *document = NULL;
+    quantapdf_output *output = NULL;
+    char path[512];
+
+    if (!create_fixture(scenario, path, sizeof(path)))
+        return;
+    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    if (document == NULL)
+        return;
+    audit.struct_size = sizeof(audit);
+    CHECK(quantapdf_document_audit(document, &audit) == QUANTAPDF_OK);
+    CHECK(audit.findings == QUANTAPDF_AUDIT_JAVASCRIPT_ACTION);
+    CHECK(quantapdf_sanitize(
+              document, QUANTAPDF_SANITIZE_JAVASCRIPT_ACTIONS, &output) ==
+          QUANTAPDF_OK);
+    CHECK(output != NULL);
+    if (output != NULL) {
+        CHECK(inspect_sanitized_shared_container_owners(
+                  output, inspect_next) == 0);
+    }
+    quantapdf_drop_output(output);
+    quantapdf_close(document);
+}
+
+static void test_sanitize_shared_selected_containers(void)
+{
+    begin_case("sanitize_cleans_all_shared_selected_aa_owners");
+    expect_sanitize_shared_container_cleanup(
+        "sanitize_shared_selected_aa", 0);
+
+    begin_case("sanitize_cleans_all_shared_selected_next_owners");
+    expect_sanitize_shared_container_cleanup(
+        "sanitize_shared_selected_next", 1);
+}
+
 static void expect_sanitize_failure(
     const char *path,
     const char *password,
@@ -788,6 +852,7 @@ int main(void)
     test_sanitize_ownership_and_canonical_output();
     test_sanitize_empty_container_policy_isolation();
     test_sanitize_mutation_budget_exhaustion();
+    test_sanitize_shared_selected_containers();
     test_sanitize_strict_failures_and_arguments();
     if (failures != 0)
         fprintf(stderr, "pdf_security: %d checks failed\n", failures);

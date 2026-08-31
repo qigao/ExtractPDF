@@ -1178,6 +1178,7 @@ static quantapdf_status quantapdf_qpdf_sanitize_actions(
     uint32_t flags,
     std::vector<QPDFObjectHandle> *work,
     std::set<QPDFObjGen> *seen,
+    std::set<QPDFObjGen> *emptied_by_selected_removal,
     quantapdf_qpdf_work_budget *budget)
 {
     while (!work->empty()) {
@@ -1219,7 +1220,15 @@ static quantapdf_status quantapdf_qpdf_sanitize_actions(
              index != selected_indices.rend(); ++index) {
             next.eraseItem(*index);
         }
-        if (!selected_indices.empty() && next.getArrayNItems() == 0)
+        bool const emptied =
+            !selected_indices.empty() && next.getArrayNItems() == 0;
+        if (emptied && next.isIndirect())
+            emptied_by_selected_removal->insert(next.getObjGen());
+        bool const shared_emptied =
+            next.isIndirect() && next.getArrayNItems() == 0 &&
+            emptied_by_selected_removal->find(next.getObjGen()) !=
+                emptied_by_selected_removal->end();
+        if (emptied || shared_emptied)
             action.removeKey("/Next");
     }
     return QUANTAPDF_OK;
@@ -1241,6 +1250,7 @@ static quantapdf_status quantapdf_qpdf_sanitize_graph(
     std::vector<QPDFObjectHandle> action_work;
     std::set<QPDFObjGen> graph_seen;
     std::set<QPDFObjGen> action_seen;
+    std::set<QPDFObjGen> emptied_by_selected_removal;
 
     if (root.hasKey("/Names")) {
         if (!budget.take())
@@ -1337,7 +1347,16 @@ static quantapdf_status quantapdf_qpdf_sanitize_graph(
             }
             for (std::string const& key : selected_keys)
                 additional.removeKey(key);
-            if (!selected_keys.empty() && additional.getKeys().empty())
+            bool const emptied =
+                !selected_keys.empty() && additional.getKeys().empty();
+            if (emptied && additional.isIndirect()) {
+                emptied_by_selected_removal.insert(additional.getObjGen());
+            }
+            bool const shared_emptied =
+                additional.isIndirect() && additional.getKeys().empty() &&
+                emptied_by_selected_removal.find(additional.getObjGen()) !=
+                    emptied_by_selected_removal.end();
+            if (emptied || shared_emptied)
                 object.removeKey("/AA");
         }
 
@@ -1376,7 +1395,8 @@ static quantapdf_status quantapdf_qpdf_sanitize_graph(
     }
 
     return quantapdf_qpdf_sanitize_actions(
-        flags, &action_work, &action_seen, &budget);
+        flags, &action_work, &action_seen,
+        &emptied_by_selected_removal, &budget);
 }
 
 static quantapdf_status quantapdf_qpdf_public_crop_to_pdf(

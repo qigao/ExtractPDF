@@ -320,6 +320,38 @@ static void pdf_security_empty_container_fixture(
         QPDFObjectHandle::newDictionary({{"/A", safe}}));
 }
 
+static void pdf_security_shared_selected_aa_fixture(
+    QPDF& pdf,
+    QPDFObjectHandle root)
+{
+    QPDFObjectHandle additional = pdf.makeIndirectObject(
+        QPDFObjectHandle::newDictionary({
+            {"/E", pdf_security_action(pdf, "/JavaScript")}}));
+    QPDFObjectHandle owners = QPDFObjectHandle::newArray();
+    for (int index = 0; index < 2; ++index) {
+        owners.appendItem(QPDFObjectHandle::newDictionary({
+            {"/AA", additional}}));
+    }
+    root.replaceKey("/QuantaPDFSharedAAOwners", owners);
+}
+
+static void pdf_security_shared_selected_next_fixture(
+    QPDF& pdf,
+    QPDFObjectHandle root)
+{
+    QPDFObjectHandle next = QPDFObjectHandle::newArray();
+    next.appendItem(pdf_security_action(pdf, "/JavaScript"));
+    next = pdf.makeIndirectObject(next);
+    QPDFObjectHandle owners = QPDFObjectHandle::newArray();
+    for (int index = 0; index < 2; ++index) {
+        QPDFObjectHandle safe = pdf_security_action(pdf, "/GoTo");
+        safe.replaceKey("/Next", next);
+        owners.appendItem(QPDFObjectHandle::newDictionary({
+            {"/A", safe}}));
+    }
+    root.replaceKey("/QuantaPDFSharedNextOwners", owners);
+}
+
 static void pdf_security_budget_tuner(
     QPDF& pdf,
     QPDFObjectHandle root,
@@ -356,6 +388,10 @@ extern "C" int pdf_security_create_fixture(
             pdf_security_empty_container_fixture(*pdf, root, false);
         } else if (scenario == "sanitize_selected_to_empty") {
             pdf_security_empty_container_fixture(*pdf, root, true);
+        } else if (scenario == "sanitize_shared_selected_aa") {
+            pdf_security_shared_selected_aa_fixture(*pdf, root);
+        } else if (scenario == "sanitize_shared_selected_next") {
+            pdf_security_shared_selected_next_fixture(*pdf, root);
         } else if (scenario == "internal_goto") {
             pdf_security_set_open_action(*pdf, root, "/GoTo");
         } else if (scenario == "open_destination_array") {
@@ -617,6 +653,48 @@ extern "C" int pdf_security_inspect_empty_containers(
         QPDFObjectHandle next = action.getKey("/Next");
         if (next.isArray() && next.getArrayNItems() == 0)
             mask |= 4;
+        return pdf->anyWarnings() ? -1 : mask;
+    } catch (...) {
+        return -1;
+    }
+}
+
+extern "C" int pdf_security_inspect_shared_container_owners(
+    unsigned char const *data,
+    size_t size,
+    int inspect_next)
+{
+    if (data == nullptr || size == 0)
+        return -1;
+    try {
+        auto pdf = QPDF::create();
+        pdf->setSuppressWarnings(true);
+        pdf->setAttemptRecovery(false);
+        pdf->processMemoryFile(
+            "pdf-security-shared-container-output",
+            reinterpret_cast<char const *>(data),
+            size);
+        QPDFObjectHandle root = pdf->getRoot();
+        QPDFObjectHandle owners = root.getKey(
+            inspect_next ? "/QuantaPDFSharedNextOwners" :
+                           "/QuantaPDFSharedAAOwners");
+        if (!owners.isArray() || owners.getArrayNItems() != 2)
+            return -1;
+        int mask = 0;
+        for (int index = 0; index < 2; ++index) {
+            QPDFObjectHandle owner = owners.getArrayItem(index);
+            if (!owner.isDictionary())
+                return -1;
+            if (inspect_next) {
+                QPDFObjectHandle action = owner.getKey("/A");
+                if (!action.isDictionary())
+                    return -1;
+                if (action.hasKey("/Next"))
+                    mask |= 1 << index;
+            } else if (owner.hasKey("/AA")) {
+                mask |= 1 << index;
+            }
+        }
         return pdf->anyWarnings() ? -1 : mask;
     } catch (...) {
         return -1;
