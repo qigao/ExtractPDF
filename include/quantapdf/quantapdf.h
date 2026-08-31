@@ -19,7 +19,7 @@ extern "C" {
 #endif
 
 #define QUANTAPDF_VERSION_MAJOR 2
-#define QUANTAPDF_VERSION_MINOR 0
+#define QUANTAPDF_VERSION_MINOR 1
 #define QUANTAPDF_VERSION_PATCH 0
 #define QUANTAPDF_ABI_VERSION 2
 
@@ -482,6 +482,10 @@ QUANTAPDF_API quantapdf_status quantapdf_poster_split_pages(
     quantapdf_document *document,
     const quantapdf_page_poster_split *splits,
     size_t split_count,
+    quantapdf_output **out_output);
+
+QUANTAPDF_API quantapdf_status quantapdf_rewrite_lossless(
+    quantapdf_document *document,
     quantapdf_output **out_output);
 
 QUANTAPDF_API quantapdf_status quantapdf_output_data(

@@ -71,6 +71,7 @@ quantapdf_poster_split_pages
 quantapdf_render_page
 quantapdf_render_page_with_options
 quantapdf_render_thumbnail
+quantapdf_rewrite_lossless
 quantapdf_status_string
 quantapdf_text_block_count
 quantapdf_text_get_block_info

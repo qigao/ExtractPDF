@@ -64,7 +64,8 @@ The current supported surface includes:
 - URI/internal links, annotations, document metadata, and outlines
 - immutable AcroForm snapshots and isolated PDF edit sessions
 - page export/range export, output merging, and file saving
-- immutable CropBox crop, MediaBox trim, and poster-split transforms
+- immutable CropBox crop, MediaBox trim, poster-split, and lossless rewrite/GC
+  transforms
 - stable status strings and one allocator-matched `quantapdf_free()` entry point
 
 ## API contract
@@ -184,6 +185,30 @@ quantapdf_render_thumbnail(page, max_width, max_height, &bitmap);
 
 renders opaque RGB while preserving the page aspect ratio. The result fits inside the requested pixel box and never upscales beyond the page's 72-DPI size. Thumbnail rendering derives a DPI and reuses the same renderer rather than maintaining a separate raster path.
 
+## Lossless rewrite and garbage collection
+
+```c
+quantapdf_output *rewritten = NULL;
+
+if (quantapdf_rewrite_lossless(doc, &rewritten) == QUANTAPDF_OK) {
+    quantapdf_output_save_file(rewritten, "canonical.pdf");
+    quantapdf_drop_output(rewritten);
+}
+```
+
+`quantapdf_rewrite_lossless()` performs a deterministic full rewrite with a
+fixed policy. It removes indirect objects unreachable from the trailer graph,
+rebuilds the cross-reference state, preserves existing stream encodings, and
+does not deduplicate distinct reachable objects. Repeated calls on identical
+input—and rewriting a reopened result—produce byte-identical output.
+
+This API is deliberately strict. It does not repair damaged PDFs, recompress
+images, or flatten interactive content. It neither preserves nor creates
+encryption: encrypted input is rejected with `QUANTAPDF_ERROR_UNSUPPORTED`.
+Inputs requiring structural recovery return `QUANTAPDF_ERROR_FORMAT`, and
+already signed inputs return `QUANTAPDF_ERROR_UNSUPPORTED`. The returned
+output owns its bytes independently of the source document.
+
 ## Dependency model
 
 The backend foundation has two pinned dependency paths:
@@ -251,7 +276,7 @@ The test build stages `quantapdf.dll` beside every Windows test executable. Cons
 
 ## Tests
 
-CTest covers the document lifecycle plus Page + Render contracts, including invalid arguments, page geometry, MediaBox/CropBox coordinates, RGB/RGBA output, versioned render options, DPI, rotation, clipping, thumbnails, encrypted PDFs, malformed input, repeated lifecycle stress, interleaved handles, and UTF-8 paths.
+CTest covers the document lifecycle plus Page + Render contracts, including invalid arguments, page geometry, MediaBox/CropBox coordinates, RGB/RGBA output, versioned render options, DPI, rotation, clipping, thumbnails, encrypted PDFs, malformed input, repeated lifecycle stress, interleaved handles, UTF-8 paths, and deterministic lossless rewrite/GC semantics.
 
 Linux additionally runs AddressSanitizer and UndefinedBehaviorSanitizer.
 
