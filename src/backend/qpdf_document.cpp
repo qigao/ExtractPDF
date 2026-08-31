@@ -1,0 +1,105 @@
+#include "qpdf_document.h"
+
+#include <qpdf/Constants.h>
+#include <qpdf/QPDF.hh>
+#include <qpdf/QPDFExc.hh>
+
+#include <climits>
+#include <exception>
+#include <memory>
+#include <new>
+
+struct quantapdf_qpdf_document {
+    std::shared_ptr<QPDF> pdf;
+};
+
+static quantapdf_status quantapdf_status_from_qpdf(
+    QPDFExc const& error) noexcept
+{
+    switch (error.getErrorCode()) {
+    case qpdf_e_password:
+        return QUANTAPDF_ERROR_PASSWORD;
+    case qpdf_e_unsupported:
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    case qpdf_e_system:
+        return QUANTAPDF_ERROR_IO;
+    case qpdf_e_damaged_pdf:
+    case qpdf_e_pages:
+    case qpdf_e_object:
+    case qpdf_e_json:
+    case qpdf_e_linearization:
+        return QUANTAPDF_ERROR_FORMAT;
+    case qpdf_e_success:
+    case qpdf_e_internal:
+    default:
+        return QUANTAPDF_ERROR_BACKEND;
+    }
+}
+
+extern "C" quantapdf_status quantapdf_qpdf_open_memory(
+    const unsigned char *data,
+    size_t size,
+    const char *password_utf8,
+    quantapdf_qpdf_document **out_document)
+{
+    if (out_document == nullptr)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    *out_document = nullptr;
+
+    if (data == nullptr)
+        return QUANTAPDF_ERROR_ARGUMENT;
+
+    try {
+        auto document = std::make_unique<quantapdf_qpdf_document>();
+        document->pdf = QPDF::create();
+        document->pdf->processMemoryFile(
+            "quantapdf-memory",
+            reinterpret_cast<char const *>(data),
+            size,
+            password_utf8);
+        *out_document = document.release();
+        return QUANTAPDF_OK;
+    } catch (QPDFExc const& error) {
+        return quantapdf_status_from_qpdf(error);
+    } catch (std::bad_alloc const&) {
+        return QUANTAPDF_ERROR_NOMEM;
+    } catch (std::exception const&) {
+        return QUANTAPDF_ERROR_BACKEND;
+    } catch (...) {
+        return QUANTAPDF_ERROR_BACKEND;
+    }
+}
+
+extern "C" quantapdf_status quantapdf_qpdf_page_count(
+    quantapdf_qpdf_document *document,
+    int *out_page_count)
+{
+    if (out_page_count == nullptr)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    *out_page_count = 0;
+
+    if (document == nullptr || document->pdf == nullptr)
+        return QUANTAPDF_ERROR_ARGUMENT;
+
+    try {
+        size_t const page_count = document->pdf->getAllPages().size();
+        if (page_count > static_cast<size_t>(INT_MAX))
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        *out_page_count = static_cast<int>(page_count);
+        return QUANTAPDF_OK;
+    } catch (QPDFExc const& error) {
+        return quantapdf_status_from_qpdf(error);
+    } catch (std::bad_alloc const&) {
+        return QUANTAPDF_ERROR_NOMEM;
+    } catch (std::exception const&) {
+        return QUANTAPDF_ERROR_BACKEND;
+    } catch (...) {
+        return QUANTAPDF_ERROR_BACKEND;
+    }
+}
+
+extern "C" void quantapdf_qpdf_close(
+    quantapdf_qpdf_document *document)
+{
+    delete document;
+}

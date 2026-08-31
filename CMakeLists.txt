@@ -11,6 +11,10 @@ find_package(unofficial-libmupdf CONFIG REQUIRED)
 if(NOT TARGET unofficial::libmupdf::libmupdf)
   message(FATAL_ERROR "unofficial-libmupdf did not provide unofficial::libmupdf::libmupdf")
 endif()
+find_package(qpdf 12.4.0 EXACT CONFIG REQUIRED)
+if(NOT TARGET qpdf::libqpdf)
+  message(FATAL_ERROR "qpdf did not provide qpdf::libqpdf")
+endif()
 
 add_library(quantapdf
   src/status.c
@@ -61,13 +65,17 @@ add_library(quantapdf
   src/pdf_edit_form_buttons.c
   src/pdf_edit_form_choices.c
   src/pdf_edit_form_widgets.c
-  src/pdf_edit_annotations.c)
+  src/pdf_edit_annotations.c
+  src/backend/qpdf_document.cpp)
 add_library(QuantaPDF::QuantaPDF ALIAS quantapdf)
 target_compile_features(quantapdf PUBLIC c_std_11)
+target_compile_features(quantapdf PRIVATE cxx_std_20)
 target_include_directories(quantapdf PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
-target_link_libraries(quantapdf PRIVATE unofficial::libmupdf::libmupdf)
+target_link_libraries(quantapdf PRIVATE
+  unofficial::libmupdf::libmupdf
+  qpdf::libqpdf)
 
 if(BUILD_SHARED_LIBS)
   target_compile_definitions(quantapdf

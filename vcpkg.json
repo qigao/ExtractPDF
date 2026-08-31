@@ -6,6 +6,10 @@
     {
       "name": "libmupdf",
       "default-features": false
+    },
+    {
+      "name": "qpdf",
+      "default-features": false
     }
   ]
 }
