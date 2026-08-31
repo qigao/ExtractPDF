@@ -38,8 +38,12 @@ struct quantapdf_page {
 };
 
 struct quantapdf_bitmap {
-    quantapdf_document *document;
-    fz_pixmap *pixmap;
+    unsigned char *data;
+    size_t size;
+    int width;
+    int height;
+    int stride;
+    int components;
 };
 
 typedef struct quantapdf_text_block_internal {

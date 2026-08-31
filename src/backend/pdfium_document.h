@@ -12,6 +12,15 @@ extern "C" {
 typedef struct quantapdf_pdfium_document quantapdf_pdfium_document;
 typedef struct quantapdf_pdfium_page quantapdf_pdfium_page;
 
+typedef struct quantapdf_pdfium_bitmap {
+    unsigned char *data;
+    size_t size;
+    int width;
+    int height;
+    int stride;
+    int components;
+} quantapdf_pdfium_bitmap;
+
 quantapdf_status quantapdf_pdfium_open_memory(
     const unsigned char *data,
     size_t size,
@@ -30,6 +39,14 @@ quantapdf_status quantapdf_pdfium_load_page(
 quantapdf_status quantapdf_pdfium_page_bounds(
     quantapdf_pdfium_page *page,
     quantapdf_rect *out_bounds);
+
+quantapdf_status quantapdf_pdfium_render_page(
+    quantapdf_pdfium_page *page,
+    float dpi,
+    float rotation_degrees,
+    const quantapdf_rect *clip,
+    int alpha,
+    quantapdf_pdfium_bitmap *out_bitmap);
 
 void quantapdf_pdfium_drop_page(quantapdf_pdfium_page *page);
 void quantapdf_pdfium_close(quantapdf_pdfium_document *document);

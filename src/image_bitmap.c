@@ -1,5 +1,7 @@
 #include "internal.h"
 
+#include <stdint.h>
+#include <string.h>
 #include <stdlib.h>
 
 quantapdf_status quantapdf_image_render(
@@ -15,6 +17,13 @@ quantapdf_status quantapdf_image_render(
     fz_pixmap *mask = NULL;
     fz_pixmap *result = NULL;
     int caught_code = FZ_ERROR_NONE;
+    int width;
+    int height;
+    int components;
+    int source_stride;
+    size_t target_stride;
+    size_t size;
+    int y;
 
     if (out_bitmap == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
@@ -32,7 +41,6 @@ quantapdf_status quantapdf_image_render(
     if (bitmap == NULL)
         return QUANTAPDF_ERROR_NOMEM;
 
-    bitmap->document = images->document;
     ctx = images->document->ctx;
 
     fz_var(color);
@@ -99,7 +107,41 @@ quantapdf_status quantapdf_image_render(
         return QUANTAPDF_ERROR_NOMEM;
     }
 
-    bitmap->pixmap = result;
+    width = fz_pixmap_width(ctx, result);
+    height = fz_pixmap_height(ctx, result);
+    components = fz_pixmap_components(ctx, result);
+    source_stride = fz_pixmap_stride(ctx, result);
+    if (width <= 0 || height <= 0 || components <= 0 || source_stride <= 0 ||
+        (size_t)width > SIZE_MAX / (size_t)components) {
+        fz_drop_pixmap(ctx, result);
+        free(bitmap);
+        return QUANTAPDF_ERROR_FORMAT;
+    }
+    target_stride = (size_t)width * (size_t)components;
+    if ((size_t)height > SIZE_MAX / target_stride) {
+        fz_drop_pixmap(ctx, result);
+        free(bitmap);
+        return QUANTAPDF_ERROR_FORMAT;
+    }
+    size = target_stride * (size_t)height;
+    bitmap->data = (unsigned char *)malloc(size);
+    if (bitmap->data == NULL) {
+        fz_drop_pixmap(ctx, result);
+        free(bitmap);
+        return QUANTAPDF_ERROR_NOMEM;
+    }
+    for (y = 0; y < height; ++y) {
+        memcpy(
+            bitmap->data + target_stride * (size_t)y,
+            fz_pixmap_samples(ctx, result) + (size_t)source_stride * (size_t)y,
+            target_stride);
+    }
+    fz_drop_pixmap(ctx, result);
+    bitmap->size = size;
+    bitmap->width = width;
+    bitmap->height = height;
+    bitmap->stride = (int)target_stride;
+    bitmap->components = components;
     *out_bitmap = bitmap;
     return QUANTAPDF_OK;
 }

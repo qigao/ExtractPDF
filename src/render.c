@@ -1,4 +1,5 @@
 #include "internal.h"
+#include "backend/pdfium_document.h"
 
 #include <math.h>
 #include <stddef.h>
@@ -13,10 +14,7 @@ static quantapdf_status quantapdf_render_page_transformed(
     quantapdf_bitmap **out_bitmap)
 {
     quantapdf_bitmap *bitmap;
-    fz_context *ctx;
-    fz_device *device = NULL;
-    fz_matrix transform;
-    int caught_code = FZ_ERROR_NONE;
+    quantapdf_pdfium_bitmap rendered;
     quantapdf_status status;
 
     if (out_bitmap == NULL)
@@ -27,76 +25,23 @@ static quantapdf_status quantapdf_render_page_transformed(
         !isfinite(rotation_degrees) || (alpha != 0 && alpha != 1))
         return QUANTAPDF_ERROR_ARGUMENT;
 
-    status = quantapdf_page_ensure_mupdf(page);
-    if (status != QUANTAPDF_OK)
-        return status;
-
     bitmap = (quantapdf_bitmap *)calloc(1, sizeof(*bitmap));
     if (bitmap == NULL)
         return QUANTAPDF_ERROR_NOMEM;
 
-    bitmap->document = page->document;
-    ctx = page->document->ctx;
-    transform = fz_scale(dpi / 72.0f, dpi / 72.0f);
-    transform = fz_pre_rotate(transform, rotation_degrees);
-    fz_var(device);
-    fz_var(caught_code);
-
-    fz_try(ctx)
-    {
-        if (clip != NULL) {
-            fz_rect clip_rect = fz_make_rect(
-                clip->x0,
-                clip->y0,
-                clip->x1,
-                clip->y1);
-            fz_irect bbox;
-
-            clip_rect = fz_transform_rect(clip_rect, transform);
-            bbox = fz_round_rect(clip_rect);
-            bitmap->pixmap = fz_new_pixmap_with_bbox(
-                ctx,
-                fz_device_rgb(ctx),
-                bbox,
-                NULL,
-                alpha);
-            if (alpha)
-                fz_clear_pixmap(ctx, bitmap->pixmap);
-            else
-                fz_clear_pixmap_with_value(ctx, bitmap->pixmap, 0xFF);
-            device = fz_new_draw_device(ctx, transform, bitmap->pixmap);
-            fz_run_page(ctx, page->page, device, fz_identity, NULL);
-            fz_close_device(ctx, device);
-        }
-        else {
-            bitmap->pixmap = fz_new_pixmap_from_page(
-                ctx,
-                page->page,
-                transform,
-                fz_device_rgb(ctx),
-                alpha);
-        }
-    }
-    fz_always(ctx)
-    {
-        fz_drop_device(ctx, device);
-    }
-    fz_catch(ctx)
-    {
-        caught_code = fz_caught(ctx);
-        fz_report_error(ctx);
-    }
-
-    if (caught_code != FZ_ERROR_NONE) {
-        if (bitmap->pixmap != NULL)
-            fz_drop_pixmap(ctx, bitmap->pixmap);
+    status = quantapdf_pdfium_render_page(
+        page->pdfium_page, dpi, rotation_degrees, clip, alpha, &rendered);
+    if (status != QUANTAPDF_OK) {
         free(bitmap);
-        return quantapdf_status_from_backend(caught_code);
+        return status;
     }
-    if (bitmap->pixmap == NULL) {
-        free(bitmap);
-        return QUANTAPDF_ERROR_NOMEM;
-    }
+
+    bitmap->data = rendered.data;
+    bitmap->size = rendered.size;
+    bitmap->width = rendered.width;
+    bitmap->height = rendered.height;
+    bitmap->stride = rendered.stride;
+    bitmap->components = rendered.components;
 
     *out_bitmap = bitmap;
     return QUANTAPDF_OK;
@@ -234,17 +179,14 @@ quantapdf_status quantapdf_bitmap_dimensions(
     int *out_stride,
     int *out_components)
 {
-    fz_context *ctx;
-
     if (bitmap == NULL || out_width == NULL || out_height == NULL ||
         out_stride == NULL || out_components == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
 
-    ctx = bitmap->document->ctx;
-    *out_width = fz_pixmap_width(ctx, bitmap->pixmap);
-    *out_height = fz_pixmap_height(ctx, bitmap->pixmap);
-    *out_stride = fz_pixmap_stride(ctx, bitmap->pixmap);
-    *out_components = fz_pixmap_components(ctx, bitmap->pixmap);
+    *out_width = bitmap->width;
+    *out_height = bitmap->height;
+    *out_stride = bitmap->stride;
+    *out_components = bitmap->components;
     return QUANTAPDF_OK;
 }
 
@@ -253,21 +195,11 @@ quantapdf_status quantapdf_bitmap_data(
     const unsigned char **out_data,
     size_t *out_size)
 {
-    int stride;
-    int height;
-    size_t row_bytes;
-    fz_context *ctx;
-
     if (bitmap == NULL || out_data == NULL || out_size == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
 
-    ctx = bitmap->document->ctx;
-    stride = fz_pixmap_stride(ctx, bitmap->pixmap);
-    height = fz_pixmap_height(ctx, bitmap->pixmap);
-    row_bytes = stride < 0 ? (size_t)(-(long long)stride) : (size_t)stride;
-
-    *out_data = fz_pixmap_samples(ctx, bitmap->pixmap);
-    *out_size = row_bytes * (size_t)height;
+    *out_data = bitmap->data;
+    *out_size = bitmap->size;
     return QUANTAPDF_OK;
 }
 
@@ -276,7 +208,6 @@ void quantapdf_drop_bitmap(quantapdf_bitmap *bitmap)
     if (bitmap == NULL)
         return;
 
-    if (bitmap->pixmap != NULL)
-        fz_drop_pixmap(bitmap->document->ctx, bitmap->pixmap);
+    free(bitmap->data);
     free(bitmap);
 }
