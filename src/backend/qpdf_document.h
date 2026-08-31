@@ -95,6 +95,11 @@ quantapdf_status quantapdf_qpdf_rewrite_memory(
     unsigned char **out_data,
     size_t *out_size);
 
+quantapdf_status quantapdf_qpdf_rewrite_lossless(
+    quantapdf_qpdf_document *document,
+    unsigned char **out_data,
+    size_t *out_size);
+
 void quantapdf_qpdf_close(quantapdf_qpdf_document *document);
 
 #ifdef __cplusplus

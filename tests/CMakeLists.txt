@@ -21,9 +21,15 @@ target_link_libraries(quantapdf_test_version PRIVATE QuantaPDF::QuantaPDF)
 add_test(NAME quantapdf.version COMMAND quantapdf_test_version)
 
 add_executable(quantapdf_test_pdf_rewrite_lossless
-  test_pdf_rewrite_lossless.c)
+  test_pdf_rewrite_lossless.c
+  rewrite_test_helpers.cpp)
 target_link_libraries(quantapdf_test_pdf_rewrite_lossless PRIVATE
-  QuantaPDF::QuantaPDF)
+  QuantaPDF::QuantaPDF
+  qpdf::libqpdf)
+target_compile_features(quantapdf_test_pdf_rewrite_lossless PRIVATE cxx_std_20)
+target_compile_definitions(quantapdf_test_pdf_rewrite_lossless PRIVATE
+  ONE_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
+  REWRITE_GC_PDF="${CMAKE_CURRENT_BINARY_DIR}/rewrite-gc-input.pdf")
 add_test(NAME quantapdf.pdf_rewrite_lossless
   COMMAND quantapdf_test_pdf_rewrite_lossless)
 set_tests_properties(quantapdf.pdf_rewrite_lossless PROPERTIES TIMEOUT 30)

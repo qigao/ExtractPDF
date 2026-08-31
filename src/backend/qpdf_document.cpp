@@ -2783,6 +2783,57 @@ extern "C" quantapdf_status quantapdf_qpdf_rewrite_memory(
     }
 }
 
+extern "C" quantapdf_status quantapdf_qpdf_rewrite_lossless(
+    quantapdf_qpdf_document *document,
+    unsigned char **out_data,
+    size_t *out_size)
+{
+    if (out_data == nullptr || out_size == nullptr)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    *out_data = nullptr;
+    *out_size = 0;
+    if (document == nullptr || document->pdf == nullptr ||
+        document->source_data == nullptr || document->source_size == 0)
+        return QUANTAPDF_ERROR_ARGUMENT;
+
+    try {
+        auto pdf = QPDF::create();
+        pdf->setSuppressWarnings(true);
+        pdf->setAttemptRecovery(false);
+        pdf->processMemoryFile(
+            "quantapdf-lossless-rewrite",
+            reinterpret_cast<char const *>(document->source_data),
+            document->source_size,
+            document->password.c_str());
+        (void)pdf->getAllPages();
+        (void)pdf->getAllObjects();
+        if (pdf->anyWarnings())
+            return QUANTAPDF_ERROR_FORMAT;
+        if (pdf->isEncrypted())
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+
+        quantapdf_status const status = quantapdf_qpdf_write_memory(
+            *pdf, out_data, out_size);
+        if (status != QUANTAPDF_OK)
+            return status;
+        if (pdf->anyWarnings()) {
+            std::free(*out_data);
+            *out_data = nullptr;
+            *out_size = 0;
+            return QUANTAPDF_ERROR_FORMAT;
+        }
+        return QUANTAPDF_OK;
+    } catch (QPDFExc const& error) {
+        return quantapdf_status_from_qpdf(error);
+    } catch (std::bad_alloc const&) {
+        return QUANTAPDF_ERROR_NOMEM;
+    } catch (std::exception const&) {
+        return QUANTAPDF_ERROR_BACKEND;
+    } catch (...) {
+        return QUANTAPDF_ERROR_BACKEND;
+    }
+}
+
 static char const *quantapdf_qpdf_annotation_name(
     quantapdf_annotation_type type) noexcept
 {
