@@ -154,6 +154,7 @@ if(EXTRACTPDF_BUILD_TESTS)
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_flatten_policy.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_flatten_determinism.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_flatten_flag_sets.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_flatten_render.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_flatten_main.c")
   target_link_libraries(extractpdf_test_pdf_flatten PRIVATE
     unofficial::libmupdf::libmupdf)
@@ -190,5 +191,6 @@ if(EXTRACTPDF_BUILD_TESTS)
     FLATTEN_POLICY_NEEDAPPEARANCES_TRUE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-policy-needappearances-true.pdf"
     FLATTEN_POLICY_NEEDAPPEARANCES_MALFORMED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-policy-needappearances-malformed.pdf"
     FLATTEN_POLICY_NEEDAPPEARANCES_FALSE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-policy-needappearances-false.pdf"
-    FLATTEN_COMBINED_ORDER_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-combined-order.pdf")
+    FLATTEN_COMBINED_ORDER_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-combined-order.pdf"
+    FLATTEN_RENDER_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/flatten-render-output.pdf")
 endif()
