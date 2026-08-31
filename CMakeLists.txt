@@ -181,5 +181,7 @@ if(EXTRACTPDF_BUILD_TESTS)
     FLATTEN_POLICY_ANNOTATION_WITH_WIDGET_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-policy-annotation-with-widget.pdf"
     FLATTEN_POLICY_POPUP_PARENT_REVERSE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-policy-popup-parent-reverse.pdf"
     FLATTEN_POLICY_POPUP_DIRECT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-policy-popup-direct.pdf"
-    FLATTEN_POLICY_IRT_REVERSE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-policy-irt-reverse.pdf")
+    FLATTEN_POLICY_IRT_REVERSE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-policy-irt-reverse.pdf"
+    FLATTEN_TAGGED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-tagged.pdf"
+    FLATTEN_TAGGED_NOOP_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-tagged-noop.pdf")
 endif()
