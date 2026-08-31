@@ -19,6 +19,17 @@ add_test(NAME quantapdf.status COMMAND quantapdf_test_status)
 add_executable(quantapdf_test_version test_version.c)
 target_link_libraries(quantapdf_test_version PRIVATE QuantaPDF::QuantaPDF)
 add_test(NAME quantapdf.version COMMAND quantapdf_test_version)
+
+if(WIN32 AND BUILD_SHARED_LIBS)
+  find_program(QUANTAPDF_DUMPBIN_EXECUTABLE NAMES dumpbin REQUIRED)
+  add_test(NAME quantapdf.abi_exports
+    COMMAND "${CMAKE_COMMAND}"
+      "-DQUANTAPDF_DUMPBIN=${QUANTAPDF_DUMPBIN_EXECUTABLE}"
+      "-DQUANTAPDF_LIBRARY=$<TARGET_FILE:quantapdf>"
+      "-DQUANTAPDF_EXPORT_BASELINE=${CMAKE_CURRENT_SOURCE_DIR}/../abi/quantapdf-v2.exports"
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/../cmake/CheckQuantaPDFExports.cmake")
+  set_tests_properties(quantapdf.abi_exports PROPERTIES TIMEOUT 10)
+endif()
 set_tests_properties(quantapdf.status PROPERTIES TIMEOUT 10)
 
 set(UTF8_PDF "${CMAKE_CURRENT_BINARY_DIR}/quantapdf-测试.pdf")
