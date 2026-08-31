@@ -1,3 +1,29 @@
+add_executable(quantapdf_test_backend_foundation test_backend_foundation.c)
+target_include_directories(quantapdf_test_backend_foundation PRIVATE
+  "${CMAKE_SOURCE_DIR}/include"
+  "${CMAKE_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_backend_foundation PRIVATE
+  quantapdf_backend
+  QuantaPDF::PDFium)
+target_compile_definitions(quantapdf_test_backend_foundation PRIVATE
+  ONE_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf")
+add_test(NAME quantapdf.backend_foundation
+  COMMAND quantapdf_test_backend_foundation)
+set_tests_properties(quantapdf.backend_foundation PROPERTIES TIMEOUT 30)
+if(WIN32)
+  set_property(TEST quantapdf.backend_foundation PROPERTY
+    ENVIRONMENT_MODIFICATION
+      "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST quantapdf.backend_foundation PROPERTY
+    ENVIRONMENT_MODIFICATION
+      "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST quantapdf.backend_foundation PROPERTY
+    ENVIRONMENT_MODIFICATION
+      "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()
+
 add_executable(quantapdf_test_status test_status.c)
 target_link_libraries(quantapdf_test_status PRIVATE QuantaPDF::QuantaPDF)
 add_test(NAME quantapdf.status COMMAND quantapdf_test_status)

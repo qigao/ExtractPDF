@@ -15,6 +15,25 @@ find_package(qpdf 12.4.0 EXACT CONFIG REQUIRED)
 if(NOT TARGET qpdf::libqpdf)
   message(FATAL_ERROR "qpdf did not provide qpdf::libqpdf")
 endif()
+find_package(ZLIB REQUIRED)
+find_package(JPEG REQUIRED)
+# qpdf 12.4 exports its static dependencies as bare library names. Normalize
+# them to package targets so consumers do not depend on ambient linker paths.
+set_property(TARGET qpdf::libqpdf PROPERTY INTERFACE_LINK_LIBRARIES
+  "ZLIB::ZLIB;JPEG::JPEG")
+
+add_library(quantapdf_backend STATIC
+  src/backend/qpdf_document.cpp
+  src/backend/pdfium_runtime.cpp)
+target_compile_features(quantapdf_backend PRIVATE cxx_std_20)
+target_include_directories(quantapdf_backend PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/include"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_backend PRIVATE
+  QuantaPDF::PDFium
+  qpdf::libqpdf)
+set_target_properties(quantapdf_backend PROPERTIES
+  POSITION_INDEPENDENT_CODE ON)
 
 add_library(quantapdf
   src/status.c
@@ -65,17 +84,16 @@ add_library(quantapdf
   src/pdf_edit_form_buttons.c
   src/pdf_edit_form_choices.c
   src/pdf_edit_form_widgets.c
-  src/pdf_edit_annotations.c
-  src/backend/qpdf_document.cpp)
+  src/pdf_edit_annotations.c)
 add_library(QuantaPDF::QuantaPDF ALIAS quantapdf)
 target_compile_features(quantapdf PUBLIC c_std_11)
-target_compile_features(quantapdf PRIVATE cxx_std_20)
 target_include_directories(quantapdf PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
 target_link_libraries(quantapdf PRIVATE
   unofficial::libmupdf::libmupdf
-  qpdf::libqpdf)
+  quantapdf_backend)
+set_target_properties(quantapdf PROPERTIES LINKER_LANGUAGE CXX)
 
 if(BUILD_SHARED_LIBS)
   target_compile_definitions(quantapdf
@@ -85,8 +103,11 @@ endif()
 
 if(MSVC)
   target_compile_options(quantapdf PRIVATE /W4 /WX)
+  target_compile_options(quantapdf_backend PRIVATE /W4 /WX)
 else()
   target_compile_options(quantapdf PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  target_compile_options(quantapdf_backend PRIVATE
+    -Wall -Wextra -Wpedantic -Werror)
 endif()
 
 if(QUANTAPDF_BUILD_TESTS)

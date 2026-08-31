@@ -319,11 +319,13 @@ default:
 Add:
 
 ```cmake
-find_package(qpdf 12.4 EXACT CONFIG REQUIRED)
+find_package(qpdf 12.4.0 EXACT CONFIG REQUIRED)
 target_sources(quantapdf PRIVATE src/backend/qpdf_document.cpp)
 target_compile_features(quantapdf PRIVATE cxx_std_20)
 target_link_libraries(quantapdf PRIVATE qpdf::libqpdf)
 ```
+
+The qpdf 12.4 vcpkg export names its static zlib/JPEG dependencies without portable library locations. Resolve `ZLIB::ZLIB` and `JPEG::JPEG`, then replace `qpdf::libqpdf`'s `INTERFACE_LINK_LIBRARIES` with those imported targets. This is a package-target normalization only; do not add optional crypto providers.
 
 Keep the C public compile feature at C11.
 
@@ -392,7 +394,7 @@ Because tests must not include private vendor types through QuantaPDF headers, i
 
 - [ ] **Step 4: Wire the runtime and test**
 
-Add both backend `.cpp` files to `quantapdf`, link `QuantaPDF::PDFium`, and give the test private include access to `src`. Register:
+Compile both backend `.cpp` files in a non-installed `quantapdf_backend` static target with position-independent code, C++20, and the same warnings-as-errors policy. Link that target privately into `quantapdf` and use the C++ linker for the final library. Link the same private target directly into the smoke test so its non-exported C bridge remains testable on Windows without widening the DLL ABI. Give the test private include access to `src` and register:
 
 ```cmake
 add_test(NAME quantapdf.backend_foundation COMMAND quantapdf_test_backend_foundation)
