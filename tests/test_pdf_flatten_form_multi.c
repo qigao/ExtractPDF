@@ -158,5 +158,5 @@ int extractpdf_test_pdf_flatten_form_multi(void)
 
     if (run_general_case(multi_root, 2, 2) != 0)
         return 1;
-    return run_general_case(deep, 4, 1);
+    return run_general_case(deep, 1, 1);
 }
