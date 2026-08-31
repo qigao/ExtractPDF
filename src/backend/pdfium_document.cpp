@@ -785,11 +785,13 @@ extern "C" quantapdf_status quantapdf_pdfium_render_page(
     float dpi,
     float rotation_degrees,
     const quantapdf_rect *clip,
+    double user_unit,
     int alpha,
     quantapdf_pdfium_bitmap *out_bitmap)
 {
     quantapdf_status status;
     FS_SIZEF page_size = {};
+    page_geometry geometry = {};
     FS_MATRIX matrix = {};
     FS_RECTF device_clip = {};
     FPDF_BITMAP pdfium_bitmap = nullptr;
@@ -806,6 +808,12 @@ extern "C" quantapdf_status quantapdf_pdfium_render_page(
     double min_y;
     double max_x;
     double max_y;
+    double public_a;
+    double public_b;
+    double public_c;
+    double public_d;
+    double public_e;
+    double public_f;
     int width;
     int height;
     int components;
@@ -818,7 +826,8 @@ extern "C" quantapdf_status quantapdf_pdfium_render_page(
         return QUANTAPDF_ERROR_ARGUMENT;
     std::memset(out_bitmap, 0, sizeof(*out_bitmap));
     if (page == nullptr || !std::isfinite(dpi) || dpi <= 0.0f ||
-        !std::isfinite(rotation_degrees) || (alpha != 0 && alpha != 1))
+        !std::isfinite(rotation_degrees) || !std::isfinite(user_unit) ||
+        user_unit <= 0.0 || (alpha != 0 && alpha != 1))
         return QUANTAPDF_ERROR_ARGUMENT;
 
     if (std::abs(cosine) < 1.0e-12)
@@ -835,11 +844,16 @@ extern "C" quantapdf_status quantapdf_pdfium_render_page(
         return status;
     if (!FPDF_GetPageSizeByIndexF(page->document, page->page_index, &page_size))
         return status_from_pdfium(FPDF_GetLastError());
+    status = load_page_geometry(
+        page->document, page->page_index, page->handle, &geometry);
+    if (status != QUANTAPDF_OK)
+        return status;
+    geometry.scale = static_cast<float>(geometry.scale * user_unit);
 
     source_x0 = clip == nullptr ? 0.0 : clip->x0;
     source_y0 = clip == nullptr ? 0.0 : clip->y0;
-    source_x1 = clip == nullptr ? page_size.width : clip->x1;
-    source_y1 = clip == nullptr ? page_size.height : clip->y1;
+    source_x1 = clip == nullptr ? page_size.width * user_unit : clip->x1;
+    source_y1 = clip == nullptr ? page_size.height * user_unit : clip->y1;
 
     {
         double const source_width = (source_x1 - source_x0) * scale;
@@ -881,25 +895,75 @@ extern "C" quantapdf_status quantapdf_pdfium_render_page(
         pdfium_bitmap, 0, 0, width, height,
         alpha != 0 ? 0x00000000u : 0xffffffffu);
 
-    matrix.a = static_cast<float>(cosine * scale);
-    matrix.b = static_cast<float>(sine * scale);
-    matrix.c = static_cast<float>(sine * scale);
-    matrix.d = static_cast<float>(-cosine * scale);
+    switch (geometry.rotation) {
+    case 0:
+        public_a = geometry.scale;
+        public_b = 0.0;
+        public_c = 0.0;
+        public_d = -geometry.scale;
+        public_e = -geometry.left * geometry.scale;
+        public_f = geometry.top * geometry.scale;
+        break;
+    case 1:
+        public_a = 0.0;
+        public_b = geometry.scale;
+        public_c = geometry.scale;
+        public_d = 0.0;
+        public_e = -geometry.bottom * geometry.scale;
+        public_f = -geometry.left * geometry.scale;
+        break;
+    case 2:
+        public_a = -geometry.scale;
+        public_b = 0.0;
+        public_c = 0.0;
+        public_d = geometry.scale;
+        public_e = geometry.right * geometry.scale;
+        public_f = -geometry.bottom * geometry.scale;
+        break;
+    case 3:
+        public_a = 0.0;
+        public_b = -geometry.scale;
+        public_c = -geometry.scale;
+        public_d = 0.0;
+        public_e = geometry.top * geometry.scale;
+        public_f = geometry.right * geometry.scale;
+        break;
+    default:
+        return QUANTAPDF_ERROR_FORMAT;
+    }
+    matrix.a = static_cast<float>(
+        scale * (cosine * public_a - sine * public_b));
+    matrix.b = static_cast<float>(
+        scale * (sine * public_a + cosine * public_b));
+    matrix.c = static_cast<float>(
+        scale * (cosine * public_c - sine * public_d));
+    matrix.d = static_cast<float>(
+        scale * (sine * public_c + cosine * public_d));
     matrix.e = static_cast<float>(
-        -cosine * source_x0 * scale -
-        sine * (static_cast<double>(page_size.height) - source_y0) * scale -
+        scale * (cosine * (public_e - source_x0) -
+                 sine * (public_f - source_y0)) -
         std::floor(min_x));
     matrix.f = static_cast<float>(
-        -sine * source_x0 * scale +
-        cosine * (static_cast<double>(page_size.height) - source_y0) * scale -
+        scale * (sine * (public_e - source_x0) +
+                 cosine * (public_f - source_y0)) -
         std::floor(min_y));
     device_clip.left = 0.0f;
     device_clip.top = 0.0f;
     device_clip.right = static_cast<float>(width);
     device_clip.bottom = static_cast<float>(height);
-    FPDF_RenderPageBitmapWithMatrix(
-        pdfium_bitmap, page->handle, &matrix, &device_clip,
-        FPDF_ANNOT | FPDF_LCD_TEXT);
+    if (cosine == 1.0 && sine == 0.0) {
+        FPDF_RenderPageBitmap(
+            pdfium_bitmap, page->handle,
+            static_cast<int>(std::floor(-source_x0 * scale)),
+            static_cast<int>(std::floor(-source_y0 * scale)),
+            static_cast<int>(std::ceil(page_size.width * user_unit * scale)),
+            static_cast<int>(std::ceil(page_size.height * user_unit * scale)),
+            0, FPDF_ANNOT | FPDF_LCD_TEXT);
+    } else {
+        FPDF_RenderPageBitmapWithMatrix(
+            pdfium_bitmap, page->handle, &matrix, &device_clip,
+            FPDF_ANNOT | FPDF_LCD_TEXT);
+    }
 
     try {
         data = static_cast<unsigned char *>(std::malloc(size));

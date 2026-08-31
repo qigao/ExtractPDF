@@ -48,6 +48,7 @@ quantapdf_status quantapdf_pdfium_render_page(
     float dpi,
     float rotation_degrees,
     const quantapdf_rect *clip,
+    double user_unit,
     int alpha,
     quantapdf_pdfium_bitmap *out_bitmap);
 

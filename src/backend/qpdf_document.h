@@ -77,6 +77,13 @@ quantapdf_status quantapdf_qpdf_trim_pages(
     unsigned char **out_data,
     size_t *out_size);
 
+quantapdf_status quantapdf_qpdf_poster_split_pages(
+    quantapdf_qpdf_document *document,
+    const quantapdf_page_poster_split *splits,
+    size_t split_count,
+    unsigned char **out_data,
+    size_t *out_size);
+
 quantapdf_status quantapdf_qpdf_rewrite_memory(
     const unsigned char *data,
     size_t size,

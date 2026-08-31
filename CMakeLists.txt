@@ -60,13 +60,6 @@ add_library(quantapdf
   src/pdf_crop.c
   src/pdf_trim.c
   src/pdf_poster.c
-  src/pdf_poster_preflight.c
-  src/pdf_poster_annotations.c
-  src/pdf_poster_widget_provenance.c
-  src/pdf_poster_navigation.c
-  src/pdf_poster_navigation_equivalence.c
-  src/pdf_poster_cleanup.c
-  src/pdf_poster_migrate.c
   src/pdf_export.c
   src/pdf_output.c
   src/pdf_range.c

@@ -1,6 +1,7 @@
 #include "internal.h"
 #include "backend/pdfium_document.h"
 
+#include <math.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -31,13 +32,52 @@ quantapdf_status quantapdf_extract_links(
     quantapdf_page *page,
     quantapdf_link_page **out_links)
 {
+    quantapdf_link_page *links;
+    quantapdf_status status;
+    double source_user_unit;
+    size_t index;
+
     if (out_links == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
     *out_links = NULL;
 
     if (page == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-    return quantapdf_pdfium_extract_links(page->pdfium_page, out_links);
+    status = quantapdf_pdfium_extract_links(page->pdfium_page, &links);
+    if (status != QUANTAPDF_OK)
+        return status;
+    status = quantapdf_document_page_user_unit(
+        page->document, page->page_index, &source_user_unit);
+    if (status != QUANTAPDF_OK) {
+        quantapdf_dispose_link_page(links);
+        return status;
+    }
+    for (index = 0; index < links->count; ++index) {
+        quantapdf_link_internal *item = &links->items[index];
+        double target_user_unit = 1.0;
+        item->hotspot.x0 = (float)(item->hotspot.x0 * source_user_unit);
+        item->hotspot.y0 = (float)(item->hotspot.y0 * source_user_unit);
+        item->hotspot.x1 = (float)(item->hotspot.x1 * source_user_unit);
+        item->hotspot.y1 = (float)(item->hotspot.y1 * source_user_unit);
+        if (item->kind == QUANTAPDF_LINK_INTERNAL) {
+            status = quantapdf_document_page_user_unit(
+                page->document, item->target_page, &target_user_unit);
+            if (status != QUANTAPDF_OK) {
+                quantapdf_dispose_link_page(links);
+                return status;
+            }
+            item->target.x = (float)(item->target.x * target_user_unit);
+            item->target.y = (float)(item->target.y * target_user_unit);
+        }
+        if (!isfinite(item->hotspot.x0) || !isfinite(item->hotspot.y0) ||
+            !isfinite(item->hotspot.x1) || !isfinite(item->hotspot.y1) ||
+            !isfinite(item->target.x) || !isfinite(item->target.y)) {
+            quantapdf_dispose_link_page(links);
+            return QUANTAPDF_ERROR_FORMAT;
+        }
+    }
+    *out_links = links;
+    return QUANTAPDF_OK;
 }
 
 quantapdf_status quantapdf_link_count(

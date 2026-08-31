@@ -16,6 +16,7 @@ static quantapdf_status quantapdf_render_page_transformed(
     quantapdf_bitmap *bitmap;
     quantapdf_pdfium_bitmap rendered;
     quantapdf_status status;
+    double user_unit;
 
     if (out_bitmap == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
@@ -29,8 +30,13 @@ static quantapdf_status quantapdf_render_page_transformed(
     if (bitmap == NULL)
         return QUANTAPDF_ERROR_NOMEM;
 
-    status = quantapdf_pdfium_render_page(
-        page->pdfium_page, dpi, rotation_degrees, clip, alpha, &rendered);
+    status = quantapdf_document_page_user_unit(
+        page->document, page->page_index, &user_unit);
+    if (status == QUANTAPDF_OK) {
+        status = quantapdf_pdfium_render_page(
+            page->pdfium_page, dpi, rotation_degrees, clip, user_unit,
+            alpha, &rendered);
+    }
     if (status != QUANTAPDF_OK) {
         free(bitmap);
         return status;
