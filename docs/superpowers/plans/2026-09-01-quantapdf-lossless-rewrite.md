@@ -260,4 +260,3 @@ git commit -m "docs: describe lossless PDF rewrite"
 
 Push `feat/lossless-rewrite`, create a PR closing #56, add `full-ci`, and require
 Linux release/sanitizer, macOS, and Windows success on the exact final SHA.
-

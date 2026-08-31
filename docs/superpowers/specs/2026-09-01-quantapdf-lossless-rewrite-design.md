@@ -141,4 +141,3 @@ All QPDF exceptions remain inside the C++ bridge and map to the established
 - `tests/CMakeLists.txt`: one new `quantapdf.pdf_rewrite_lossless` test target.
 - `abi/quantapdf-v2.exports`: append the 84th v2 export.
 - `README.md`: document the transform and its strict boundaries.
-
