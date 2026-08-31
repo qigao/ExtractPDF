@@ -66,7 +66,8 @@ add_library(quantapdf
   src/pdf_edit.c
   src/pdf_edit_forms.c
   src/pdf_edit_annotations.c
-  src/pdf_flatten.c)
+  src/pdf_flatten.c
+  src/pdf_security.c)
 add_library(QuantaPDF::QuantaPDF ALIAS quantapdf)
 target_compile_features(quantapdf PUBLIC c_std_11)
 target_include_directories(quantapdf PUBLIC

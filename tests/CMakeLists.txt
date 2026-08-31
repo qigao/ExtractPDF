@@ -20,6 +20,13 @@ add_executable(quantapdf_test_version test_version.c)
 target_link_libraries(quantapdf_test_version PRIVATE QuantaPDF::QuantaPDF)
 add_test(NAME quantapdf.version COMMAND quantapdf_test_version)
 
+add_executable(quantapdf_test_pdf_security test_pdf_security.c)
+target_link_libraries(quantapdf_test_pdf_security PRIVATE QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_test_pdf_security PRIVATE
+  SECURITY_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf")
+add_test(NAME quantapdf.pdf_security COMMAND quantapdf_test_pdf_security)
+set_tests_properties(quantapdf.pdf_security PROPERTIES TIMEOUT 30)
+
 add_executable(quantapdf_test_pdf_rewrite_lossless
   test_pdf_rewrite_lossless.c
   rewrite_test_helpers.cpp)

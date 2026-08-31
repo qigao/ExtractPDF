@@ -19,7 +19,7 @@ extern "C" {
 #endif
 
 #define QUANTAPDF_VERSION_MAJOR 2
-#define QUANTAPDF_VERSION_MINOR 2
+#define QUANTAPDF_VERSION_MINOR 3
 #define QUANTAPDF_VERSION_PATCH 0
 #define QUANTAPDF_ABI_VERSION 2
 
@@ -70,6 +70,38 @@ typedef enum quantapdf_flatten_flag {
     QUANTAPDF_FLATTEN_ANNOTATIONS = 1u << 0,
     QUANTAPDF_FLATTEN_WIDGETS = 1u << 1
 } quantapdf_flatten_flag;
+
+typedef enum quantapdf_audit_finding {
+    QUANTAPDF_AUDIT_JAVASCRIPT_ACTION = 1u << 0,
+    QUANTAPDF_AUDIT_LAUNCH_ACTION = 1u << 1,
+    QUANTAPDF_AUDIT_EXTERNAL_ACTION = 1u << 2,
+    QUANTAPDF_AUDIT_OTHER_ACTION = 1u << 3,
+    QUANTAPDF_AUDIT_EMBEDDED_FILE = 1u << 4,
+    QUANTAPDF_AUDIT_XFA = 1u << 5,
+    QUANTAPDF_AUDIT_RICH_MEDIA = 1u << 6,
+    QUANTAPDF_AUDIT_SIGNATURE = 1u << 7,
+    QUANTAPDF_AUDIT_ENCRYPTION = 1u << 8
+} quantapdf_audit_finding;
+
+typedef enum quantapdf_sanitize_flag {
+    QUANTAPDF_SANITIZE_JAVASCRIPT_ACTIONS = 1u << 0,
+    QUANTAPDF_SANITIZE_LAUNCH_ACTIONS = 1u << 1,
+    QUANTAPDF_SANITIZE_EXTERNAL_ACTIONS = 1u << 2,
+    QUANTAPDF_SANITIZE_OTHER_ACTIONS = 1u << 3,
+    QUANTAPDF_SANITIZE_EMBEDDED_FILES = 1u << 4,
+    QUANTAPDF_SANITIZE_XFA = 1u << 5,
+    QUANTAPDF_SANITIZE_RICH_MEDIA = 1u << 6,
+    QUANTAPDF_SANITIZE_ALL = (1u << 7) - 1u
+} quantapdf_sanitize_flag;
+
+typedef struct quantapdf_audit_result {
+    size_t struct_size;
+    uint32_t findings;
+} quantapdf_audit_result;
+
+#define QUANTAPDF_AUDIT_RESULT_V1_MIN_SIZE \
+    (offsetof(quantapdf_audit_result, findings) + sizeof(uint32_t))
+#define QUANTAPDF_AUDIT_RESULT_V1_SIZE (sizeof(quantapdf_audit_result))
 
 /*
  * These types are traversed as C arrays and therefore have fixed V1 layouts.
@@ -429,6 +461,10 @@ QUANTAPDF_API quantapdf_status quantapdf_document_metadata(
     char **out_utf8,
     size_t *out_size);
 
+QUANTAPDF_API quantapdf_status quantapdf_document_audit(
+    quantapdf_document *document,
+    quantapdf_audit_result *out_result);
+
 QUANTAPDF_API quantapdf_status quantapdf_document_outline(
     quantapdf_document *document,
     quantapdf_outline **out_outline);
@@ -494,6 +530,11 @@ QUANTAPDF_API quantapdf_status quantapdf_rewrite_lossless(
     quantapdf_output **out_output);
 
 QUANTAPDF_API quantapdf_status quantapdf_flatten_interactive(
+    quantapdf_document *document,
+    uint32_t flags,
+    quantapdf_output **out_output);
+
+QUANTAPDF_API quantapdf_status quantapdf_sanitize(
     quantapdf_document *document,
     uint32_t flags,
     quantapdf_output **out_output);

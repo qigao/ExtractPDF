@@ -83,3 +83,5 @@ quantapdf_text_search
 quantapdf_text_span_count
 quantapdf_text_span_text
 quantapdf_trim_pages
+quantapdf_document_audit
+quantapdf_sanitize
