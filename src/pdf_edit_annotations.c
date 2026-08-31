@@ -776,6 +776,9 @@ quantapdf_status quantapdf_pdf_edit_annotation_create(
         return status;
     }
 
+    fz_var(pdf_type);
+    fz_var(contents_copy);
+    fz_var(contents_present);
     fz_var(page);
     fz_var(annotation);
     fz_var(object);

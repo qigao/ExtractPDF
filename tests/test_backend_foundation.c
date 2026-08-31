@@ -69,6 +69,8 @@ int main(void)
     quantapdf_rect bounds = { -1.0f, -2.0f, -3.0f, -4.0f };
     int pdfium_page_count = 0;
     int qpdf_page_count = 0;
+    unsigned char *rewritten_data = NULL;
+    size_t rewritten_size = 0;
     int iteration;
 
     data = read_fixture(ONE_PAGE_PDF, &size);
@@ -116,6 +118,23 @@ int main(void)
         qpdf_document, &qpdf_page_count) == QUANTAPDF_OK);
     CHECK(qpdf_page_count == 1);
     quantapdf_qpdf_close(qpdf_document);
+
+    CHECK(quantapdf_qpdf_rewrite_memory(
+        data, size, &rewritten_data, &rewritten_size) == QUANTAPDF_OK);
+    CHECK(rewritten_data != NULL);
+    CHECK(rewritten_size != 0);
+    pdfium_document = NULL;
+    pdfium_page = NULL;
+    CHECK(quantapdf_pdfium_open_memory(
+        rewritten_data,
+        rewritten_size,
+        NULL,
+        &pdfium_document) == QUANTAPDF_OK);
+    CHECK(quantapdf_pdfium_load_page(
+        pdfium_document, 0, &pdfium_page) == QUANTAPDF_OK);
+    quantapdf_pdfium_drop_page(pdfium_page);
+    quantapdf_pdfium_close(pdfium_document);
+    free(rewritten_data);
 
     free(data);
     fprintf(stderr, "[quantapdf.backend_foundation] complete\n");

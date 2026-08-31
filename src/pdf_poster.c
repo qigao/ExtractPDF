@@ -1,5 +1,7 @@
 #include "pdf_poster_internal.h"
 
+#include "backend/qpdf_document.h"
+
 #include <stdint.h>
 #include <stdlib.h>
 
@@ -362,8 +364,25 @@ static quantapdf_status poster_transform_changed(
     if (status != QUANTAPDF_OK)
         goto cleanup;
 
-    status = quantapdf_serialize_pdf_clean(
+    status = quantapdf_serialize_pdf(
         private_ctx, private_document, out_output);
+    if (status == QUANTAPDF_OK) {
+        unsigned char *normalized_data = NULL;
+        size_t normalized_size = 0;
+        status = quantapdf_qpdf_rewrite_memory(
+            (*out_output)->data,
+            (*out_output)->size,
+            &normalized_data,
+            &normalized_size);
+        if (status == QUANTAPDF_OK) {
+            free((*out_output)->data);
+            (*out_output)->data = normalized_data;
+            (*out_output)->size = normalized_size;
+        } else {
+            quantapdf_drop_output(*out_output);
+            *out_output = NULL;
+        }
+    }
 
 cleanup:
     poster_drop_private_splits(

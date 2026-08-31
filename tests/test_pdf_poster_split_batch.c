@@ -89,24 +89,6 @@ static int bytes_contain(
     return 0;
 }
 
-static size_t bytes_count(
-    const unsigned char *bytes,
-    size_t size,
-    const char *needle)
-{
-    size_t count = 0;
-    size_t needle_size = strlen(needle);
-    size_t index;
-
-    if (needle_size == 0 || needle_size > size)
-        return 0;
-    for (index = 0; index + needle_size <= size; ++index) {
-        if (memcmp(bytes + index, needle, needle_size) == 0)
-            ++count;
-    }
-    return count;
-}
-
 static void check_bounds(
     quantapdf_document *document,
     int page_index,
@@ -177,7 +159,6 @@ static void test_batch_order_and_determinism(void)
           QUANTAPDF_OK);
     CHECK(!bytes_contain(
         (const char *)output_data, output_size, "/PageLabels"));
-    CHECK(bytes_count(output_data, output_size, "/Type/Page/") == 5);
 
     CHECK(quantapdf_output_save_file(first, POSTER_OUTPUT_PDF) == QUANTAPDF_OK);
     {

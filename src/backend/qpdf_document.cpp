@@ -3,9 +3,12 @@
 #include <qpdf/Constants.h>
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFExc.hh>
+#include <qpdf/QPDFWriter.hh>
 
 #include <climits>
 #include <cmath>
+#include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <memory>
 #include <new>
@@ -129,6 +132,58 @@ extern "C" quantapdf_status quantapdf_qpdf_page_user_unit(
             user_unit > 75000.0)
             return QUANTAPDF_ERROR_FORMAT;
         *out_user_unit = user_unit;
+        return QUANTAPDF_OK;
+    } catch (QPDFExc const& error) {
+        return quantapdf_status_from_qpdf(error);
+    } catch (std::bad_alloc const&) {
+        return QUANTAPDF_ERROR_NOMEM;
+    } catch (std::exception const&) {
+        return QUANTAPDF_ERROR_BACKEND;
+    } catch (...) {
+        return QUANTAPDF_ERROR_BACKEND;
+    }
+}
+
+extern "C" quantapdf_status quantapdf_qpdf_rewrite_memory(
+    const unsigned char *data,
+    size_t size,
+    unsigned char **out_data,
+    size_t *out_size)
+{
+    if (out_data == nullptr || out_size == nullptr)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    *out_data = nullptr;
+    *out_size = 0;
+    if (data == nullptr || size == 0)
+        return QUANTAPDF_ERROR_ARGUMENT;
+
+    try {
+        auto pdf = QPDF::create();
+        pdf->setSuppressWarnings(true);
+        pdf->processMemoryFile(
+            "quantapdf-rewrite",
+            reinterpret_cast<char const *>(data),
+            size);
+
+        QPDFWriter writer(*pdf);
+        writer.setOutputMemory();
+        writer.setDeterministicID(true);
+        writer.setObjectStreamMode(qpdf_o_disable);
+        writer.setStreamDataMode(qpdf_s_preserve);
+        writer.setPreserveUnreferencedObjects(false);
+        writer.write();
+        std::unique_ptr<Buffer> buffer(writer.getBuffer());
+        if (buffer == nullptr || buffer->getSize() == 0 ||
+            buffer->getBuffer() == nullptr)
+            return QUANTAPDF_ERROR_BACKEND;
+
+        auto *copy = static_cast<unsigned char *>(
+            std::malloc(buffer->getSize()));
+        if (copy == nullptr)
+            return QUANTAPDF_ERROR_NOMEM;
+        std::memcpy(copy, buffer->getBuffer(), buffer->getSize());
+        *out_data = copy;
+        *out_size = buffer->getSize();
         return QUANTAPDF_OK;
     } catch (QPDFExc const& error) {
         return quantapdf_status_from_qpdf(error);

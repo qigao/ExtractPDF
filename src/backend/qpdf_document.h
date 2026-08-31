@@ -26,6 +26,12 @@ quantapdf_status quantapdf_qpdf_page_user_unit(
     int page_index,
     double *out_user_unit);
 
+quantapdf_status quantapdf_qpdf_rewrite_memory(
+    const unsigned char *data,
+    size_t size,
+    unsigned char **out_data,
+    size_t *out_size);
+
 void quantapdf_qpdf_close(quantapdf_qpdf_document *document);
 
 #ifdef __cplusplus
