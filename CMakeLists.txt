@@ -157,6 +157,11 @@ if(EXTRACTPDF_BUILD_TESTS)
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_flatten_flag_sets.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_flatten_render.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_flatten_main.c")
+  if(WIN32 AND BUILD_SHARED_LIBS)
+    target_sources(extractpdf_test_pdf_flatten PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/pdf_object_common.c"
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/pdf_appearance_common.c")
+  endif()
   target_link_libraries(extractpdf_test_pdf_flatten PRIVATE
     unofficial::libmupdf::libmupdf)
   target_compile_definitions(extractpdf_test_pdf_flatten PRIVATE
