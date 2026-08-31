@@ -873,6 +873,181 @@ cleanup:
     return status;
 }
 
+static extractpdf_status flatten_discover_combined(
+    fz_context *ctx,
+    pdf_document *document,
+    extractpdf_pdf_flatten_plan *plan)
+{
+    extractpdf_pdf_form_model *model = NULL;
+    extractpdf_pdf_form_provenance *provenance = NULL;
+    extractpdf_status status;
+    size_t selected_widget_total = 0;
+    int page_index;
+
+    status = extractpdf_pdf_form_build(
+        ctx, document, 1, &model, &provenance);
+    if (status != EXTRACTPDF_OK)
+        return status;
+
+    for (page_index = 0; page_index < plan->source_page_count; ++page_index) {
+        pdf_obj *page = pdf_lookup_page_obj(ctx, document, page_index);
+        pdf_obj *annots = NULL;
+        pdf_obj **page_forms = NULL;
+        size_t *alias_numbers = NULL;
+        size_t first_target = plan->target_count;
+        size_t page_selected = 0;
+        size_t appearance_slots = 0;
+        int annot_count;
+        int annot_index;
+
+        if (!pdf_is_dict(ctx, page)) {
+            status = EXTRACTPDF_ERROR_FORMAT;
+            goto cleanup;
+        }
+        if (!extractpdf_pdf_dict_find(ctx, page, PDF_NAME(Annots), &annots))
+            continue;
+        if (!pdf_is_array(ctx, annots)) {
+            status = EXTRACTPDF_ERROR_FORMAT;
+            goto cleanup;
+        }
+        annot_count = pdf_array_len(ctx, annots);
+        if (annot_count < 0) {
+            status = EXTRACTPDF_ERROR_FORMAT;
+            goto cleanup;
+        }
+        if (annot_count != 0) {
+            if ((size_t)annot_count > SIZE_MAX / sizeof(*page_forms)) {
+                status = EXTRACTPDF_ERROR_NOMEM;
+                goto cleanup;
+            }
+            page_forms = (pdf_obj **)calloc(
+                (size_t)annot_count, sizeof(*page_forms));
+            if (page_forms == NULL) {
+                status = EXTRACTPDF_ERROR_NOMEM;
+                goto cleanup;
+            }
+        }
+
+        for (annot_index = 0; annot_index < annot_count; ++annot_index) {
+            pdf_obj *annotation = pdf_array_get(ctx, annots, annot_index);
+            pdf_obj *subtype = NULL;
+            extractpdf_annotation_type type = EXTRACTPDF_ANNOTATION_UNKNOWN;
+            extractpdf_pdf_flatten_target_kind kind;
+            extractpdf_pdf_appearance_view view;
+            pdf_obj *form = NULL;
+            uint32_t annotation_flags = 0;
+            size_t slot;
+            size_t prior;
+
+            memset(&view, 0, sizeof(view));
+            if (!pdf_is_indirect(ctx, annotation) || !pdf_is_dict(ctx, annotation)) {
+                status = EXTRACTPDF_ERROR_FORMAT;
+                goto combined_page_cleanup;
+            }
+            if (!extractpdf_pdf_dict_find(
+                    ctx, annotation, PDF_NAME(Subtype), &subtype) ||
+                !pdf_is_name(ctx, subtype)) {
+                status = EXTRACTPDF_ERROR_FORMAT;
+                goto combined_page_cleanup;
+            }
+
+            if (pdf_name_eq(ctx, subtype, PDF_NAME(Link)) ||
+                pdf_name_eq(ctx, subtype, PDF_NAME(Popup)))
+                continue;
+
+            if (pdf_name_eq(ctx, subtype, PDF_NAME(Widget))) {
+                kind = EXTRACTPDF_PDF_FLATTEN_TARGET_WIDGET;
+                ++selected_widget_total;
+            } else {
+                if (!extractpdf_pdf_annotation_classify(ctx, annotation, &type) ||
+                    type == EXTRACTPDF_ANNOTATION_UNKNOWN ||
+                    !flatten_supported_annotation(type)) {
+                    status = EXTRACTPDF_ERROR_UNSUPPORTED;
+                    goto combined_page_cleanup;
+                }
+                kind = EXTRACTPDF_PDF_FLATTEN_TARGET_ANNOTATION;
+            }
+
+            status = extractpdf_pdf_appearance_resolve(
+                ctx, document, annotation, &view, &form);
+            if (status != EXTRACTPDF_OK) {
+                extractpdf_pdf_appearance_drop_view(&view);
+                goto combined_page_cleanup;
+            }
+            status = extractpdf_pdf_read_optional_uint32(
+                ctx, annotation, PDF_NAME(F), 0, &annotation_flags);
+            if (status != EXTRACTPDF_OK) {
+                extractpdf_pdf_appearance_drop_view(&view);
+                goto combined_page_cleanup;
+            }
+
+            slot = appearance_slots;
+            for (prior = 0; prior < page_selected; ++prior) {
+                if (flatten_same_indirect(ctx, page_forms[prior], form)) {
+                    slot = plan->targets[first_target + prior].appearance_slot;
+                    break;
+                }
+            }
+            if (prior == page_selected)
+                ++appearance_slots;
+            page_forms[page_selected] = form;
+
+            status = flatten_append_target(
+                plan,
+                &view,
+                page_index,
+                (size_t)annot_index,
+                kind,
+                type,
+                annotation_flags,
+                slot);
+            extractpdf_pdf_appearance_drop_view(&view);
+            if (status != EXTRACTPDF_OK)
+                goto combined_page_cleanup;
+            ++page_selected;
+        }
+
+        if (page_selected != 0) {
+            status = flatten_validate_changed_page_links(ctx, page);
+            if (status == EXTRACTPDF_OK)
+                status = flatten_validate_changed_page(
+                    ctx, page, appearance_slots, &alias_numbers);
+            if (status == EXTRACTPDF_OK) {
+                status = flatten_append_page(
+                    plan,
+                    page_index,
+                    first_target,
+                    page_selected,
+                    appearance_slots,
+                    alias_numbers);
+                if (status == EXTRACTPDF_OK)
+                    alias_numbers = NULL;
+            }
+        }
+
+combined_page_cleanup:
+        free(alias_numbers);
+        free(page_forms);
+        if (status != EXTRACTPDF_OK)
+            goto cleanup;
+    }
+
+    if (selected_widget_total != model->widget_count) {
+        status = EXTRACTPDF_ERROR_FORMAT;
+        goto cleanup;
+    }
+    status = flatten_validate_annotation_relationships(ctx, document, plan);
+    if (status != EXTRACTPDF_OK)
+        goto cleanup;
+    status = extractpdf_pdf_flatten_form_preflight(
+        ctx, document, model, provenance, plan);
+
+cleanup:
+    extractpdf_pdf_form_drop_provenance(ctx, provenance);
+    extractpdf_pdf_form_drop_model(model);
+    return status;
+}
+
 static extractpdf_status flatten_validate_real_bake_catalog(
     fz_context *ctx,
     pdf_document *document,
@@ -915,6 +1090,8 @@ extractpdf_status extractpdf_pdf_flatten_build_plan(
 {
     extractpdf_pdf_flatten_plan *plan;
     extractpdf_status status = EXTRACTPDF_OK;
+    int annotations_requested;
+    int widgets_requested;
 
     if (out_plan == NULL)
         return EXTRACTPDF_ERROR_ARGUMENT;
@@ -932,21 +1109,17 @@ extractpdf_status extractpdf_pdf_flatten_build_plan(
         goto fail;
     }
 
-    if ((flags & EXTRACTPDF_FLATTEN_ANNOTATIONS) != 0) {
+    annotations_requested = (flags & EXTRACTPDF_FLATTEN_ANNOTATIONS) != 0;
+    widgets_requested = (flags & EXTRACTPDF_FLATTEN_WIDGETS) != 0;
+    if (annotations_requested && widgets_requested) {
+        status = flatten_discover_combined(ctx, document, plan);
+    } else if (annotations_requested) {
         status = flatten_discover_annotations(ctx, document, plan);
-        if (status != EXTRACTPDF_OK)
-            goto fail;
-    }
-    if ((flags & EXTRACTPDF_FLATTEN_WIDGETS) != 0) {
-        if ((flags & EXTRACTPDF_FLATTEN_ANNOTATIONS) != 0 &&
-            plan->target_count != 0) {
-            status = EXTRACTPDF_ERROR_STATE;
-            goto fail;
-        }
+    } else if (widgets_requested) {
         status = flatten_discover_widgets(ctx, document, plan);
-        if (status != EXTRACTPDF_OK)
-            goto fail;
     }
+    if (status != EXTRACTPDF_OK)
+        goto fail;
 
     plan->any_changed = plan->target_count != 0;
     status = flatten_validate_real_bake_catalog(ctx, document, plan);
