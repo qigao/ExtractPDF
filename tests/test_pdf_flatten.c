@@ -24,6 +24,36 @@ int quantapdf_flatten_raw_check_form_closure(
 int quantapdf_flatten_raw_check_calculation_order(
     const unsigned char *data,
     size_t size);
+int quantapdf_flatten_raw_check_contents(
+    const unsigned char *data,
+    size_t size);
+int quantapdf_flatten_raw_check_number_format(
+    const unsigned char *data,
+    size_t size);
+int quantapdf_flatten_make_variant(
+    const char *source_path,
+    const char *output_path,
+    int variant);
+
+enum {
+    FLATTEN_VARIANT_BAD_APPEARANCE_STREAM = 1,
+    FLATTEN_VARIANT_CA_HALF = 2,
+    FLATTEN_VARIANT_CA_MALFORMED = 3,
+    FLATTEN_VARIANT_BAD_PAGE_CONTENT_STREAM = 4,
+    FLATTEN_VARIANT_TRUNCATED_APPEARANCE_STREAM = 5,
+    FLATTEN_VARIANT_BAD_APPEARANCE_OPERATOR = 6,
+    FLATTEN_VARIANT_UNBALANCED_PAGE_Q = 7,
+    FLATTEN_VARIANT_UNBALANCED_PAGE_TEXT = 8,
+    FLATTEN_VARIANT_VALID_WIDGET_P_MISMATCH = 9,
+    FLATTEN_VARIANT_BAD_APPEARANCE_ARITY = 10,
+    FLATTEN_VARIANT_BAD_PAGE_OPERAND_TYPE = 11,
+    FLATTEN_VARIANT_BAD_APPEARANCE_CONTEXT = 12,
+    FLATTEN_VARIANT_BAD_PAGE_PATH_CONTEXT = 13,
+    FLATTEN_VARIANT_BAD_PAGE_TEXT_PATH = 14,
+    FLATTEN_VARIANT_VALID_INLINE_APPEARANCE = 15,
+    FLATTEN_VARIANT_VALID_TEXT_GSTATE = 16,
+    FLATTEN_VARIANT_CROSSED_SCOPES = 17
+};
 
 static size_t annotation_count(const char *path)
 {
@@ -167,6 +197,40 @@ static void check_raw_calculation_order(void)
         document, QUANTAPDF_FLATTEN_WIDGETS, &output) == QUANTAPDF_OK);
     CHECK(quantapdf_output_data(output, &data, &size) == QUANTAPDF_OK);
     CHECK(quantapdf_flatten_raw_check_calculation_order(data, size));
+    quantapdf_drop_output(output);
+    quantapdf_close(document);
+}
+
+static void check_raw_contents(void)
+{
+    quantapdf_document *document = NULL;
+    quantapdf_output *output = NULL;
+    const unsigned char *data = NULL;
+    size_t size = 0;
+
+    CHECK(quantapdf_open(FLATTEN_CONTENTS_PDF, NULL, &document) ==
+        QUANTAPDF_OK);
+    CHECK(quantapdf_flatten_interactive(
+        document, QUANTAPDF_FLATTEN_ANNOTATIONS, &output) == QUANTAPDF_OK);
+    CHECK(quantapdf_output_data(output, &data, &size) == QUANTAPDF_OK);
+    CHECK(quantapdf_flatten_raw_check_contents(data, size));
+    quantapdf_drop_output(output);
+    quantapdf_close(document);
+}
+
+static void check_raw_number_format(void)
+{
+    quantapdf_document *document = NULL;
+    quantapdf_output *output = NULL;
+    const unsigned char *data = NULL;
+    size_t size = 0;
+
+    CHECK(quantapdf_open(FLATTEN_NUMBER_FORMAT_PDF, NULL, &document) ==
+        QUANTAPDF_OK);
+    CHECK(quantapdf_flatten_interactive(
+        document, QUANTAPDF_FLATTEN_ANNOTATIONS, &output) == QUANTAPDF_OK);
+    CHECK(quantapdf_output_data(output, &data, &size) == QUANTAPDF_OK);
+    CHECK(quantapdf_flatten_raw_check_number_format(data, size));
     quantapdf_drop_output(output);
     quantapdf_close(document);
 }
@@ -361,6 +425,12 @@ int main(void)
         QUANTAPDF_FLATTEN_ANNOTATIONS | QUANTAPDF_FLATTEN_WIDGETS,
         1,
         1);
+    CHECK(flatten_status(
+        FLATTEN_FLAG_ISOLATION_PDF,
+        QUANTAPDF_FLATTEN_ANNOTATIONS) == QUANTAPDF_OK);
+    check_form_transform(FLATTEN_FLAG_ISOLATION_PDF, 1, 1, 0, 0);
+    check_deterministic(
+        FLATTEN_NUMBER_FORMAT_PDF, QUANTAPDF_FLATTEN_ANNOTATIONS);
     check_deterministic(
         FLATTEN_APPEARANCE_PDF, QUANTAPDF_FLATTEN_ANNOTATIONS);
     check_deterministic(FLATTEN_WIDGET_AS_PDF, QUANTAPDF_FLATTEN_WIDGETS);
@@ -380,6 +450,125 @@ int main(void)
     check_raw_form_closure(FLATTEN_FORM_ANCESTOR_SURVIVES_PDF, 1);
     check_raw_combined();
     check_raw_calculation_order();
+    check_raw_contents();
+    check_raw_number_format();
+
+    CHECK(quantapdf_flatten_make_variant(
+        FLATTEN_BASIC_PDF,
+        FLATTEN_BAD_APPEARANCE_STREAM_PDF,
+        FLATTEN_VARIANT_BAD_APPEARANCE_STREAM));
+    CHECK(flatten_status(
+        FLATTEN_BAD_APPEARANCE_STREAM_PDF,
+        QUANTAPDF_FLATTEN_ANNOTATIONS) == QUANTAPDF_ERROR_FORMAT);
+    CHECK(quantapdf_flatten_make_variant(
+        FLATTEN_BASIC_PDF,
+        FLATTEN_BAD_PAGE_CONTENT_STREAM_PDF,
+        FLATTEN_VARIANT_BAD_PAGE_CONTENT_STREAM));
+    CHECK(flatten_status(
+        FLATTEN_BAD_PAGE_CONTENT_STREAM_PDF,
+        QUANTAPDF_FLATTEN_ANNOTATIONS) == QUANTAPDF_ERROR_FORMAT);
+    CHECK(quantapdf_flatten_make_variant(
+        FLATTEN_BASIC_PDF,
+        FLATTEN_TRUNCATED_APPEARANCE_STREAM_PDF,
+        FLATTEN_VARIANT_TRUNCATED_APPEARANCE_STREAM));
+    CHECK(flatten_status(
+        FLATTEN_TRUNCATED_APPEARANCE_STREAM_PDF,
+        QUANTAPDF_FLATTEN_ANNOTATIONS) == QUANTAPDF_ERROR_FORMAT);
+    CHECK(quantapdf_flatten_make_variant(
+        FLATTEN_BASIC_PDF,
+        FLATTEN_BAD_APPEARANCE_OPERATOR_PDF,
+        FLATTEN_VARIANT_BAD_APPEARANCE_OPERATOR));
+    CHECK(flatten_status(
+        FLATTEN_BAD_APPEARANCE_OPERATOR_PDF,
+        QUANTAPDF_FLATTEN_ANNOTATIONS) == QUANTAPDF_ERROR_FORMAT);
+    CHECK(quantapdf_flatten_make_variant(
+        FLATTEN_BASIC_PDF,
+        FLATTEN_UNBALANCED_PAGE_Q_PDF,
+        FLATTEN_VARIANT_UNBALANCED_PAGE_Q));
+    CHECK(flatten_status(
+        FLATTEN_UNBALANCED_PAGE_Q_PDF,
+        QUANTAPDF_FLATTEN_ANNOTATIONS) == QUANTAPDF_ERROR_FORMAT);
+    CHECK(quantapdf_flatten_make_variant(
+        FLATTEN_BASIC_PDF,
+        FLATTEN_UNBALANCED_PAGE_TEXT_PDF,
+        FLATTEN_VARIANT_UNBALANCED_PAGE_TEXT));
+    CHECK(flatten_status(
+        FLATTEN_UNBALANCED_PAGE_TEXT_PDF,
+        QUANTAPDF_FLATTEN_ANNOTATIONS) == QUANTAPDF_ERROR_FORMAT);
+    CHECK(quantapdf_flatten_make_variant(
+        FLATTEN_BASIC_PDF,
+        FLATTEN_BAD_APPEARANCE_ARITY_PDF,
+        FLATTEN_VARIANT_BAD_APPEARANCE_ARITY));
+    CHECK(flatten_status(
+        FLATTEN_BAD_APPEARANCE_ARITY_PDF,
+        QUANTAPDF_FLATTEN_ANNOTATIONS) == QUANTAPDF_ERROR_FORMAT);
+    CHECK(quantapdf_flatten_make_variant(
+        FLATTEN_BASIC_PDF,
+        FLATTEN_BAD_PAGE_OPERAND_TYPE_PDF,
+        FLATTEN_VARIANT_BAD_PAGE_OPERAND_TYPE));
+    CHECK(flatten_status(
+        FLATTEN_BAD_PAGE_OPERAND_TYPE_PDF,
+        QUANTAPDF_FLATTEN_ANNOTATIONS) == QUANTAPDF_ERROR_FORMAT);
+    CHECK(quantapdf_flatten_make_variant(
+        FLATTEN_BASIC_PDF,
+        FLATTEN_BAD_APPEARANCE_CONTEXT_PDF,
+        FLATTEN_VARIANT_BAD_APPEARANCE_CONTEXT));
+    CHECK(flatten_status(
+        FLATTEN_BAD_APPEARANCE_CONTEXT_PDF,
+        QUANTAPDF_FLATTEN_ANNOTATIONS) == QUANTAPDF_ERROR_FORMAT);
+    CHECK(quantapdf_flatten_make_variant(
+        FLATTEN_BASIC_PDF,
+        FLATTEN_BAD_PAGE_PATH_CONTEXT_PDF,
+        FLATTEN_VARIANT_BAD_PAGE_PATH_CONTEXT));
+    CHECK(flatten_status(
+        FLATTEN_BAD_PAGE_PATH_CONTEXT_PDF,
+        QUANTAPDF_FLATTEN_ANNOTATIONS) == QUANTAPDF_ERROR_FORMAT);
+    CHECK(quantapdf_flatten_make_variant(
+        FLATTEN_BASIC_PDF,
+        FLATTEN_BAD_PAGE_TEXT_PATH_PDF,
+        FLATTEN_VARIANT_BAD_PAGE_TEXT_PATH));
+    CHECK(flatten_status(
+        FLATTEN_BAD_PAGE_TEXT_PATH_PDF,
+        QUANTAPDF_FLATTEN_ANNOTATIONS) == QUANTAPDF_ERROR_FORMAT);
+    CHECK(quantapdf_flatten_make_variant(
+        FLATTEN_BASIC_PDF,
+        FLATTEN_VALID_INLINE_APPEARANCE_PDF,
+        FLATTEN_VARIANT_VALID_INLINE_APPEARANCE));
+    {
+        quantapdf_status inline_status = flatten_status(
+            FLATTEN_VALID_INLINE_APPEARANCE_PDF,
+            QUANTAPDF_FLATTEN_ANNOTATIONS);
+        if (inline_status != QUANTAPDF_OK)
+            fprintf(stderr, "inline appearance: %s\n",
+                quantapdf_status_string(inline_status));
+        CHECK(inline_status == QUANTAPDF_OK);
+    }
+    CHECK(quantapdf_flatten_make_variant(
+        FLATTEN_BASIC_PDF,
+        FLATTEN_VALID_TEXT_GSTATE_PDF,
+        FLATTEN_VARIANT_VALID_TEXT_GSTATE));
+    CHECK(flatten_status(
+        FLATTEN_VALID_TEXT_GSTATE_PDF,
+        QUANTAPDF_FLATTEN_ANNOTATIONS) == QUANTAPDF_OK);
+    CHECK(quantapdf_flatten_make_variant(
+        FLATTEN_BASIC_PDF,
+        FLATTEN_CROSSED_SCOPES_PDF,
+        FLATTEN_VARIANT_CROSSED_SCOPES));
+    CHECK(flatten_status(
+        FLATTEN_CROSSED_SCOPES_PDF,
+        QUANTAPDF_FLATTEN_ANNOTATIONS) == QUANTAPDF_ERROR_FORMAT);
+    CHECK(quantapdf_flatten_make_variant(
+        FLATTEN_BASIC_PDF, FLATTEN_CA_HALF_PDF, FLATTEN_VARIANT_CA_HALF));
+    CHECK(flatten_status(
+        FLATTEN_CA_HALF_PDF,
+        QUANTAPDF_FLATTEN_ANNOTATIONS) == QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(quantapdf_flatten_make_variant(
+        FLATTEN_BASIC_PDF,
+        FLATTEN_CA_MALFORMED_PDF,
+        FLATTEN_VARIANT_CA_MALFORMED));
+    CHECK(flatten_status(
+        FLATTEN_CA_MALFORMED_PDF,
+        QUANTAPDF_FLATTEN_ANNOTATIONS) == QUANTAPDF_ERROR_FORMAT);
 
     CHECK(flatten_status(
         FLATTEN_APPEARANCE_MALFORMED_PDF,
@@ -480,6 +669,16 @@ int main(void)
     CHECK(flatten_status(
         FLATTEN_NOOP_MALFORMED_ACROFORM_PDF,
         QUANTAPDF_FLATTEN_ANNOTATIONS) == QUANTAPDF_OK);
+    CHECK(flatten_status(
+        FLATTEN_WIDGET_P_MISMATCH_PDF,
+        QUANTAPDF_FLATTEN_WIDGETS) == QUANTAPDF_ERROR_FORMAT);
+    CHECK(quantapdf_flatten_make_variant(
+        FLATTEN_FLAG_ISOLATION_PDF,
+        FLATTEN_VALID_WIDGET_P_MISMATCH_PDF,
+        FLATTEN_VARIANT_VALID_WIDGET_P_MISMATCH));
+    CHECK(flatten_status(
+        FLATTEN_VALID_WIDGET_P_MISMATCH_PDF,
+        QUANTAPDF_FLATTEN_WIDGETS) == QUANTAPDF_ERROR_FORMAT);
     CHECK(flatten_status_with_password(
         FLATTEN_ENCRYPTED_PDF,
         "user-pass",

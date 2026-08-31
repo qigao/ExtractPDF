@@ -1,5 +1,6 @@
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFObjectHandle.hh>
+#include <qpdf/QPDFWriter.hh>
 
 #include <cstring>
 #include <memory>
@@ -162,6 +163,203 @@ extern "C" int quantapdf_flatten_raw_check_calculation_order(
             return 0;
         auto const& pages = pdf->getAllPages();
         return pages.size() == 1u && pages[0].getKey("/Annots").isNull();
+    } catch (...) {
+        return 0;
+    }
+}
+
+extern "C" int quantapdf_flatten_raw_check_contents(
+    unsigned char const *data,
+    size_t size)
+{
+    try {
+        auto pdf = open_pdf(data, size, "flatten-contents-output");
+        auto const& pages = pdf->getAllPages();
+        if (pages.size() != 4u)
+            return 0;
+
+        QPDFObjectHandle page0_xobjects =
+            pages[0].getKey("/Resources").getKey("/XObject");
+        if (!page0_xobjects.isDictionary() ||
+            page0_xobjects.getKey("/EPB0").isNull() ||
+            page0_xobjects.getKey("/EPB1").isNull() ||
+            !pages[0].getKey("/Annots").isNull())
+            return 0;
+
+        QPDFObjectHandle page1_xobjects =
+            pages[1].getKey("/Resources").getKey("/XObject");
+        if (!page1_xobjects.isDictionary() ||
+            !page1_xobjects.getKey("/EPB0").isSameObjectAs(
+                page1_xobjects.getKey("/Keep")) ||
+            page1_xobjects.getKey("/EPB1").isNull() ||
+            !page1_xobjects.getKey("/EPB2").isNull())
+            return 0;
+
+        QPDFObjectHandle inherited =
+            pages[2].getKey("/Parent").getKey("/Resources");
+        QPDFObjectHandle local = pages[2].getKey("/Resources");
+        if (!local.isDictionary() || !inherited.isDictionary() ||
+            local.isSameObjectAs(inherited) ||
+            local.getKey("/ProcSet").isNull())
+            return 0;
+
+        QPDFObjectHandle annotations = pages[2].getKey("/Annots");
+        if (!annotations.isArray() || annotations.getArrayNItems() != 1 ||
+            !annotations.getArrayItem(0).getKey("/Subtype").isNameAndEquals(
+                "/Link"))
+            return 0;
+
+        return pages[3].getKey("/Annots").isNull() &&
+            page_content(pages[3]).find("/EPB2 Do") != std::string::npos;
+    } catch (...) {
+        return 0;
+    }
+}
+
+extern "C" int quantapdf_flatten_make_variant(
+    char const *source_path,
+    char const *output_path,
+    int variant)
+{
+    try {
+        auto pdf = QPDF::create();
+        pdf->setAttemptRecovery(false);
+        pdf->processFile(source_path);
+        auto const& pages = pdf->getAllPages();
+        if (pages.empty())
+            return 0;
+        QPDFObjectHandle annotations = pages[0].getKey("/Annots");
+        if (!annotations.isArray() || annotations.getArrayNItems() == 0)
+            return 0;
+        QPDFObjectHandle annotation = annotations.getArrayItem(0);
+        if (variant == 1) {
+            QPDFObjectHandle normal = annotation.getKey("/AP").getKey("/N");
+            if (!normal.isStream())
+                return 0;
+            normal.replaceStreamData(
+                "not encoded",
+                QPDFObjectHandle::newName("/BogusDecode"),
+                QPDFObjectHandle::newNull());
+        } else if (variant == 2) {
+            annotation.replaceKey("/CA", QPDFObjectHandle::newReal("0.5"));
+        } else if (variant == 3) {
+            annotation.replaceKey(
+                "/CA", QPDFObjectHandle::newString("malformed"));
+        } else if (variant == 4) {
+            QPDFObjectHandle contents = pages[0].getKey("/Contents");
+            if (!contents.isStream())
+                return 0;
+            contents.replaceStreamData(
+                "not encoded",
+                QPDFObjectHandle::newName("/BogusDecode"),
+                QPDFObjectHandle::newNull());
+        } else if (variant == 5) {
+            QPDFObjectHandle normal = annotation.getKey("/AP").getKey("/N");
+            if (!normal.isStream())
+                return 0;
+            normal.replaceStreamData(
+                std::string("\x78\x9c\x00", 3),
+                QPDFObjectHandle::newName("/FlateDecode"),
+                QPDFObjectHandle::newNull());
+        } else if (variant == 6) {
+            QPDFObjectHandle normal = annotation.getKey("/AP").getKey("/N");
+            if (!normal.isStream())
+                return 0;
+            normal.replaceStreamData(
+                "BogusOperator\n",
+                QPDFObjectHandle::newNull(),
+                QPDFObjectHandle::newNull());
+        } else if (variant == 7 || variant == 8) {
+            QPDFObjectHandle contents = pages[0].getKey("/Contents");
+            if (!contents.isStream())
+                return 0;
+            contents.replaceStreamData(
+                variant == 7 ? "Q\n" : "BT\n",
+                QPDFObjectHandle::newNull(),
+                QPDFObjectHandle::newNull());
+        } else if (variant == 9) {
+            if (pages.size() < 2u)
+                return 0;
+            QPDFObjectHandle widgets = pages[1].getKey("/Annots");
+            if (!widgets.isArray() || widgets.getArrayNItems() == 0)
+                return 0;
+            QPDFObjectHandle widget = widgets.getArrayItem(0);
+            if (!widget.getKey("/Subtype").isNameAndEquals("/Widget"))
+                return 0;
+            widget.replaceKey("/P", pages[0]);
+        } else if (variant == 10 || variant == 12) {
+            QPDFObjectHandle normal = annotation.getKey("/AP").getKey("/N");
+            if (!normal.isStream())
+                return 0;
+            normal.replaceStreamData(
+                variant == 10 ? "q\n1 cm\nQ\n" : "(text) Tj\n",
+                QPDFObjectHandle::newNull(),
+                QPDFObjectHandle::newNull());
+        } else if (variant == 11 || variant == 13) {
+            QPDFObjectHandle contents = pages[0].getKey("/Contents");
+            if (!contents.isStream())
+                return 0;
+            contents.replaceStreamData(
+                variant == 11 ? "(bad) 0 0 1 0 0 cm\n" : "1 1 l\n",
+                QPDFObjectHandle::newNull(),
+                QPDFObjectHandle::newNull());
+        } else if (variant == 14) {
+            QPDFObjectHandle contents = pages[0].getKey("/Contents");
+            if (!contents.isStream())
+                return 0;
+            contents.replaceStreamData(
+                "BT\n0 0 m\nET\n",
+                QPDFObjectHandle::newNull(),
+                QPDFObjectHandle::newNull());
+        } else if (variant == 15) {
+            QPDFObjectHandle normal = annotation.getKey("/AP").getKey("/N");
+            if (!normal.isStream())
+                return 0;
+            std::string content =
+                "q\nBI\n/W 1\n/H 1\n/BPC 8\n/CS /RGB\nID\n";
+            content.append("\xff\x00\x00", 3);
+            content += "\nEI\nQ\n";
+            normal.replaceStreamData(
+                content,
+                QPDFObjectHandle::newNull(),
+                QPDFObjectHandle::newNull());
+        } else if (variant == 16 || variant == 17) {
+            QPDFObjectHandle contents = pages[0].getKey("/Contents");
+            if (!contents.isStream())
+                return 0;
+            contents.replaceStreamData(
+                variant == 16 ?
+                    "BT\n1 w\nET\n" :
+                    "q\n/Span BMC\nQ\nEMC\n",
+                QPDFObjectHandle::newNull(),
+                QPDFObjectHandle::newNull());
+        } else {
+            return 0;
+        }
+        QPDFWriter writer(*pdf, output_path);
+        writer.setObjectStreamMode(qpdf_o_disable);
+        writer.write();
+        return 1;
+    } catch (...) {
+        return 0;
+    }
+}
+
+extern "C" int quantapdf_flatten_raw_check_number_format(
+    unsigned char const *data,
+    size_t size)
+{
+    try {
+        auto pdf = open_pdf(data, size, "flatten-number-format-output");
+        auto const& pages = pdf->getAllPages();
+        if (pages.size() != 1u || !pages[0].getKey("/Annots").isNull())
+            return 0;
+        std::string const content = page_content(pages[0]);
+        return content.find("/EPB0 Do") != std::string::npos &&
+            content.find("nan") == std::string::npos &&
+            content.find("inf") == std::string::npos &&
+            content.find("e+") == std::string::npos &&
+            content.find("e-") == std::string::npos;
     } catch (...) {
         return 0;
     }

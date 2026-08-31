@@ -230,8 +230,10 @@ affected AcroForm field tree and calculation order.
 
 The transform never synthesizes appearances, applies redactions, executes
 form actions, or flattens Links. It fails closed for missing or malformed
-appearances, unsupported interactive semantics, visible Links on changed
-pages, tagged PDFs that require structure updates, encryption, and signatures.
+appearances, malformed or unbalanced changed-page content, non-unit annotation
+opacity, contradictory Widget page ownership, unsupported interactive
+semantics, visible Links on changed pages, tagged PDFs that require structure
+updates, encryption, and signatures.
 Output is deterministic and idempotent.
 
 ## Dependency model

@@ -3004,7 +3004,335 @@ static quantapdf_status quantapdf_qpdf_flatten_number_array(
     return QUANTAPDF_OK;
 }
 
+class quantapdf_qpdf_flatten_content_callbacks final :
+    public QPDFObjectHandle::ParserCallbacks
+{
+  public:
+    void handleObject(QPDFObjectHandle object) override
+    {
+        if (!object.isOperator()) {
+            if (object.isInlineImage()) {
+                if (inline_image_stage_ != 2)
+                    valid_ = false;
+                inline_image_stage_ = 0;
+                just_saw_inline_image_ = true;
+                return;
+            }
+            if (operands_.size() >= 1024u)
+                valid_ = false;
+            else
+                operands_.push_back(object);
+            return;
+        }
+        std::string const op = object.getOperatorValue();
+        static std::set<std::string> const known_operators = {
+            "b", "b*", "B", "B*", "BDC", "BI", "BMC", "BT", "BX",
+            "c", "cm", "CS", "cs", "d", "d0", "d1", "Do", "DP",
+            "EI", "EMC", "ET", "EX", "f", "f*", "F", "G", "g",
+            "gs", "h", "i", "ID", "j", "J", "K", "k", "l", "m",
+            "M", "MP", "n", "q", "Q", "re", "RG", "rg", "ri",
+            "s", "S", "SC", "SCN", "sc", "scn", "sh", "T*", "Tc",
+            "Td", "TD", "Tf", "Tj", "TJ", "TL", "Tm", "Tr", "Ts",
+            "Tw", "Tz", "v", "w", "W", "W*", "y", "'", "\""};
+        if (known_operators.count(op) == 0u) {
+            if (compatibility_depth_ == 0)
+                valid_ = false;
+            operands_.clear();
+            return;
+        }
+        if (!valid_context(op) || !valid_operands(op))
+            valid_ = false;
+        operands_.clear();
+
+        bool const inline_image_terminator = op == "EI";
+        if (!inline_image_terminator)
+            just_saw_inline_image_ = false;
+
+        if (op == "BI")
+            inline_image_stage_ = 1;
+        else if (op == "ID")
+            inline_image_stage_ = 2;
+        else if (op == "EI")
+            inline_image_stage_ = 0;
+        if (inline_image_terminator)
+            just_saw_inline_image_ = false;
+
+        if (op == "q") {
+            push_scope('q');
+            ++graphics_depth_;
+        } else if (op == "Q") {
+            pop_scope('q');
+            if (graphics_depth_ == 0)
+                valid_ = false;
+            else
+                --graphics_depth_;
+        } else if (op == "BT") {
+            push_scope('t');
+            if (text_depth_ != 0)
+                valid_ = false;
+            ++text_depth_;
+        } else if (op == "ET") {
+            pop_scope('t');
+            if (text_depth_ == 0)
+                valid_ = false;
+            else
+                --text_depth_;
+        } else if (op == "BMC" || op == "BDC") {
+            push_scope('m');
+            ++marked_content_depth_;
+        } else if (op == "EMC") {
+            pop_scope('m');
+            if (marked_content_depth_ == 0)
+                valid_ = false;
+            else
+                --marked_content_depth_;
+        } else if (op == "BX") {
+            push_scope('x');
+            ++compatibility_depth_;
+        } else if (op == "EX") {
+            pop_scope('x');
+            if (compatibility_depth_ == 0)
+                valid_ = false;
+            else
+                --compatibility_depth_;
+        }
+
+        if (op == "m" || op == "re") {
+            path_open_ = true;
+        } else if (op == "b" || op == "b*" || op == "B" ||
+                   op == "B*" || op == "f" || op == "f*" ||
+                   op == "F" || op == "n" || op == "s" || op == "S") {
+            path_open_ = false;
+        }
+    }
+
+    void handleEOF() override
+    {
+        if (graphics_depth_ != 0 || text_depth_ != 0 ||
+            marked_content_depth_ != 0 || compatibility_depth_ != 0 ||
+            inline_image_stage_ != 0 || path_open_ || !operands_.empty() ||
+            !scope_stack_.empty())
+            valid_ = false;
+    }
+
+    bool valid() const noexcept
+    {
+        return valid_;
+    }
+
+  private:
+    void push_scope(char kind)
+    {
+        if (scope_stack_.size() >= 1024u)
+            valid_ = false;
+        else
+            scope_stack_.push_back(kind);
+    }
+
+    void pop_scope(char kind)
+    {
+        if (scope_stack_.empty() || scope_stack_.back() != kind) {
+            valid_ = false;
+        } else {
+            scope_stack_.pop_back();
+        }
+    }
+
+    bool count(size_t expected) const noexcept
+    {
+        return operands_.size() == expected;
+    }
+
+    static bool finite_number(QPDFObjectHandle const& object)
+    {
+        return object.isNumber() &&
+            std::isfinite(object.getNumericValue());
+    }
+
+    bool all_numbers(size_t expected) const
+    {
+        if (!count(expected))
+            return false;
+        for (auto const& operand : operands_) {
+            if (!finite_number(operand))
+                return false;
+        }
+        return true;
+    }
+
+    bool valid_context(std::string const& op) const
+    {
+        if (inline_image_stage_ == 1 && op != "ID")
+            return false;
+        if (inline_image_stage_ == 2 && op != "EI")
+            return false;
+        if (inline_image_stage_ == 0 && op == "ID")
+            return false;
+        if (op == "EI" &&
+            (inline_image_stage_ != 0 || !just_saw_inline_image_))
+            return false;
+        if (inline_image_stage_ != 0 && op == "BI")
+            return false;
+
+        static std::set<std::string> const text_operators = {
+            "'", "\"", "T*", "Tc", "Td", "TD", "Tf", "Tj", "TJ",
+            "TL", "Tm", "Tr", "Ts", "Tw", "Tz"};
+        if (text_operators.count(op) != 0u && text_depth_ == 0)
+            return false;
+        static std::set<std::string> const forbidden_in_text = {
+            "b", "b*", "B", "B*", "BI", "c", "cm", "d0", "d1",
+            "Do", "f", "f*", "F", "h", "l", "m", "n", "q", "Q",
+            "re", "s", "S", "sh", "v", "W", "W*", "y"};
+        if (text_depth_ != 0 && forbidden_in_text.count(op) != 0u)
+            return false;
+        if (op == "BT" && (text_depth_ != 0 || path_open_))
+            return false;
+        if (op == "ET" && text_depth_ == 0)
+            return false;
+
+        if ((op == "l" || op == "c" || op == "v" || op == "y" ||
+             op == "h" || op == "W" || op == "W*") && !path_open_)
+            return false;
+        return true;
+    }
+
+    bool valid_operands(std::string const& op) const
+    {
+        static std::set<std::string> const zero = {
+            "b", "b*", "B", "B*", "BI", "BT", "BX", "EMC",
+            "ET", "EX", "f", "f*", "F", "h", "n", "q", "Q", "s",
+            "S", "T*", "W", "W*"};
+        if (zero.count(op) != 0u)
+            return count(0u);
+
+        static std::set<std::string> const one_name = {
+            "BMC", "CS", "cs", "Do", "gs", "MP", "ri", "sh"};
+        if (one_name.count(op) != 0u)
+            return count(1u) && operands_[0].isName();
+
+        static std::set<std::string> const one_number = {
+            "G", "g", "i", "M", "Tc", "TL", "Ts", "Tw", "Tz", "w"};
+        if (one_number.count(op) != 0u)
+            return all_numbers(1u);
+
+        if (op == "J" || op == "j" || op == "Tr")
+            return count(1u) && operands_[0].isInteger();
+        if (op == "Tj" || op == "'")
+            return count(1u) && operands_[0].isString();
+        if (op == "TJ") {
+            if (!count(1u) || !operands_[0].isArray())
+                return false;
+            int const items = operands_[0].getArrayNItems();
+            for (int index = 0; index < items; ++index) {
+                QPDFObjectHandle item = operands_[0].getArrayItem(index);
+                if (!item.isString() && !finite_number(item))
+                    return false;
+            }
+            return true;
+        }
+
+        static std::set<std::string> const two_numbers = {
+            "d0", "l", "m", "Td", "TD"};
+        if (two_numbers.count(op) != 0u)
+            return all_numbers(2u);
+        static std::set<std::string> const three_numbers = {"RG", "rg"};
+        if (three_numbers.count(op) != 0u)
+            return all_numbers(3u);
+        static std::set<std::string> const four_numbers = {
+            "K", "k", "re", "v", "y"};
+        if (four_numbers.count(op) != 0u)
+            return all_numbers(4u);
+        static std::set<std::string> const six_numbers = {
+            "c", "cm", "d1", "Tm"};
+        if (six_numbers.count(op) != 0u)
+            return all_numbers(6u);
+
+        if (op == "d") {
+            if (!count(2u) || !operands_[0].isArray() ||
+                !finite_number(operands_[1]))
+                return false;
+            int const items = operands_[0].getArrayNItems();
+            for (int index = 0; index < items; ++index) {
+                if (!finite_number(operands_[0].getArrayItem(index)))
+                    return false;
+            }
+            return true;
+        }
+        if (op == "Tf")
+            return count(2u) && operands_[0].isName() &&
+                finite_number(operands_[1]);
+        if (op == "\"")
+            return count(3u) && finite_number(operands_[0]) &&
+                finite_number(operands_[1]) && operands_[2].isString();
+        if (op == "DP" || op == "BDC")
+            return count(2u) && operands_[0].isName() &&
+                (operands_[1].isName() || operands_[1].isDictionary());
+        if (op == "SC" || op == "sc") {
+            if (operands_.empty())
+                return false;
+            for (auto const& operand : operands_) {
+                if (!finite_number(operand))
+                    return false;
+            }
+            return true;
+        }
+        if (op == "SCN" || op == "scn") {
+            if (operands_.empty())
+                return false;
+            size_t numbers = operands_.size();
+            if (operands_.back().isName())
+                --numbers;
+            for (size_t index = 0; index < numbers; ++index) {
+                if (!finite_number(operands_[index]))
+                    return false;
+            }
+            return numbers == operands_.size() ||
+                numbers + 1u == operands_.size();
+        }
+        if (op == "ID") {
+            if (inline_image_stage_ != 1 || operands_.size() % 2u != 0u)
+                return false;
+            for (size_t index = 0; index < operands_.size(); index += 2u) {
+                if (!operands_[index].isName())
+                    return false;
+            }
+            return true;
+        }
+        if (op == "EI")
+            return inline_image_stage_ == 0 && just_saw_inline_image_ &&
+                count(0u);
+        return false;
+    }
+
+    std::vector<QPDFObjectHandle> operands_;
+    std::vector<char> scope_stack_;
+    int graphics_depth_ = 0;
+    int text_depth_ = 0;
+    int marked_content_depth_ = 0;
+    int compatibility_depth_ = 0;
+    int inline_image_stage_ = 0;
+    bool just_saw_inline_image_ = false;
+    bool path_open_ = false;
+    bool valid_ = true;
+};
+
+static quantapdf_status quantapdf_qpdf_flatten_parse_contents(
+    QPDF& pdf,
+    QPDFObjectHandle object,
+    bool page_contents)
+{
+    quantapdf_qpdf_flatten_content_callbacks callbacks;
+    if (page_contents)
+        object.parsePageContents(&callbacks);
+    else
+        object.parseAsContents(&callbacks);
+    if (pdf.anyWarnings() || !callbacks.valid())
+        return QUANTAPDF_ERROR_FORMAT;
+    return QUANTAPDF_OK;
+}
+
 static quantapdf_status quantapdf_qpdf_flatten_appearance(
+    QPDF& pdf,
     QPDFObjectHandle const& annotation,
     QPDFObjectHandle *out_appearance)
 {
@@ -3022,6 +3350,16 @@ static quantapdf_status quantapdf_qpdf_flatten_appearance(
         return QUANTAPDF_ERROR_UNSUPPORTED;
     if (!annotation.getKey("/OC").isNull())
         return QUANTAPDF_ERROR_UNSUPPORTED;
+    QPDFObjectHandle opacity = annotation.getKey("/CA");
+    if (!opacity.isNull()) {
+        if (!opacity.isNumber())
+            return QUANTAPDF_ERROR_FORMAT;
+        double const value = opacity.getNumericValue();
+        if (!std::isfinite(value) || value < 0.0 || value > 1.0)
+            return QUANTAPDF_ERROR_FORMAT;
+        if (value != 1.0)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
 
     std::vector<double> rect;
     quantapdf_status status = quantapdf_qpdf_flatten_number_array(
@@ -3081,6 +3419,10 @@ static quantapdf_status quantapdf_qpdf_flatten_appearance(
         return QUANTAPDF_ERROR_FORMAT;
     if (!dictionary.getKey("/OC").isNull())
         return QUANTAPDF_ERROR_UNSUPPORTED;
+
+    status = quantapdf_qpdf_flatten_parse_contents(pdf, normal, false);
+    if (status != QUANTAPDF_OK)
+        return status;
 
     *out_appearance = normal;
     return QUANTAPDF_OK;
@@ -3273,21 +3615,22 @@ static quantapdf_status quantapdf_qpdf_flatten_plan_form(
 }
 
 static quantapdf_status quantapdf_qpdf_flatten_validate_page_contents(
+    QPDF& pdf,
     QPDFObjectHandle const& page)
 {
     QPDFObjectHandle contents = page.getKey("/Contents");
-    if (contents.isNull())
-        return QUANTAPDF_OK;
-    if (contents.isStream())
-        return QUANTAPDF_OK;
-    if (!contents.isArray())
-        return QUANTAPDF_ERROR_FORMAT;
-    int const count = contents.getArrayNItems();
-    for (int index = 0; index < count; ++index) {
-        if (!contents.getArrayItem(index).isStream())
+    if (!contents.isNull()) {
+        if (!contents.isStream() && !contents.isArray())
             return QUANTAPDF_ERROR_FORMAT;
+        if (contents.isArray()) {
+            int const count = contents.getArrayNItems();
+            for (int index = 0; index < count; ++index) {
+                if (!contents.getArrayItem(index).isStream())
+                    return QUANTAPDF_ERROR_FORMAT;
+            }
+        }
     }
-    return QUANTAPDF_OK;
+    return quantapdf_qpdf_flatten_parse_contents(pdf, page, true);
 }
 
 static quantapdf_status quantapdf_qpdf_flatten_validate_raw_page_tree(
@@ -3500,10 +3843,16 @@ extern "C" quantapdf_status quantapdf_qpdf_flatten_interactive(
                     !quantapdf_qpdf_flatten_supported_annotation(subtype))
                     return QUANTAPDF_ERROR_UNSUPPORTED;
                 if (selected) {
+                    if (widget) {
+                        QPDFObjectHandle owner = annotation.getKey("/P");
+                        if (!owner.isNull() &&
+                            !quantapdf_qpdf_same_object(owner, page))
+                            return QUANTAPDF_ERROR_FORMAT;
+                    }
                     QPDFObjectHandle appearance;
                     quantapdf_status const status =
                         quantapdf_qpdf_flatten_appearance(
-                            annotation, &appearance);
+                            *pdf, annotation, &appearance);
                     if (status != QUANTAPDF_OK)
                         return status;
                     selected_identities.insert(annotation.getObjGen());
@@ -3535,7 +3884,7 @@ extern "C" quantapdf_status quantapdf_qpdf_flatten_interactive(
                 }
             }
             quantapdf_status const contents_status =
-                quantapdf_qpdf_flatten_validate_page_contents(page);
+                quantapdf_qpdf_flatten_validate_page_contents(*pdf, page);
             if (contents_status != QUANTAPDF_OK)
                 return contents_status;
             QPDFPageObjectHelper page_helper(page);
