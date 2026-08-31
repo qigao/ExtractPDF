@@ -240,6 +240,19 @@ static quantapdf_status poster_splice_private_tiles(
             pdf_delete_page(
                 ctx, document, source_index + (int)split->tile_count);
         }
+        {
+            pdf_obj *root = pdf_dict_get(
+                ctx, pdf_trailer(ctx, document), PDF_NAME(Root));
+            if (!pdf_is_dict(ctx, root))
+                fz_throw(ctx, FZ_ERROR_FORMAT, "poster catalog missing");
+            /*
+             * MuPDF synthesizes PageLabels while inserting pages. Poster
+             * preflight rejects source label trees, so retaining this
+             * backend-created tree changes the document and has triggered
+             * platform-dependent page loading in PDFium.
+             */
+            pdf_dict_dels(ctx, root, "PageLabels");
+        }
     }
     fz_catch(ctx)
     {

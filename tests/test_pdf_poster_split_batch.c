@@ -126,6 +126,8 @@ static void test_batch_order_and_determinism(void)
     quantapdf_output *first = NULL;
     quantapdf_output *second = NULL;
     quantapdf_output *third = NULL;
+    const unsigned char *output_data = NULL;
+    size_t output_size = 0;
     int source_count = 0;
     quantapdf_rect before0;
     quantapdf_rect before1;
@@ -153,6 +155,10 @@ static void test_batch_order_and_determinism(void)
     CHECK(first != NULL && second != NULL && third != NULL);
     compare_output_bytes(first, second);
     compare_output_bytes(first, third);
+    CHECK(quantapdf_output_data(first, &output_data, &output_size) ==
+          QUANTAPDF_OK);
+    CHECK(!bytes_contain(
+        (const char *)output_data, output_size, "/PageLabels"));
 
     CHECK(quantapdf_output_save_file(first, POSTER_OUTPUT_PDF) == QUANTAPDF_OK);
     {

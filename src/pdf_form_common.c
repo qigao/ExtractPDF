@@ -949,6 +949,7 @@ static quantapdf_status quantapdf_pdf_form_parse_internal(
     state->ctx = ctx;
     state->document = document;
 
+    fz_var(status);
     fz_try(ctx)
     {
         status = quantapdf_pdf_form_parse_impl(state);
