@@ -206,7 +206,7 @@ static extractpdf_status flatten_format_number(
 
     if (!isfinite(value) || buffer == NULL || buffer_size == 0)
         return EXTRACTPDF_ERROR_FORMAT;
-    written = fz_snprintf(buffer, buffer_size, "%g", (double)value);
+    written = fz_snprintf(buffer, buffer_size, "%.9g", (double)value);
     if (written == 0 || written >= buffer_size || strchr(buffer, ',') != NULL)
         return EXTRACTPDF_ERROR_FORMAT;
     return EXTRACTPDF_OK;
