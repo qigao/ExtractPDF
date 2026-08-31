@@ -49,6 +49,20 @@ quantapdf_status quantapdf_qpdf_outline(
     quantapdf_qpdf_document *document,
     quantapdf_outline **out_outline);
 
+quantapdf_status quantapdf_qpdf_export_pages(
+    quantapdf_qpdf_document *document,
+    const int *page_indices,
+    size_t page_count,
+    unsigned char **out_data,
+    size_t *out_size);
+
+quantapdf_status quantapdf_qpdf_merge_memory(
+    const unsigned char *const *input_data,
+    const size_t *input_sizes,
+    size_t input_count,
+    unsigned char **out_data,
+    size_t *out_size);
+
 quantapdf_status quantapdf_qpdf_rewrite_memory(
     const unsigned char *data,
     size_t size,

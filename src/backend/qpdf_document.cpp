@@ -24,6 +24,32 @@ struct quantapdf_qpdf_document {
     std::shared_ptr<QPDF> pdf;
 };
 
+static quantapdf_status quantapdf_qpdf_write_memory(
+    QPDF& pdf,
+    unsigned char **out_data,
+    size_t *out_size)
+{
+    QPDFWriter writer(pdf);
+    writer.setOutputMemory();
+    writer.setDeterministicID(true);
+    writer.setObjectStreamMode(qpdf_o_disable);
+    writer.setStreamDataMode(qpdf_s_preserve);
+    writer.setPreserveUnreferencedObjects(false);
+    writer.write();
+    std::unique_ptr<Buffer> buffer(writer.getBuffer());
+    if (buffer == nullptr || buffer->getSize() == 0 ||
+        buffer->getBuffer() == nullptr)
+        return QUANTAPDF_ERROR_BACKEND;
+    auto *copy = static_cast<unsigned char *>(
+        std::malloc(buffer->getSize()));
+    if (copy == nullptr)
+        return QUANTAPDF_ERROR_NOMEM;
+    std::memcpy(copy, buffer->getBuffer(), buffer->getSize());
+    *out_data = copy;
+    *out_size = buffer->getSize();
+    return QUANTAPDF_OK;
+}
+
 static quantapdf_status quantapdf_status_from_qpdf(
     QPDFExc const& error) noexcept
 {
@@ -808,6 +834,98 @@ extern "C" quantapdf_status quantapdf_qpdf_outline(
         snapshot->string_size = position;
         *out_outline = snapshot;
         return QUANTAPDF_OK;
+    } catch (QPDFExc const& error) {
+        return quantapdf_status_from_qpdf(error);
+    } catch (std::bad_alloc const&) {
+        return QUANTAPDF_ERROR_NOMEM;
+    } catch (std::exception const&) {
+        return QUANTAPDF_ERROR_BACKEND;
+    } catch (...) {
+        return QUANTAPDF_ERROR_BACKEND;
+    }
+}
+
+extern "C" quantapdf_status quantapdf_qpdf_export_pages(
+    quantapdf_qpdf_document *document,
+    const int *page_indices,
+    size_t page_count,
+    unsigned char **out_data,
+    size_t *out_size)
+{
+    if (out_data == nullptr || out_size == nullptr)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    *out_data = nullptr;
+    *out_size = 0;
+    if (document == nullptr || document->pdf == nullptr ||
+        page_indices == nullptr || page_count == 0)
+        return QUANTAPDF_ERROR_ARGUMENT;
+
+    try {
+        auto const& pages = document->pdf->getAllPages();
+        for (size_t index = 0; index < page_count; ++index) {
+            if (page_indices[index] < 0 ||
+                static_cast<size_t>(page_indices[index]) >= pages.size())
+                return QUANTAPDF_ERROR_ARGUMENT;
+        }
+        auto destination = QPDF::create();
+        destination->emptyPDF();
+        document->pdf->setImmediateCopyFrom(true);
+        for (size_t index = 0; index < page_count; ++index) {
+            destination->addPage(
+                pages[static_cast<size_t>(page_indices[index])], false);
+        }
+        return quantapdf_qpdf_write_memory(
+            *destination, out_data, out_size);
+    } catch (QPDFExc const& error) {
+        return quantapdf_status_from_qpdf(error);
+    } catch (std::bad_alloc const&) {
+        return QUANTAPDF_ERROR_NOMEM;
+    } catch (std::exception const&) {
+        return QUANTAPDF_ERROR_BACKEND;
+    } catch (...) {
+        return QUANTAPDF_ERROR_BACKEND;
+    }
+}
+
+extern "C" quantapdf_status quantapdf_qpdf_merge_memory(
+    const unsigned char *const *input_data,
+    const size_t *input_sizes,
+    size_t input_count,
+    unsigned char **out_data,
+    size_t *out_size)
+{
+    if (out_data == nullptr || out_size == nullptr)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    *out_data = nullptr;
+    *out_size = 0;
+    if (input_data == nullptr || input_sizes == nullptr || input_count == 0)
+        return QUANTAPDF_ERROR_ARGUMENT;
+
+    try {
+        auto destination = QPDF::create();
+        destination->emptyPDF();
+        std::vector<std::shared_ptr<QPDF>> sources;
+        sources.reserve(input_count);
+        size_t total_pages = 0;
+        for (size_t input_index = 0; input_index < input_count; ++input_index) {
+            if (input_data[input_index] == nullptr || input_sizes[input_index] == 0)
+                return QUANTAPDF_ERROR_ARGUMENT;
+            auto source = QPDF::create();
+            source->processMemoryFile(
+                "quantapdf-merge",
+                reinterpret_cast<char const *>(input_data[input_index]),
+                input_sizes[input_index]);
+            source->setImmediateCopyFrom(true);
+            auto const& pages = source->getAllPages();
+            if (pages.size() > static_cast<size_t>(INT_MAX) - total_pages)
+                return QUANTAPDF_ERROR_ARGUMENT;
+            total_pages += pages.size();
+            for (auto const& page : pages)
+                destination->addPage(page, false);
+            sources.push_back(std::move(source));
+        }
+        return quantapdf_qpdf_write_memory(
+            *destination, out_data, out_size);
     } catch (QPDFExc const& error) {
         return quantapdf_status_from_qpdf(error);
     } catch (std::bad_alloc const&) {
