@@ -10,7 +10,7 @@
 #define CHECK(x) do { \
     if (!(x)) { \
         fprintf(stderr, "%s:%d: check failed: %s\n", __FILE__, __LINE__, #x); \
-        return 1; \
+        exit(EXIT_FAILURE); \
     } \
 } while (0)
 
