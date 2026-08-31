@@ -1,6 +1,7 @@
 #include "pdfium_document.h"
 
 #include "pdfium_runtime.h"
+#include "qpdf_document.h"
 #include "../text_snapshot.h"
 #include "../image_snapshot.h"
 #include "../link_snapshot.h"
@@ -27,6 +28,7 @@
 
 struct quantapdf_pdfium_document {
     FPDF_DOCUMENT handle;
+    unsigned char *owned_data;
 };
 
 struct quantapdf_pdfium_page {
@@ -643,6 +645,7 @@ extern "C" quantapdf_status quantapdf_pdfium_open_memory(
     try {
         auto document = std::make_unique<quantapdf_pdfium_document>();
         document->handle = nullptr;
+        document->owned_data = nullptr;
         status = quantapdf_pdfium_enter();
         if (status != QUANTAPDF_OK)
             return status;
@@ -651,6 +654,33 @@ extern "C" quantapdf_status quantapdf_pdfium_open_memory(
             data, size, password_utf8);
         if (document->handle == nullptr)
             return status_from_pdfium(FPDF_GetLastError());
+        if (FPDF_GetPageCount(document->handle) > 0) {
+            FPDF_PAGE probe = FPDF_LoadPage(document->handle, 0);
+            if (probe != nullptr) {
+                FPDF_ClosePage(probe);
+            } else {
+                unsigned char *normalized = nullptr;
+                size_t normalized_size = 0;
+                if (quantapdf_qpdf_rewrite_memory(
+                        data, size, &normalized, &normalized_size) ==
+                    QUANTAPDF_OK) {
+                    FPDF_DOCUMENT replacement = FPDF_LoadMemDocument64(
+                        normalized, normalized_size, password_utf8);
+                    FPDF_PAGE replacement_probe = replacement == nullptr ?
+                        nullptr : FPDF_LoadPage(replacement, 0);
+                    if (replacement_probe != nullptr) {
+                        FPDF_ClosePage(replacement_probe);
+                        FPDF_CloseDocument(document->handle);
+                        document->handle = replacement;
+                        document->owned_data = normalized;
+                    } else {
+                        if (replacement != nullptr)
+                            FPDF_CloseDocument(replacement);
+                        std::free(normalized);
+                    }
+                }
+            }
+        }
         *out_document = document.release();
         return QUANTAPDF_OK;
     } catch (std::bad_alloc const&) {
@@ -725,7 +755,8 @@ extern "C" quantapdf_status quantapdf_pdfium_page_bounds(
     quantapdf_rect *out_bounds)
 {
     quantapdf_status status;
-    FS_SIZEF size = {};
+    float width;
+    float height;
 
     if (page == nullptr || out_bounds == nullptr)
         return QUANTAPDF_ERROR_ARGUMENT;
@@ -734,16 +765,18 @@ extern "C" quantapdf_status quantapdf_pdfium_page_bounds(
     if (status != QUANTAPDF_OK)
         return status;
     pdfium_scope const scope(status);
-    if (!FPDF_GetPageSizeByIndexF(
-            page->document, page->page_index, &size))
-        return status_from_pdfium(FPDF_GetLastError());
-    if (!std::isfinite(size.width) || !std::isfinite(size.height) ||
-        size.width <= 0.0f || size.height <= 0.0f)
+    status = ensure_page_handle(page);
+    if (status != QUANTAPDF_OK)
+        return status;
+    width = FPDF_GetPageWidthF(page->handle);
+    height = FPDF_GetPageHeightF(page->handle);
+    if (!std::isfinite(width) || !std::isfinite(height) ||
+        width <= 0.0f || height <= 0.0f)
         return QUANTAPDF_ERROR_FORMAT;
     out_bounds->x0 = 0.0f;
     out_bounds->y0 = 0.0f;
-    out_bounds->x1 = size.width;
-    out_bounds->y1 = size.height;
+    out_bounds->x1 = width;
+    out_bounds->y1 = height;
     return QUANTAPDF_OK;
 }
 
@@ -1366,5 +1399,6 @@ extern "C" void quantapdf_pdfium_close(
         return;
     pdfium_scope const scope(status);
     FPDF_CloseDocument(document->handle);
+    std::free(document->owned_data);
     delete document;
 }

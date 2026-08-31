@@ -761,18 +761,12 @@ extern "C" quantapdf_status quantapdf_qpdf_page_user_unit(
         return QUANTAPDF_ERROR_ARGUMENT;
 
     try {
-        auto const& pages = document->pdf->getAllPages();
-        if (static_cast<size_t>(page_index) >= pages.size())
-            return QUANTAPDF_ERROR_ARGUMENT;
-        QPDFObjectHandle value =
-            pages[static_cast<size_t>(page_index)].getKey("/UserUnit");
-        if (!value.isNull() && !value.isNumber())
-            return QUANTAPDF_ERROR_FORMAT;
-        double const user_unit = value.isNull() ? 1.0 : value.getNumericValue();
-        if (!std::isfinite(user_unit) || user_unit <= 0.0 ||
-            user_unit > 75000.0)
-            return QUANTAPDF_ERROR_FORMAT;
-        *out_user_unit = user_unit;
+        quantapdf_qpdf_page_geometry geometry = {};
+        quantapdf_status status = quantapdf_qpdf_load_page_geometry(
+            *document->pdf, page_index, &geometry);
+        if (status != QUANTAPDF_OK)
+            return status;
+        *out_user_unit = geometry.user_unit;
         return QUANTAPDF_OK;
     } catch (QPDFExc const& error) {
         return quantapdf_status_from_qpdf(error);
