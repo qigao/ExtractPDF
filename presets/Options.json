@@ -1,0 +1,31 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "pkg-vcpkg",
+      "hidden": true,
+      "cacheVariables": {
+        "VCPKG_MANIFEST_MODE": "ON",
+        "VCPKG_OVERLAY_PORTS": "${sourceDir}/vcpkg-ports"
+      }
+    },
+    {
+      "name": "quantapdf-debug",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "QUANTAPDF_BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "quantapdf-release",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "QUANTAPDF_BUILD_TESTS": "ON"
+      }
+    }
+  ]
+}

@@ -2,13 +2,13 @@
 
 #include <stdlib.h>
 
-static void extractpdf_discard_log(void *user, const char *message)
+static void quantapdf_discard_log(void *user, const char *message)
 {
     (void)user;
     (void)message;
 }
 
-static void extractpdf_dispose_document(extractpdf_document *document)
+static void quantapdf_dispose_document(quantapdf_document *document)
 {
     if (document == NULL)
         return;
@@ -20,51 +20,51 @@ static void extractpdf_dispose_document(extractpdf_document *document)
     free(document);
 }
 
-extractpdf_status extractpdf_status_from_mupdf(int code)
+quantapdf_status quantapdf_status_from_mupdf(int code)
 {
     switch (code) {
     case FZ_ERROR_ARGUMENT:
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
     case FZ_ERROR_UNSUPPORTED:
-        return EXTRACTPDF_ERROR_UNSUPPORTED;
+        return QUANTAPDF_ERROR_UNSUPPORTED;
     case FZ_ERROR_FORMAT:
     case FZ_ERROR_SYNTAX:
-        return EXTRACTPDF_ERROR_FORMAT;
+        return QUANTAPDF_ERROR_FORMAT;
     case FZ_ERROR_SYSTEM:
-        return EXTRACTPDF_ERROR_IO;
+        return QUANTAPDF_ERROR_IO;
     default:
-        return EXTRACTPDF_ERROR_MUPDF;
+        return QUANTAPDF_ERROR_MUPDF;
     }
 }
 
-extractpdf_status extractpdf_open(
+quantapdf_status quantapdf_open(
     const char *filename,
     const char *password,
-    extractpdf_document **out_document)
+    quantapdf_document **out_document)
 {
-    extractpdf_document *document;
+    quantapdf_document *document;
     int password_ok = 1;
     int caught_code = FZ_ERROR_NONE;
 
     if (out_document == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
     *out_document = NULL;
 
     if (filename == NULL || filename[0] == '\0')
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
 
-    document = (extractpdf_document *)calloc(1, sizeof(*document));
+    document = (quantapdf_document *)calloc(1, sizeof(*document));
     if (document == NULL)
-        return EXTRACTPDF_ERROR_NOMEM;
+        return QUANTAPDF_ERROR_NOMEM;
 
     document->ctx = fz_new_context(NULL, NULL, FZ_STORE_DEFAULT);
     if (document->ctx == NULL) {
         free(document);
-        return EXTRACTPDF_ERROR_NOMEM;
+        return QUANTAPDF_ERROR_NOMEM;
     }
 
-    fz_set_error_callback(document->ctx, extractpdf_discard_log, NULL);
-    fz_set_warning_callback(document->ctx, extractpdf_discard_log, NULL);
+    fz_set_error_callback(document->ctx, quantapdf_discard_log, NULL);
+    fz_set_warning_callback(document->ctx, quantapdf_discard_log, NULL);
 
     fz_var(password_ok);
     fz_var(caught_code);
@@ -86,29 +86,29 @@ extractpdf_status extractpdf_open(
     }
 
     if (caught_code != FZ_ERROR_NONE) {
-        extractpdf_status status = extractpdf_status_from_mupdf(caught_code);
-        extractpdf_dispose_document(document);
+        quantapdf_status status = quantapdf_status_from_mupdf(caught_code);
+        quantapdf_dispose_document(document);
         return status;
     }
 
     if (!password_ok) {
-        extractpdf_dispose_document(document);
-        return EXTRACTPDF_ERROR_PASSWORD;
+        quantapdf_dispose_document(document);
+        return QUANTAPDF_ERROR_PASSWORD;
     }
 
     *out_document = document;
-    return EXTRACTPDF_OK;
+    return QUANTAPDF_OK;
 }
 
-extractpdf_status extractpdf_page_count(
-    extractpdf_document *document,
+quantapdf_status quantapdf_page_count(
+    quantapdf_document *document,
     int *out_page_count)
 {
     int count = 0;
     int caught_code = FZ_ERROR_NONE;
 
     if (document == NULL || out_page_count == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
 
     fz_var(count);
     fz_var(caught_code);
@@ -124,13 +124,13 @@ extractpdf_status extractpdf_page_count(
     }
 
     if (caught_code != FZ_ERROR_NONE)
-        return extractpdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_mupdf(caught_code);
 
     *out_page_count = count;
-    return EXTRACTPDF_OK;
+    return QUANTAPDF_OK;
 }
 
-void extractpdf_close(extractpdf_document *document)
+void quantapdf_close(quantapdf_document *document)
 {
-    extractpdf_dispose_document(document);
+    quantapdf_dispose_document(document);
 }

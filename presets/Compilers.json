@@ -1,0 +1,20 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "Msvc",
+      "hidden": true,
+      "cacheVariables": { "CMAKE_C_COMPILER": "cl" }
+    },
+    {
+      "name": "Gcc",
+      "hidden": true,
+      "cacheVariables": { "CMAKE_C_COMPILER": "gcc" }
+    },
+    {
+      "name": "Clang",
+      "hidden": true,
+      "cacheVariables": { "CMAKE_C_COMPILER": "clang" }
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-#include <extractpdf/extractpdf.h>
+#include <quantapdf/quantapdf.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,34 +20,34 @@ int main(void)
         'H', 'e', 'l', 'l', 'o', ' ', 'C', 'a', 'f', 0xC3, 0xA9
     };
     int sentinel = 0;
-    extractpdf_document *document = NULL;
-    extractpdf_page *page = NULL;
+    quantapdf_document *document = NULL;
+    quantapdf_page *page = NULL;
     char *text = (char *)&sentinel;
     size_t size = 123;
     size_t i;
 
-    CHECK(extractpdf_open(TEXT_PDF, NULL, &document) == EXTRACTPDF_OK);
-    CHECK(extractpdf_load_page(document, 0, &page) == EXTRACTPDF_OK);
+    CHECK(quantapdf_open(TEXT_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
 
-    CHECK(extractpdf_extract_text(NULL, &text, &size) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(quantapdf_extract_text(NULL, &text, &size) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(text == NULL);
     CHECK(size == 0);
 
     size = 123;
-    CHECK(extractpdf_extract_text(page, NULL, &size) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(quantapdf_extract_text(page, NULL, &size) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(size == 0);
 
     text = (char *)&sentinel;
-    CHECK(extractpdf_extract_text(page, &text, NULL) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(quantapdf_extract_text(page, &text, NULL) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(text == NULL);
 
-    CHECK(extractpdf_extract_text(page, &text, &size) == EXTRACTPDF_OK);
+    CHECK(quantapdf_extract_text(page, &text, &size) == QUANTAPDF_OK);
     CHECK(text != NULL);
     CHECK(size >= sizeof(expected_prefix));
 
     /* The returned text owns its bytes independently of MuPDF handles. */
-    extractpdf_drop_page(page);
-    extractpdf_close(document);
+    quantapdf_drop_page(page);
+    quantapdf_close(document);
     page = NULL;
     document = NULL;
 
@@ -55,20 +55,20 @@ int main(void)
     for (i = 0; i < size; ++i)
         CHECK(text[i] != '\0');
     CHECK(text[size] == '\0');
-    extractpdf_free(text);
+    quantapdf_free(text);
 
-    CHECK(extractpdf_open(ONE_PAGE_PDF, NULL, &document) == EXTRACTPDF_OK);
-    CHECK(extractpdf_load_page(document, 0, &page) == EXTRACTPDF_OK);
+    CHECK(quantapdf_open(ONE_PAGE_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
     text = (char *)&sentinel;
     size = 123;
-    CHECK(extractpdf_extract_text(page, &text, &size) == EXTRACTPDF_OK);
+    CHECK(quantapdf_extract_text(page, &text, &size) == QUANTAPDF_OK);
     CHECK(text != NULL);
     CHECK(size == 0);
     CHECK(text[0] == '\0');
-    extractpdf_free(text);
+    quantapdf_free(text);
 
-    extractpdf_drop_page(page);
-    extractpdf_close(document);
-    extractpdf_free(NULL);
+    quantapdf_drop_page(page);
+    quantapdf_close(document);
+    quantapdf_free(NULL);
     return EXIT_SUCCESS;
 }

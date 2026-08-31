@@ -8,7 +8,7 @@ static int close_float(float left, float right)
     return fabsf(left - right) < 0.001f;
 }
 
-static int public_rect_equal(extractpdf_rect left, extractpdf_rect right)
+static int public_rect_equal(quantapdf_rect left, quantapdf_rect right)
 {
     return close_float(left.x0, right.x0) &&
         close_float(left.y0, right.y0) &&
@@ -16,24 +16,24 @@ static int public_rect_equal(extractpdf_rect left, extractpdf_rect right)
         close_float(left.y1, right.y1);
 }
 
-int extractpdf_pdf_poster_annotation_plans_equivalent(
-    const extractpdf_pdf_poster_plan *left,
-    const extractpdf_pdf_poster_plan *right)
+int quantapdf_pdf_poster_annotation_plans_equivalent(
+    const quantapdf_pdf_poster_plan *left,
+    const quantapdf_pdf_poster_plan *right)
 {
     size_t split_index;
 
     if (left == NULL || right == NULL || left->split_count != right->split_count)
         return 0;
     for (split_index = 0; split_index < left->split_count; ++split_index) {
-        const extractpdf_pdf_poster_split_plan *a = &left->splits[split_index];
-        const extractpdf_pdf_poster_split_plan *b = &right->splits[split_index];
+        const quantapdf_pdf_poster_split_plan *a = &left->splits[split_index];
+        const quantapdf_pdf_poster_split_plan *b = &right->splits[split_index];
         size_t annot_index;
 
         if (a->annot_count != b->annot_count)
             return 0;
         for (annot_index = 0; annot_index < a->annot_count; ++annot_index) {
-            const extractpdf_pdf_poster_annot_plan *x = &a->annots[annot_index];
-            const extractpdf_pdf_poster_annot_plan *y = &b->annots[annot_index];
+            const quantapdf_pdf_poster_annot_plan *x = &a->annots[annot_index];
+            const quantapdf_pdf_poster_annot_plan *y = &b->annots[annot_index];
             size_t tile_index;
 
             if (x->source_annot_index != y->source_annot_index ||
@@ -51,11 +51,11 @@ int extractpdf_pdf_poster_annotation_plans_equivalent(
     return 1;
 }
 
-static extractpdf_rect intersect_public(
-    extractpdf_rect left,
-    extractpdf_rect right)
+static quantapdf_rect intersect_public(
+    quantapdf_rect left,
+    quantapdf_rect right)
 {
-    extractpdf_rect result;
+    quantapdf_rect result;
     result.x0 = fmaxf(left.x0, right.x0);
     result.y0 = fmaxf(left.y0, right.y0);
     result.x1 = fminf(left.x1, right.x1);
@@ -64,7 +64,7 @@ static extractpdf_rect intersect_public(
 }
 
 static fz_rect public_to_raw(
-    extractpdf_rect rect,
+    quantapdf_rect rect,
     fz_matrix pdf_to_public)
 {
     fz_matrix public_to_pdf = fz_invert_matrix(pdf_to_public);
@@ -86,7 +86,7 @@ static fz_rect public_to_raw(
     }
 }
 
-static extractpdf_status update_annotation_page(
+static quantapdf_status update_annotation_page(
     fz_context *ctx,
     pdf_obj *annotation,
     pdf_obj *source_page,
@@ -96,17 +96,17 @@ static extractpdf_status update_annotation_page(
     pdf_obj *page = pdf_dict_get(ctx, annotation, PDF_NAME(P));
 
     if (page != NULL && pdf_objcmp_resolve(ctx, page, source_page) != 0)
-        return EXTRACTPDF_ERROR_FORMAT;
+        return QUANTAPDF_ERROR_FORMAT;
     if (page != NULL || force_page)
         pdf_dict_put(ctx, annotation, PDF_NAME(P), tile_page);
-    return EXTRACTPDF_OK;
+    return QUANTAPDF_OK;
 }
 
-static extractpdf_status append_link_instance(
+static quantapdf_status append_link_instance(
     fz_context *ctx,
     pdf_document *document,
-    const extractpdf_pdf_poster_split_plan *split,
-    const extractpdf_pdf_poster_annot_plan *annot_plan,
+    const quantapdf_pdf_poster_split_plan *split,
+    const quantapdf_pdf_poster_annot_plan *annot_plan,
     pdf_obj *source_annotation,
     pdf_obj *source_page,
     pdf_obj **tile_pages,
@@ -117,7 +117,7 @@ static extractpdf_status append_link_instance(
     size_t tile_index = annot_plan->tile_indices[hit_index];
     pdf_obj *annotation = NULL;
     pdf_obj *clone_dict = NULL;
-    extractpdf_status status;
+    quantapdf_status status;
 
     if (clone) {
         clone_dict = pdf_copy_dict(ctx, source_annotation);
@@ -128,10 +128,10 @@ static extractpdf_status append_link_instance(
         annotation = pdf_keep_obj(ctx, source_annotation);
     }
     if (annotation == NULL)
-        return EXTRACTPDF_ERROR_NOMEM;
+        return QUANTAPDF_ERROR_NOMEM;
 
     if (annot_plan->tile_count > 1) {
-        extractpdf_rect clipped = intersect_public(
+        quantapdf_rect clipped = intersect_public(
             annot_plan->source_public_rect,
             split->tiles[tile_index].public_rect);
         fz_rect raw = public_to_raw(clipped, split->page.pdf_to_public);
@@ -144,27 +144,27 @@ static extractpdf_status append_link_instance(
         source_page,
         tile_pages[tile_index],
         clone);
-    if (status != EXTRACTPDF_OK) {
+    if (status != QUANTAPDF_OK) {
         pdf_drop_obj(ctx, annotation);
         return status;
     }
     pdf_array_push(ctx, tile_annots[tile_index], annotation);
     pdf_drop_obj(ctx, annotation);
-    return EXTRACTPDF_OK;
+    return QUANTAPDF_OK;
 }
 
-static extractpdf_status append_link(
+static quantapdf_status append_link(
     fz_context *ctx,
     pdf_document *document,
-    const extractpdf_pdf_poster_split_plan *split,
-    const extractpdf_pdf_poster_annot_plan *annot_plan,
+    const quantapdf_pdf_poster_split_plan *split,
+    const quantapdf_pdf_poster_annot_plan *annot_plan,
     pdf_obj *source_annotation,
     pdf_obj *source_page,
     pdf_obj **tile_pages,
     pdf_obj **tile_annots)
 {
     size_t hit_index;
-    extractpdf_status status;
+    quantapdf_status status;
 
     /*
      * Clone every later row-major intersection while source_annotation still
@@ -183,7 +183,7 @@ static extractpdf_status append_link(
             tile_annots,
             hit_index,
             1);
-        if (status != EXTRACTPDF_OK)
+        if (status != QUANTAPDF_OK)
             return status;
     }
 
@@ -200,52 +200,52 @@ static extractpdf_status append_link(
         0);
 }
 
-static extractpdf_status append_single_annotation(
+static quantapdf_status append_single_annotation(
     fz_context *ctx,
-    const extractpdf_pdf_poster_annot_plan *annot_plan,
+    const quantapdf_pdf_poster_annot_plan *annot_plan,
     pdf_obj *source_annotation,
     pdf_obj *source_page,
     pdf_obj **tile_pages,
     pdf_obj **tile_annots)
 {
     size_t tile_index = annot_plan->tile_indices[0];
-    extractpdf_status status = update_annotation_page(
+    quantapdf_status status = update_annotation_page(
         ctx,
         source_annotation,
         source_page,
         tile_pages[tile_index],
         0);
 
-    if (status != EXTRACTPDF_OK)
+    if (status != QUANTAPDF_OK)
         return status;
     pdf_array_push(ctx, tile_annots[tile_index], source_annotation);
-    return EXTRACTPDF_OK;
+    return QUANTAPDF_OK;
 }
 
-static extractpdf_status apply_split_annotations(
+static quantapdf_status apply_split_annotations(
     fz_context *ctx,
     pdf_document *document,
-    const extractpdf_pdf_poster_split_plan *split,
-    extractpdf_pdf_poster_private_split *runtime)
+    const quantapdf_pdf_poster_split_plan *split,
+    quantapdf_pdf_poster_private_split *runtime)
 {
     pdf_obj *source_annots = pdf_dict_get(
         ctx, runtime->source_page, PDF_NAME(Annots));
     pdf_obj **tile_annots = NULL;
-    extractpdf_status status = EXTRACTPDF_OK;
+    quantapdf_status status = QUANTAPDF_OK;
     size_t tile_index;
     size_t annot_index;
 
     if (split->annot_count == 0)
-        return EXTRACTPDF_OK;
+        return QUANTAPDF_OK;
     if (!pdf_is_array(ctx, source_annots) ||
         (size_t)pdf_array_len(ctx, source_annots) != split->annot_count)
-        return EXTRACTPDF_ERROR_FORMAT;
+        return QUANTAPDF_ERROR_FORMAT;
     if (split->tile_count > SIZE_MAX / sizeof(*tile_annots))
-        return EXTRACTPDF_ERROR_NOMEM;
+        return QUANTAPDF_ERROR_NOMEM;
 
     tile_annots = (pdf_obj **)calloc(split->tile_count, sizeof(*tile_annots));
     if (tile_annots == NULL)
-        return EXTRACTPDF_ERROR_NOMEM;
+        return QUANTAPDF_ERROR_NOMEM;
 
     fz_try(ctx)
     {
@@ -253,12 +253,12 @@ static extractpdf_status apply_split_annotations(
             tile_annots[tile_index] = pdf_new_array(ctx, document, 4);
 
         for (annot_index = 0; annot_index < split->annot_count; ++annot_index) {
-            const extractpdf_pdf_poster_annot_plan *annot_plan =
+            const quantapdf_pdf_poster_annot_plan *annot_plan =
                 &split->annots[annot_index];
             pdf_obj *source_annotation = pdf_array_get(
                 ctx, source_annots, (int)annot_plan->source_annot_index);
 
-            if (annot_plan->kind == EXTRACTPDF_PDF_POSTER_ANNOT_LINK) {
+            if (annot_plan->kind == QUANTAPDF_PDF_POSTER_ANNOT_LINK) {
                 status = append_link(
                     ctx,
                     document,
@@ -277,11 +277,11 @@ static extractpdf_status apply_split_annotations(
                     runtime->tile_pages,
                     tile_annots);
             }
-            if (status != EXTRACTPDF_OK)
+            if (status != QUANTAPDF_OK)
                 break;
         }
 
-        if (status == EXTRACTPDF_OK) {
+        if (status == QUANTAPDF_OK) {
             for (tile_index = 0; tile_index < split->tile_count; ++tile_index) {
                 if (pdf_array_len(ctx, tile_annots[tile_index]) != 0) {
                     pdf_dict_put(
@@ -306,18 +306,18 @@ static extractpdf_status apply_split_annotations(
     return status;
 }
 
-extractpdf_status extractpdf_pdf_poster_apply_annotations(
+quantapdf_status quantapdf_pdf_poster_apply_annotations(
     fz_context *ctx,
     pdf_document *document,
-    const extractpdf_pdf_poster_plan *plan,
-    extractpdf_pdf_poster_private_split *runtime)
+    const quantapdf_pdf_poster_plan *plan,
+    quantapdf_pdf_poster_private_split *runtime)
 {
     size_t split_index;
-    extractpdf_status status = EXTRACTPDF_OK;
+    quantapdf_status status = QUANTAPDF_OK;
     int caught_code = FZ_ERROR_NONE;
 
     if (ctx == NULL || document == NULL || plan == NULL || runtime == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
 
     fz_var(status);
     fz_var(caught_code);
@@ -331,7 +331,7 @@ extractpdf_status extractpdf_pdf_poster_apply_annotations(
                 document,
                 &plan->splits[split_index],
                 &runtime[split_index]);
-            if (status != EXTRACTPDF_OK)
+            if (status != QUANTAPDF_OK)
                 break;
         }
     }
@@ -341,6 +341,6 @@ extractpdf_status extractpdf_pdf_poster_apply_annotations(
         fz_report_error(ctx);
     }
     if (caught_code != FZ_ERROR_NONE)
-        return extractpdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_mupdf(caught_code);
     return status;
 }

@@ -2,7 +2,7 @@
 
 #include <stdlib.h>
 
-#define EXTRACTPDF_PDF_OUTLINE_MAX_DEPTH 256u
+#define QUANTAPDF_PDF_OUTLINE_MAX_DEPTH 256u
 
 typedef struct poster_outline_frame {
     pdf_obj *parent;
@@ -19,7 +19,7 @@ typedef struct poster_outline_walk {
     int too_deep;
 } poster_outline_walk;
 
-static extractpdf_status outline_push(
+static quantapdf_status outline_push(
     poster_outline_walk *walk,
     const poster_outline_frame *frame)
 {
@@ -30,35 +30,35 @@ static extractpdf_status outline_push(
         capacity = walk->stack_capacity == 0 ? 32 : walk->stack_capacity * 2;
         if (capacity < walk->stack_capacity ||
             capacity > SIZE_MAX / sizeof(*walk->stack))
-            return EXTRACTPDF_ERROR_NOMEM;
+            return QUANTAPDF_ERROR_NOMEM;
         grown = (poster_outline_frame *)realloc(
             walk->stack, capacity * sizeof(*walk->stack));
         if (grown == NULL)
-            return EXTRACTPDF_ERROR_NOMEM;
+            return QUANTAPDF_ERROR_NOMEM;
         walk->stack = grown;
         walk->stack_capacity = capacity;
     }
     walk->stack[walk->stack_count++] = *frame;
-    return EXTRACTPDF_OK;
+    return QUANTAPDF_OK;
 }
 
-extractpdf_status extractpdf_pdf_outline_walk_strict(
+quantapdf_status quantapdf_pdf_outline_walk_strict(
     fz_context *ctx,
     pdf_document *document,
-    extractpdf_pdf_outline_visit_fn visit,
+    quantapdf_pdf_outline_visit_fn visit,
     void *user,
     size_t *out_count)
 {
     poster_outline_walk walk = {0};
     poster_outline_frame frame;
     pdf_mark_bits *marks = NULL;
-    extractpdf_status status = EXTRACTPDF_OK;
+    quantapdf_status status = QUANTAPDF_OK;
     int caught_code = FZ_ERROR_NONE;
 
     if (out_count != NULL)
         *out_count = 0;
     if (ctx == NULL || document == NULL || out_count == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
 
     fz_var(marks);
     fz_var(status);
@@ -72,17 +72,17 @@ extractpdf_status extractpdf_pdf_outline_walk_strict(
         pdf_obj *last;
 
         if (!pdf_is_dict(ctx, root)) {
-            status = EXTRACTPDF_ERROR_FORMAT;
+            status = QUANTAPDF_ERROR_FORMAT;
         } else {
             outlines = pdf_dict_get(ctx, root, PDF_NAME(Outlines));
             if (outlines != NULL) {
                 if (!pdf_is_dict(ctx, outlines)) {
-                    status = EXTRACTPDF_ERROR_FORMAT;
+                    status = QUANTAPDF_ERROR_FORMAT;
                 } else {
                     first = pdf_dict_get(ctx, outlines, PDF_NAME(First));
                     last = pdf_dict_get(ctx, outlines, PDF_NAME(Last));
                     if ((first == NULL) != (last == NULL)) {
-                        status = EXTRACTPDF_ERROR_FORMAT;
+                        status = QUANTAPDF_ERROR_FORMAT;
                     } else if (first != NULL) {
                         marks = pdf_new_mark_bits(ctx, document);
                         frame.parent = outlines;
@@ -95,7 +95,7 @@ extractpdf_status extractpdf_pdf_outline_walk_strict(
             }
         }
 
-        while (status == EXTRACTPDF_OK && walk.stack_count != 0) {
+        while (status == QUANTAPDF_OK && walk.stack_count != 0) {
             pdf_obj *next;
             pdf_obj *child;
             pdf_obj *child_last;
@@ -104,11 +104,11 @@ extractpdf_status extractpdf_pdf_outline_walk_strict(
             frame = walk.stack[--walk.stack_count];
             if (!pdf_is_dict(ctx, frame.node) ||
                 !pdf_is_indirect(ctx, frame.node)) {
-                status = EXTRACTPDF_ERROR_FORMAT;
+                status = QUANTAPDF_ERROR_FORMAT;
                 break;
             }
             if (pdf_mark_bits_set(ctx, marks, frame.node)) {
-                status = EXTRACTPDF_ERROR_FORMAT;
+                status = QUANTAPDF_ERROR_FORMAT;
                 break;
             }
             if (pdf_objcmp(
@@ -119,21 +119,21 @@ extractpdf_status extractpdf_pdf_outline_walk_strict(
                     ctx,
                     pdf_dict_get(ctx, frame.node, PDF_NAME(Prev)),
                     frame.expected_prev) != 0) {
-                status = EXTRACTPDF_ERROR_FORMAT;
+                status = QUANTAPDF_ERROR_FORMAT;
                 break;
             }
             if (walk.node_count == SIZE_MAX) {
-                status = EXTRACTPDF_ERROR_NOMEM;
+                status = QUANTAPDF_ERROR_NOMEM;
                 break;
             }
             current_index = walk.node_count++;
-            if (frame.depth > EXTRACTPDF_PDF_OUTLINE_MAX_DEPTH)
+            if (frame.depth > QUANTAPDF_PDF_OUTLINE_MAX_DEPTH)
                 walk.too_deep = 1;
 
             if (visit != NULL) {
                 status = visit(
                     ctx, document, frame.node, current_index, user);
-                if (status != EXTRACTPDF_OK)
+                if (status != QUANTAPDF_OK)
                     break;
             }
 
@@ -141,7 +141,7 @@ extractpdf_status extractpdf_pdf_outline_walk_strict(
             child = pdf_dict_get(ctx, frame.node, PDF_NAME(First));
             child_last = pdf_dict_get(ctx, frame.node, PDF_NAME(Last));
             if ((child == NULL) != (child_last == NULL)) {
-                status = EXTRACTPDF_ERROR_FORMAT;
+                status = QUANTAPDF_ERROR_FORMAT;
                 break;
             }
             if (next == NULL &&
@@ -149,7 +149,7 @@ extractpdf_status extractpdf_pdf_outline_walk_strict(
                     ctx,
                     pdf_dict_get(ctx, frame.parent, PDF_NAME(Last)),
                     frame.node) != 0) {
-                status = EXTRACTPDF_ERROR_FORMAT;
+                status = QUANTAPDF_ERROR_FORMAT;
                 break;
             }
 
@@ -158,13 +158,13 @@ extractpdf_status extractpdf_pdf_outline_walk_strict(
                 sibling.node = next;
                 sibling.expected_prev = frame.node;
                 status = outline_push(&walk, &sibling);
-                if (status != EXTRACTPDF_OK)
+                if (status != QUANTAPDF_OK)
                     break;
             }
             if (child != NULL) {
                 poster_outline_frame child_frame;
                 if (frame.depth == SIZE_MAX) {
-                    status = EXTRACTPDF_ERROR_NOMEM;
+                    status = QUANTAPDF_ERROR_NOMEM;
                     break;
                 }
                 child_frame.parent = frame.node;
@@ -186,12 +186,12 @@ extractpdf_status extractpdf_pdf_outline_walk_strict(
     free(walk.stack);
 
     if (caught_code != FZ_ERROR_NONE)
-        return extractpdf_status_from_mupdf(caught_code);
-    if (status != EXTRACTPDF_OK)
+        return quantapdf_status_from_mupdf(caught_code);
+    if (status != QUANTAPDF_OK)
         return status;
     if (walk.too_deep)
-        return EXTRACTPDF_ERROR_UNSUPPORTED;
+        return QUANTAPDF_ERROR_UNSUPPORTED;
 
     *out_count = walk.node_count;
-    return EXTRACTPDF_OK;
+    return QUANTAPDF_OK;
 }

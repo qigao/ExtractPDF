@@ -3,22 +3,22 @@
 #include <limits.h>
 #include <stddef.h>
 
-static void extractpdf_merge_discard_log(void *user, const char *message)
+static void quantapdf_merge_discard_log(void *user, const char *message)
 {
     (void)user;
     (void)message;
 }
 
-static extractpdf_status extractpdf_merge_one_output(
+static quantapdf_status quantapdf_merge_one_output(
     fz_context *ctx,
     pdf_document *destination,
-    const extractpdf_output *input,
+    const quantapdf_output *input,
     int *total_page_count)
 {
     fz_stream *stream = NULL;
     pdf_document *source = NULL;
     pdf_graft_map *graft = NULL;
-    extractpdf_status status = EXTRACTPDF_OK;
+    quantapdf_status status = QUANTAPDF_OK;
     int source_page_count = 0;
     int new_total = *total_page_count;
     int caught_code = FZ_ERROR_NONE;
@@ -39,9 +39,9 @@ static extractpdf_status extractpdf_merge_one_output(
         source_page_count = pdf_count_pages(ctx, source);
 
         if (source_page_count < 0) {
-            status = EXTRACTPDF_ERROR_MUPDF;
+            status = QUANTAPDF_ERROR_MUPDF;
         } else if (source_page_count > INT_MAX - *total_page_count) {
-            status = EXTRACTPDF_ERROR_ARGUMENT;
+            status = QUANTAPDF_ERROR_ARGUMENT;
         } else {
             new_total = *total_page_count + source_page_count;
             graft = pdf_new_graft_map(ctx, destination);
@@ -65,43 +65,43 @@ static extractpdf_status extractpdf_merge_one_output(
     }
 
     if (caught_code != FZ_ERROR_NONE)
-        return extractpdf_status_from_mupdf(caught_code);
-    if (status != EXTRACTPDF_OK)
+        return quantapdf_status_from_mupdf(caught_code);
+    if (status != QUANTAPDF_OK)
         return status;
 
     *total_page_count = new_total;
-    return EXTRACTPDF_OK;
+    return QUANTAPDF_OK;
 }
 
-extractpdf_status extractpdf_merge_outputs(
-    const extractpdf_output *const *inputs,
+quantapdf_status quantapdf_merge_outputs(
+    const quantapdf_output *const *inputs,
     size_t input_count,
-    extractpdf_output **out_output)
+    quantapdf_output **out_output)
 {
     fz_context *ctx = NULL;
     pdf_document *destination = NULL;
-    extractpdf_status status = EXTRACTPDF_OK;
+    quantapdf_status status = QUANTAPDF_OK;
     int total_page_count = 0;
     int caught_code = FZ_ERROR_NONE;
     size_t i;
 
     if (out_output == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
     *out_output = NULL;
 
     if (inputs == NULL || input_count == 0)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
     for (i = 0; i < input_count; ++i) {
         if (inputs[i] == NULL)
-            return EXTRACTPDF_ERROR_ARGUMENT;
+            return QUANTAPDF_ERROR_ARGUMENT;
     }
 
     ctx = fz_new_context(NULL, NULL, FZ_STORE_DEFAULT);
     if (ctx == NULL)
-        return EXTRACTPDF_ERROR_NOMEM;
+        return QUANTAPDF_ERROR_NOMEM;
 
-    fz_set_error_callback(ctx, extractpdf_merge_discard_log, NULL);
-    fz_set_warning_callback(ctx, extractpdf_merge_discard_log, NULL);
+    fz_set_error_callback(ctx, quantapdf_merge_discard_log, NULL);
+    fz_set_warning_callback(ctx, quantapdf_merge_discard_log, NULL);
 
     fz_var(destination);
     fz_var(caught_code);
@@ -117,22 +117,22 @@ extractpdf_status extractpdf_merge_outputs(
     }
 
     if (caught_code != FZ_ERROR_NONE) {
-        status = extractpdf_status_from_mupdf(caught_code);
+        status = quantapdf_status_from_mupdf(caught_code);
         fz_drop_context(ctx);
         return status;
     }
 
     for (i = 0; i < input_count; ++i) {
-        status = extractpdf_merge_one_output(
+        status = quantapdf_merge_one_output(
             ctx, destination, inputs[i], &total_page_count);
-        if (status != EXTRACTPDF_OK) {
+        if (status != QUANTAPDF_OK) {
             pdf_drop_document(ctx, destination);
             fz_drop_context(ctx);
             return status;
         }
     }
 
-    status = extractpdf_serialize_pdf(ctx, destination, out_output);
+    status = quantapdf_serialize_pdf(ctx, destination, out_output);
     pdf_drop_document(ctx, destination);
     fz_drop_context(ctx);
     return status;

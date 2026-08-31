@@ -1,4 +1,4 @@
-#include <extractpdf/extractpdf.h>
+#include <quantapdf/quantapdf.h>
 
 #include <stddef.h>
 #include <stdio.h>
@@ -18,16 +18,16 @@ static void ap_check_impl(int ok, const char *expr, int line)
 }
 #define AP_CHECK(x) ap_check_impl((x), #x, __LINE__)
 
-static size_t ap_field_index_by_name(const extractpdf_form *form, const char *wanted)
+static size_t ap_field_index_by_name(const quantapdf_form *form, const char *wanted)
 {
     size_t count = 0;
     size_t i;
 
-    AP_CHECK(extractpdf_form_field_count(form, &count) == EXTRACTPDF_OK);
+    AP_CHECK(quantapdf_form_field_count(form, &count) == QUANTAPDF_OK);
     for (i = 0; i < count; ++i) {
         const char *name = NULL;
         size_t size = 0;
-        AP_CHECK(extractpdf_form_field_name(form, i, &name, &size) == EXTRACTPDF_OK);
+        AP_CHECK(quantapdf_form_field_name(form, i, &name, &size) == QUANTAPDF_OK);
         if (name != NULL && size == strlen(wanted) && memcmp(name, wanted, size) == 0)
             return i;
     }
@@ -35,95 +35,95 @@ static size_t ap_field_index_by_name(const extractpdf_form *form, const char *wa
     return SIZE_MAX;
 }
 
-static extractpdf_form_field_ref ap_field_ref_by_name(
-    extractpdf_pdf_edit *edit,
+static quantapdf_form_field_ref ap_field_ref_by_name(
+    quantapdf_pdf_edit *edit,
     const char *wanted)
 {
-    extractpdf_form *form = NULL;
-    extractpdf_form_field_ref ref = {{0, 0}};
+    quantapdf_form *form = NULL;
+    quantapdf_form_field_ref ref = {{0, 0}};
     size_t index;
 
-    AP_CHECK(extractpdf_pdf_edit_form_snapshot(edit, &form) == EXTRACTPDF_OK);
+    AP_CHECK(quantapdf_pdf_edit_form_snapshot(edit, &form) == QUANTAPDF_OK);
     index = ap_field_index_by_name(form, wanted);
-    AP_CHECK(extractpdf_pdf_edit_form_field_ref_at(edit, index, &ref) == EXTRACTPDF_OK);
-    extractpdf_drop_form(form);
+    AP_CHECK(quantapdf_pdf_edit_form_field_ref_at(edit, index, &ref) == QUANTAPDF_OK);
+    quantapdf_drop_form(form);
     return ref;
 }
 
-static extractpdf_pdf_edit *ap_open_edit(const char *path)
+static quantapdf_pdf_edit *ap_open_edit(const char *path)
 {
-    extractpdf_document *document = NULL;
-    extractpdf_pdf_edit *edit = NULL;
+    quantapdf_document *document = NULL;
+    quantapdf_pdf_edit *edit = NULL;
 
-    AP_CHECK(extractpdf_open(path, NULL, &document) == EXTRACTPDF_OK);
-    AP_CHECK(extractpdf_pdf_edit_begin(document, &edit) == EXTRACTPDF_OK);
-    extractpdf_close(document);
+    AP_CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    AP_CHECK(quantapdf_pdf_edit_begin(document, &edit) == QUANTAPDF_OK);
+    quantapdf_close(document);
     return edit;
 }
 
 static void ap_expect_text(
-    const extractpdf_form *form,
+    const quantapdf_form *form,
     const char *name,
     const char *expected)
 {
     size_t index = ap_field_index_by_name(form, name);
-    extractpdf_form_field_info info = {0};
-    extractpdf_form_value_info value_info = {0};
+    quantapdf_form_field_info info = {0};
+    quantapdf_form_value_info value_info = {0};
     const char *text = NULL;
     size_t size = 0;
 
     info.struct_size = sizeof(info);
-    AP_CHECK(extractpdf_form_field_get_info(form, index, &info) == EXTRACTPDF_OK);
-    AP_CHECK(info.type == EXTRACTPDF_FORM_FIELD_TEXT);
-    AP_CHECK(info.value_presence == EXTRACTPDF_FORM_VALUE_PRESENT);
+    AP_CHECK(quantapdf_form_field_get_info(form, index, &info) == QUANTAPDF_OK);
+    AP_CHECK(info.type == QUANTAPDF_FORM_FIELD_TEXT);
+    AP_CHECK(info.value_presence == QUANTAPDF_FORM_VALUE_PRESENT);
     AP_CHECK(info.value_count == 1);
     value_info.struct_size = sizeof(value_info);
-    AP_CHECK(extractpdf_form_field_value_get_info(form, index, 0, &value_info) ==
-        EXTRACTPDF_OK);
-    AP_CHECK(value_info.kind == EXTRACTPDF_FORM_VALUE_UTF8);
-    AP_CHECK(extractpdf_form_field_value_utf8(form, index, 0, &text, &size) ==
-        EXTRACTPDF_OK);
+    AP_CHECK(quantapdf_form_field_value_get_info(form, index, 0, &value_info) ==
+        QUANTAPDF_OK);
+    AP_CHECK(value_info.kind == QUANTAPDF_FORM_VALUE_UTF8);
+    AP_CHECK(quantapdf_form_field_value_utf8(form, index, 0, &text, &size) ==
+        QUANTAPDF_OK);
     AP_CHECK(text != NULL && size == strlen(expected));
     AP_CHECK(memcmp(text, expected, size) == 0);
 }
 
 static void ap_expect_choice_option(
-    const extractpdf_form *form,
+    const quantapdf_form *form,
     const char *name,
-    extractpdf_form_field_type type,
+    quantapdf_form_field_type type,
     size_t expected_option)
 {
     size_t index = ap_field_index_by_name(form, name);
-    extractpdf_form_field_info info = {0};
-    extractpdf_form_value_info value_info = {0};
+    quantapdf_form_field_info info = {0};
+    quantapdf_form_value_info value_info = {0};
 
     info.struct_size = sizeof(info);
-    AP_CHECK(extractpdf_form_field_get_info(form, index, &info) == EXTRACTPDF_OK);
+    AP_CHECK(quantapdf_form_field_get_info(form, index, &info) == QUANTAPDF_OK);
     AP_CHECK(info.type == type);
-    AP_CHECK(info.value_presence == EXTRACTPDF_FORM_VALUE_PRESENT);
+    AP_CHECK(info.value_presence == QUANTAPDF_FORM_VALUE_PRESENT);
     AP_CHECK(info.value_count == 1);
     value_info.struct_size = sizeof(value_info);
-    AP_CHECK(extractpdf_form_field_value_get_info(form, index, 0, &value_info) ==
-        EXTRACTPDF_OK);
-    AP_CHECK(value_info.kind == EXTRACTPDF_FORM_VALUE_OPTION);
+    AP_CHECK(quantapdf_form_field_value_get_info(form, index, 0, &value_info) ==
+        QUANTAPDF_OK);
+    AP_CHECK(value_info.kind == QUANTAPDF_FORM_VALUE_OPTION);
     AP_CHECK(value_info.option_index == expected_option);
 }
 
-static extractpdf_form_widget_info ap_widget_by_field(
-    const extractpdf_form *form,
+static quantapdf_form_widget_info ap_widget_by_field(
+    const quantapdf_form *form,
     const char *name)
 {
     size_t field_index = ap_field_index_by_name(form, name);
     size_t count = 0;
     size_t i;
     size_t matches = 0;
-    extractpdf_form_widget_info found = {0};
+    quantapdf_form_widget_info found = {0};
 
-    AP_CHECK(extractpdf_form_widget_count(form, &count) == EXTRACTPDF_OK);
+    AP_CHECK(quantapdf_form_widget_count(form, &count) == QUANTAPDF_OK);
     for (i = 0; i < count; ++i) {
-        extractpdf_form_widget_info info = {0};
+        quantapdf_form_widget_info info = {0};
         info.struct_size = sizeof(info);
-        AP_CHECK(extractpdf_form_widget_get_info(form, i, &info) == EXTRACTPDF_OK);
+        AP_CHECK(quantapdf_form_widget_get_info(form, i, &info) == QUANTAPDF_OK);
         if (info.field_index != field_index)
             continue;
         found = info;
@@ -133,60 +133,60 @@ static extractpdf_form_widget_info ap_widget_by_field(
     return found;
 }
 
-static extractpdf_form_widget_info ap_widget_from_path(
+static quantapdf_form_widget_info ap_widget_from_path(
     const char *path,
     const char *name)
 {
-    extractpdf_document *document = NULL;
-    extractpdf_form *form = NULL;
-    extractpdf_form_widget_info info;
+    quantapdf_document *document = NULL;
+    quantapdf_form *form = NULL;
+    quantapdf_form_widget_info info;
 
-    AP_CHECK(extractpdf_open(path, NULL, &document) == EXTRACTPDF_OK);
-    AP_CHECK(extractpdf_document_form(document, &form) == EXTRACTPDF_OK);
+    AP_CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    AP_CHECK(quantapdf_document_form(document, &form) == QUANTAPDF_OK);
     info = ap_widget_by_field(form, name);
-    extractpdf_drop_form(form);
-    extractpdf_close(document);
+    quantapdf_drop_form(form);
+    quantapdf_close(document);
     return info;
 }
 
 static void ap_render_clip(
     const char *path,
-    const extractpdf_form_widget_info *widget,
+    const quantapdf_form_widget_info *widget,
     unsigned char **out_data,
     size_t *out_size)
 {
-    extractpdf_document *document = NULL;
-    extractpdf_page *page = NULL;
-    extractpdf_bitmap *bitmap = NULL;
-    extractpdf_render_options options = {0};
+    quantapdf_document *document = NULL;
+    quantapdf_page *page = NULL;
+    quantapdf_bitmap *bitmap = NULL;
+    quantapdf_render_options options = {0};
     const unsigned char *data = NULL;
     size_t size = 0;
 
     *out_data = NULL;
     *out_size = 0;
-    AP_CHECK(extractpdf_open(path, NULL, &document) == EXTRACTPDF_OK);
-    AP_CHECK(extractpdf_load_page(document, widget->page_index, &page) == EXTRACTPDF_OK);
+    AP_CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    AP_CHECK(quantapdf_load_page(document, widget->page_index, &page) == QUANTAPDF_OK);
     options.struct_size = sizeof(options);
     options.dpi = 72.0f;
     options.rotation_degrees = 0.0f;
     options.clip_enabled = 1;
     options.clip = widget->bounds;
     options.alpha = 0;
-    AP_CHECK(extractpdf_render_page_with_options(page, &options, &bitmap) ==
-        EXTRACTPDF_OK);
-    AP_CHECK(extractpdf_bitmap_data(bitmap, &data, &size) == EXTRACTPDF_OK);
+    AP_CHECK(quantapdf_render_page_with_options(page, &options, &bitmap) ==
+        QUANTAPDF_OK);
+    AP_CHECK(quantapdf_bitmap_data(bitmap, &data, &size) == QUANTAPDF_OK);
     AP_CHECK(data != NULL && size != 0);
     *out_data = (unsigned char *)malloc(size);
     AP_CHECK(*out_data != NULL);
     memcpy(*out_data, data, size);
     *out_size = size;
-    extractpdf_drop_bitmap(bitmap);
-    extractpdf_drop_page(page);
-    extractpdf_close(document);
+    quantapdf_drop_bitmap(bitmap);
+    quantapdf_drop_page(page);
+    quantapdf_close(document);
 }
 
 static void ap_copy_output(
-    const extractpdf_output *output,
+    const quantapdf_output *output,
     unsigned char **out_data,
     size_t *out_size)
 {
@@ -195,7 +195,7 @@ static void ap_copy_output(
 
     *out_data = NULL;
     *out_size = 0;
-    AP_CHECK(extractpdf_output_data(output, &data, &size) == EXTRACTPDF_OK);
+    AP_CHECK(quantapdf_output_data(output, &data, &size) == QUANTAPDF_OK);
     AP_CHECK(data != NULL && size != 0);
     *out_data = (unsigned char *)malloc(size);
     AP_CHECK(*out_data != NULL);
@@ -219,67 +219,67 @@ static size_t ap_count_bytes(
 }
 
 static void ap_make_text_update(
-    extractpdf_form_value_input *value,
-    extractpdf_form_value_update *update,
+    quantapdf_form_value_input *value,
+    quantapdf_form_value_update *update,
     const char *text)
 {
     memset(value, 0, sizeof(*value));
     memset(update, 0, sizeof(*update));
     value->struct_size = sizeof(*value);
-    value->kind = EXTRACTPDF_FORM_VALUE_UTF8;
+    value->kind = QUANTAPDF_FORM_VALUE_UTF8;
     value->option_index = SIZE_MAX;
     value->utf8 = text;
     value->utf8_size = strlen(text);
     update->struct_size = sizeof(*update);
-    update->presence = EXTRACTPDF_FORM_VALUE_PRESENT;
+    update->presence = QUANTAPDF_FORM_VALUE_PRESENT;
     update->values = value;
     update->value_count = 1;
 }
 
 static void ap_make_option_update(
-    extractpdf_form_value_input *value,
-    extractpdf_form_value_update *update,
+    quantapdf_form_value_input *value,
+    quantapdf_form_value_update *update,
     size_t option_index)
 {
     memset(value, 0, sizeof(*value));
     memset(update, 0, sizeof(*update));
     value->struct_size = sizeof(*value);
-    value->kind = EXTRACTPDF_FORM_VALUE_OPTION;
+    value->kind = QUANTAPDF_FORM_VALUE_OPTION;
     value->option_index = option_index;
     update->struct_size = sizeof(*update);
-    update->presence = EXTRACTPDF_FORM_VALUE_PRESENT;
+    update->presence = QUANTAPDF_FORM_VALUE_PRESENT;
     update->values = value;
     update->value_count = 1;
 }
 
 static void ap_check_reopened_text(const char *path)
 {
-    extractpdf_document *document = NULL;
-    extractpdf_form *form = NULL;
+    quantapdf_document *document = NULL;
+    quantapdf_form *form = NULL;
 
-    AP_CHECK(extractpdf_open(path, NULL, &document) == EXTRACTPDF_OK);
-    AP_CHECK(extractpdf_document_form(document, &form) == EXTRACTPDF_OK);
+    AP_CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    AP_CHECK(quantapdf_document_form(document, &form) == QUANTAPDF_OK);
     ap_expect_text(form, "target", "AFTER");
     ap_expect_text(form, "unrelated", "UNCHANGED");
     ap_expect_text(form, "calc", "CALC-SENTINEL");
-    extractpdf_drop_form(form);
-    extractpdf_close(document);
+    quantapdf_drop_form(form);
+    quantapdf_close(document);
 }
 
 static void test_text_target_refresh_and_no_execution(void)
 {
-    extractpdf_form_widget_info target_widget =
+    quantapdf_form_widget_info target_widget =
         ap_widget_from_path(FORM_MUTATION_EVENTS_PDF, "target");
-    extractpdf_form_widget_info unrelated_widget =
+    quantapdf_form_widget_info unrelated_widget =
         ap_widget_from_path(FORM_MUTATION_EVENTS_PDF, "unrelated");
-    extractpdf_pdf_edit *edit = ap_open_edit(FORM_MUTATION_EVENTS_PDF);
-    extractpdf_form_field_ref ref = ap_field_ref_by_name(edit, "target");
-    extractpdf_form_value_input value;
-    extractpdf_form_value_update update;
-    extractpdf_form *form = NULL;
-    extractpdf_output *historical = NULL;
-    extractpdf_output *after_a = NULL;
-    extractpdf_output *after_b = NULL;
+    quantapdf_pdf_edit *edit = ap_open_edit(FORM_MUTATION_EVENTS_PDF);
+    quantapdf_form_field_ref ref = ap_field_ref_by_name(edit, "target");
+    quantapdf_form_value_input value;
+    quantapdf_form_value_update update;
+    quantapdf_form *form = NULL;
+    quantapdf_output *historical = NULL;
+    quantapdf_output *after_a = NULL;
+    quantapdf_output *after_b = NULL;
     const unsigned char *historical_now = NULL;
     size_t historical_now_size = 0;
     unsigned char *historical_bytes = NULL;
@@ -302,30 +302,30 @@ static void test_text_target_refresh_and_no_execution(void)
     ap_render_clip(FORM_MUTATION_EVENTS_PDF, &unrelated_widget,
         &unrelated_before, &unrelated_before_size);
 
-    AP_CHECK(extractpdf_pdf_edit_snapshot(edit, &historical) == EXTRACTPDF_OK);
+    AP_CHECK(quantapdf_pdf_edit_snapshot(edit, &historical) == QUANTAPDF_OK);
     ap_copy_output(historical, &historical_bytes, &historical_size);
     ap_make_text_update(&value, &update, "AFTER");
-    AP_CHECK(extractpdf_pdf_edit_form_set_values(edit, &ref, &update) == EXTRACTPDF_OK);
+    AP_CHECK(quantapdf_pdf_edit_form_set_values(edit, &ref, &update) == QUANTAPDF_OK);
 
-    AP_CHECK(extractpdf_output_data(historical,
-        &historical_now, &historical_now_size) == EXTRACTPDF_OK);
+    AP_CHECK(quantapdf_output_data(historical,
+        &historical_now, &historical_now_size) == QUANTAPDF_OK);
     AP_CHECK(historical_now_size == historical_size);
     AP_CHECK(memcmp(historical_now, historical_bytes, historical_size) == 0);
 
-    AP_CHECK(extractpdf_pdf_edit_form_snapshot(edit, &form) == EXTRACTPDF_OK);
+    AP_CHECK(quantapdf_pdf_edit_form_snapshot(edit, &form) == QUANTAPDF_OK);
     ap_expect_text(form, "target", "AFTER");
     ap_expect_text(form, "unrelated", "UNCHANGED");
     ap_expect_text(form, "calc", "CALC-SENTINEL");
-    extractpdf_drop_form(form);
+    quantapdf_drop_form(form);
     form = NULL;
 
-    AP_CHECK(extractpdf_pdf_edit_snapshot(edit, &after_a) == EXTRACTPDF_OK);
-    AP_CHECK(extractpdf_pdf_edit_snapshot(edit, &after_b) == EXTRACTPDF_OK);
+    AP_CHECK(quantapdf_pdf_edit_snapshot(edit, &after_a) == QUANTAPDF_OK);
+    AP_CHECK(quantapdf_pdf_edit_snapshot(edit, &after_b) == QUANTAPDF_OK);
     ap_copy_output(after_a, &after_bytes, &after_size);
     AP_CHECK(ap_count_bytes(after_bytes, after_size, "UNRELATED-AP-KEEP") == 1);
     AP_CHECK(ap_count_bytes(after_bytes, after_size, "CALC-AP-KEEP") == 1);
-    AP_CHECK(extractpdf_output_save_file(after_a, FORM_AP_OUTPUT_A) == EXTRACTPDF_OK);
-    AP_CHECK(extractpdf_output_save_file(after_b, FORM_AP_OUTPUT_B) == EXTRACTPDF_OK);
+    AP_CHECK(quantapdf_output_save_file(after_a, FORM_AP_OUTPUT_A) == QUANTAPDF_OK);
+    AP_CHECK(quantapdf_output_save_file(after_b, FORM_AP_OUTPUT_B) == QUANTAPDF_OK);
     ap_check_reopened_text(FORM_AP_OUTPUT_A);
     ap_check_reopened_text(FORM_AP_OUTPUT_B);
 
@@ -344,27 +344,27 @@ static void test_text_target_refresh_and_no_execution(void)
     free(target_after);
     free(unrelated_before);
     free(unrelated_after);
-    extractpdf_drop_output(historical);
-    extractpdf_drop_output(after_a);
-    extractpdf_drop_output(after_b);
-    extractpdf_drop_pdf_edit(edit);
+    quantapdf_drop_output(historical);
+    quantapdf_drop_output(after_a);
+    quantapdf_drop_output(after_b);
+    quantapdf_drop_pdf_edit(edit);
     remove(FORM_AP_OUTPUT_A);
     remove(FORM_AP_OUTPUT_B);
 }
 
 static void test_choice_target_refresh(void)
 {
-    extractpdf_form_widget_info combo_widget =
+    quantapdf_form_widget_info combo_widget =
         ap_widget_from_path(FORM_MUTATION_CHOICE_PDF, "combo");
-    extractpdf_pdf_edit *edit = ap_open_edit(FORM_MUTATION_CHOICE_PDF);
-    extractpdf_form_field_ref combo = ap_field_ref_by_name(edit, "combo");
-    extractpdf_form_field_ref single = ap_field_ref_by_name(edit, "single");
-    extractpdf_form_value_input value;
-    extractpdf_form_value_update update;
-    extractpdf_output *output = NULL;
-    extractpdf_document *document = NULL;
-    extractpdf_form *form = NULL;
-    extractpdf_page *page = NULL;
+    quantapdf_pdf_edit *edit = ap_open_edit(FORM_MUTATION_CHOICE_PDF);
+    quantapdf_form_field_ref combo = ap_field_ref_by_name(edit, "combo");
+    quantapdf_form_field_ref single = ap_field_ref_by_name(edit, "single");
+    quantapdf_form_value_input value;
+    quantapdf_form_value_update update;
+    quantapdf_output *output = NULL;
+    quantapdf_document *document = NULL;
+    quantapdf_form *form = NULL;
+    quantapdf_page *page = NULL;
     unsigned char *before = NULL;
     unsigned char *after = NULL;
     size_t before_size = 0;
@@ -373,21 +373,21 @@ static void test_choice_target_refresh(void)
     remove(FORM_AP_OUTPUT_CHOICE);
     ap_render_clip(FORM_MUTATION_CHOICE_PDF, &combo_widget, &before, &before_size);
     ap_make_option_update(&value, &update, 0);
-    AP_CHECK(extractpdf_pdf_edit_form_set_values(edit, &combo, &update) == EXTRACTPDF_OK);
+    AP_CHECK(quantapdf_pdf_edit_form_set_values(edit, &combo, &update) == QUANTAPDF_OK);
     ap_make_option_update(&value, &update, 2);
-    AP_CHECK(extractpdf_pdf_edit_form_set_values(edit, &single, &update) == EXTRACTPDF_OK);
-    AP_CHECK(extractpdf_pdf_edit_snapshot(edit, &output) == EXTRACTPDF_OK);
-    AP_CHECK(extractpdf_output_save_file(output, FORM_AP_OUTPUT_CHOICE) == EXTRACTPDF_OK);
+    AP_CHECK(quantapdf_pdf_edit_form_set_values(edit, &single, &update) == QUANTAPDF_OK);
+    AP_CHECK(quantapdf_pdf_edit_snapshot(edit, &output) == QUANTAPDF_OK);
+    AP_CHECK(quantapdf_output_save_file(output, FORM_AP_OUTPUT_CHOICE) == QUANTAPDF_OK);
 
-    AP_CHECK(extractpdf_open(FORM_AP_OUTPUT_CHOICE, NULL, &document) == EXTRACTPDF_OK);
-    AP_CHECK(extractpdf_document_form(document, &form) == EXTRACTPDF_OK);
-    ap_expect_choice_option(form, "combo", EXTRACTPDF_FORM_FIELD_COMBO_BOX, 0);
-    ap_expect_choice_option(form, "single", EXTRACTPDF_FORM_FIELD_LIST_BOX, 2);
-    extractpdf_drop_form(form);
+    AP_CHECK(quantapdf_open(FORM_AP_OUTPUT_CHOICE, NULL, &document) == QUANTAPDF_OK);
+    AP_CHECK(quantapdf_document_form(document, &form) == QUANTAPDF_OK);
+    ap_expect_choice_option(form, "combo", QUANTAPDF_FORM_FIELD_COMBO_BOX, 0);
+    ap_expect_choice_option(form, "single", QUANTAPDF_FORM_FIELD_LIST_BOX, 2);
+    quantapdf_drop_form(form);
     form = NULL;
-    AP_CHECK(extractpdf_load_page(document, 0, &page) == EXTRACTPDF_OK);
-    extractpdf_drop_page(page);
-    extractpdf_close(document);
+    AP_CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
+    quantapdf_drop_page(page);
+    quantapdf_close(document);
     document = NULL;
 
     ap_render_clip(FORM_AP_OUTPUT_CHOICE, &combo_widget, &after, &after_size);
@@ -396,12 +396,12 @@ static void test_choice_target_refresh(void)
 
     free(before);
     free(after);
-    extractpdf_drop_output(output);
-    extractpdf_drop_pdf_edit(edit);
+    quantapdf_drop_output(output);
+    quantapdf_drop_pdf_edit(edit);
     remove(FORM_AP_OUTPUT_CHOICE);
 }
 
-int extractpdf_pdf_form_appearance_main(void)
+int quantapdf_pdf_form_appearance_main(void)
 {
     test_text_target_refresh_and_no_execution();
     test_choice_target_refresh();

@@ -3,9 +3,9 @@
 #include <math.h>
 #include <string.h>
 
-#define EXTRACTPDF_PDF_PAGE_BOX_MAX_PAGE_TREE_DEPTH 256
+#define QUANTAPDF_PDF_PAGE_BOX_MAX_PAGE_TREE_DEPTH 256
 
-static extractpdf_status extractpdf_pdf_page_box_parse_box(
+static quantapdf_status quantapdf_pdf_page_box_parse_box(
     fz_context *ctx,
     pdf_obj *object,
     fz_rect *out_rect)
@@ -16,19 +16,19 @@ static extractpdf_status extractpdf_pdf_page_box_parse_box(
     float y1;
 
     if (!pdf_is_array(ctx, object) || pdf_array_len(ctx, object) != 4)
-        return EXTRACTPDF_ERROR_FORMAT;
+        return QUANTAPDF_ERROR_FORMAT;
     if (!pdf_is_number(ctx, pdf_array_get(ctx, object, 0)) ||
         !pdf_is_number(ctx, pdf_array_get(ctx, object, 1)) ||
         !pdf_is_number(ctx, pdf_array_get(ctx, object, 2)) ||
         !pdf_is_number(ctx, pdf_array_get(ctx, object, 3)))
-        return EXTRACTPDF_ERROR_FORMAT;
+        return QUANTAPDF_ERROR_FORMAT;
 
     x0 = pdf_to_real(ctx, pdf_array_get(ctx, object, 0));
     y0 = pdf_to_real(ctx, pdf_array_get(ctx, object, 1));
     x1 = pdf_to_real(ctx, pdf_array_get(ctx, object, 2));
     y1 = pdf_to_real(ctx, pdf_array_get(ctx, object, 3));
     if (!isfinite(x0) || !isfinite(y0) || !isfinite(x1) || !isfinite(y1))
-        return EXTRACTPDF_ERROR_FORMAT;
+        return QUANTAPDF_ERROR_FORMAT;
 
     out_rect->x0 = fminf(x0, x1);
     out_rect->y0 = fminf(y0, y1);
@@ -36,11 +36,11 @@ static extractpdf_status extractpdf_pdf_page_box_parse_box(
     out_rect->y1 = fmaxf(y0, y1);
     if (!(out_rect->x0 < out_rect->x1) ||
         !(out_rect->y0 < out_rect->y1))
-        return EXTRACTPDF_ERROR_FORMAT;
-    return EXTRACTPDF_OK;
+        return QUANTAPDF_ERROR_FORMAT;
+    return QUANTAPDF_OK;
 }
 
-static int extractpdf_pdf_page_box_same_object(
+static int quantapdf_pdf_page_box_same_object(
     fz_context *ctx,
     pdf_obj *left,
     pdf_obj *right)
@@ -48,16 +48,16 @@ static int extractpdf_pdf_page_box_same_object(
     return pdf_objcmp_resolve(ctx, left, right) == 0;
 }
 
-static extractpdf_status extractpdf_pdf_page_box_public_rect(
+static quantapdf_status quantapdf_pdf_page_box_public_rect(
     fz_rect raw,
     fz_matrix pdf_to_public,
-    extractpdf_rect *out_public)
+    quantapdf_rect *out_public)
 {
     fz_rect transformed = fz_transform_rect(raw, pdf_to_public);
 
     if (!isfinite(transformed.x0) || !isfinite(transformed.y0) ||
         !isfinite(transformed.x1) || !isfinite(transformed.y1))
-        return EXTRACTPDF_ERROR_FORMAT;
+        return QUANTAPDF_ERROR_FORMAT;
 
     out_public->x0 = fminf(transformed.x0, transformed.x1);
     out_public->y0 = fminf(transformed.y0, transformed.y1);
@@ -65,19 +65,19 @@ static extractpdf_status extractpdf_pdf_page_box_public_rect(
     out_public->y1 = fmaxf(transformed.y0, transformed.y1);
     if (!(out_public->x0 < out_public->x1) ||
         !(out_public->y0 < out_public->y1))
-        return EXTRACTPDF_ERROR_FORMAT;
-    return EXTRACTPDF_OK;
+        return QUANTAPDF_ERROR_FORMAT;
+    return QUANTAPDF_OK;
 }
 
-static extractpdf_status extractpdf_pdf_page_box_resolve_imp(
+static quantapdf_status quantapdf_pdf_page_box_resolve_imp(
     fz_context *ctx,
     pdf_document *document,
     int page_index,
-    extractpdf_pdf_page_box_view *out_view)
+    quantapdf_pdf_page_box_view *out_view)
 {
     pdf_obj *page_obj;
     pdf_obj *node;
-    pdf_obj *seen[EXTRACTPDF_PDF_PAGE_BOX_MAX_PAGE_TREE_DEPTH + 1];
+    pdf_obj *seen[QUANTAPDF_PDF_PAGE_BOX_MAX_PAGE_TREE_DEPTH + 1];
     size_t seen_count = 0;
     pdf_obj *media_obj = NULL;
     pdf_obj *crop_obj = NULL;
@@ -87,29 +87,29 @@ static extractpdf_status extractpdf_pdf_page_box_resolve_imp(
     int rotate = 0;
     float user_unit = 1.0f;
     size_t depth;
-    extractpdf_status status;
+    quantapdf_status status;
 
     page_count = pdf_count_pages(ctx, document);
     if (page_index < 0 || page_index >= page_count)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
 
     page_obj = pdf_lookup_page_obj(ctx, document, page_index);
     if (!pdf_is_dict(ctx, page_obj))
-        return EXTRACTPDF_ERROR_FORMAT;
+        return QUANTAPDF_ERROR_FORMAT;
 
     node = page_obj;
     for (depth = 0;; ++depth) {
         pdf_obj *parent;
         size_t index;
 
-        if (depth > EXTRACTPDF_PDF_PAGE_BOX_MAX_PAGE_TREE_DEPTH)
-            return EXTRACTPDF_ERROR_UNSUPPORTED;
+        if (depth > QUANTAPDF_PDF_PAGE_BOX_MAX_PAGE_TREE_DEPTH)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
         if (!pdf_is_dict(ctx, node))
-            return EXTRACTPDF_ERROR_FORMAT;
+            return QUANTAPDF_ERROR_FORMAT;
 
         for (index = 0; index < seen_count; ++index) {
-            if (extractpdf_pdf_page_box_same_object(ctx, seen[index], node))
-                return EXTRACTPDF_ERROR_FORMAT;
+            if (quantapdf_pdf_page_box_same_object(ctx, seen[index], node))
+                return QUANTAPDF_ERROR_FORMAT;
         }
         seen[seen_count++] = node;
 
@@ -136,10 +136,10 @@ static extractpdf_status extractpdf_pdf_page_box_resolve_imp(
     }
 
     if (media_obj == NULL)
-        return EXTRACTPDF_ERROR_FORMAT;
-    status = extractpdf_pdf_page_box_parse_box(
+        return QUANTAPDF_ERROR_FORMAT;
+    status = quantapdf_pdf_page_box_parse_box(
         ctx, media_obj, &out_view->media_pdf);
-    if (status != EXTRACTPDF_OK)
+    if (status != QUANTAPDF_OK)
         return status;
 
     out_view->has_explicit_crop = crop_obj != NULL;
@@ -147,9 +147,9 @@ static extractpdf_status extractpdf_pdf_page_box_resolve_imp(
         out_view->crop_pdf = out_view->media_pdf;
     }
     else {
-        status = extractpdf_pdf_page_box_parse_box(
+        status = quantapdf_pdf_page_box_parse_box(
             ctx, crop_obj, &out_view->crop_pdf);
-        if (status != EXTRACTPDF_OK)
+        if (status != QUANTAPDF_OK)
             return status;
     }
 
@@ -163,14 +163,14 @@ static extractpdf_status extractpdf_pdf_page_box_resolve_imp(
         out_view->media_pdf.y1, out_view->crop_pdf.y1);
     if (!(out_view->visible_pdf.x0 < out_view->visible_pdf.x1) ||
         !(out_view->visible_pdf.y0 < out_view->visible_pdf.y1))
-        return EXTRACTPDF_ERROR_FORMAT;
+        return QUANTAPDF_ERROR_FORMAT;
 
     if (rotate_obj != NULL) {
         if (!pdf_is_int(ctx, rotate_obj))
-            return EXTRACTPDF_ERROR_FORMAT;
+            return QUANTAPDF_ERROR_FORMAT;
         rotate = pdf_to_int(ctx, rotate_obj);
         if (rotate % 90 != 0)
-            return EXTRACTPDF_ERROR_FORMAT;
+            return QUANTAPDF_ERROR_FORMAT;
         rotate %= 360;
         if (rotate < 0)
             rotate += 360;
@@ -179,50 +179,50 @@ static extractpdf_status extractpdf_pdf_page_box_resolve_imp(
     user_unit_obj = pdf_dict_get(ctx, page_obj, PDF_NAME(UserUnit));
     if (user_unit_obj != NULL) {
         if (!pdf_is_number(ctx, user_unit_obj))
-            return EXTRACTPDF_ERROR_FORMAT;
+            return QUANTAPDF_ERROR_FORMAT;
         user_unit = pdf_to_real(ctx, user_unit_obj);
         if (!isfinite(user_unit) || !(user_unit > 0.0f))
-            return EXTRACTPDF_ERROR_FORMAT;
+            return QUANTAPDF_ERROR_FORMAT;
     }
 
     pdf_page_obj_transform(
         ctx, page_obj, NULL, &out_view->pdf_to_public);
 
-    status = extractpdf_pdf_page_box_public_rect(
+    status = quantapdf_pdf_page_box_public_rect(
         out_view->media_pdf, out_view->pdf_to_public,
         &out_view->media_public);
-    if (status != EXTRACTPDF_OK)
+    if (status != QUANTAPDF_OK)
         return status;
-    status = extractpdf_pdf_page_box_public_rect(
+    status = quantapdf_pdf_page_box_public_rect(
         out_view->visible_pdf, out_view->pdf_to_public,
         &out_view->visible_public);
-    if (status != EXTRACTPDF_OK)
+    if (status != QUANTAPDF_OK)
         return status;
 
     out_view->page_obj = page_obj;
     out_view->rotate_degrees = rotate;
     out_view->user_unit = user_unit;
-    return EXTRACTPDF_OK;
+    return QUANTAPDF_OK;
 }
 
-extractpdf_status extractpdf_pdf_page_box_resolve(
+quantapdf_status quantapdf_pdf_page_box_resolve(
     fz_context *ctx,
     pdf_document *document,
     int page_index,
-    extractpdf_pdf_page_box_view *out_view)
+    quantapdf_pdf_page_box_view *out_view)
 {
-    extractpdf_status status = EXTRACTPDF_OK;
+    quantapdf_status status = QUANTAPDF_OK;
     int caught_code = FZ_ERROR_NONE;
 
     if (ctx == NULL || document == NULL || out_view == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
     memset(out_view, 0, sizeof(*out_view));
 
     fz_var(status);
     fz_var(caught_code);
     fz_try(ctx)
     {
-        status = extractpdf_pdf_page_box_resolve_imp(
+        status = quantapdf_pdf_page_box_resolve_imp(
             ctx, document, page_index, out_view);
     }
     fz_catch(ctx)
@@ -232,6 +232,6 @@ extractpdf_status extractpdf_pdf_page_box_resolve(
     }
 
     if (caught_code != FZ_ERROR_NONE)
-        return extractpdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_mupdf(caught_code);
     return status;
 }

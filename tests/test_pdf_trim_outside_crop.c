@@ -1,4 +1,4 @@
-#include <extractpdf/extractpdf.h>
+#include <quantapdf/quantapdf.h>
 #include "test_pdf_trim_internal.h"
 
 #include <math.h>
@@ -22,7 +22,7 @@ static int close_float(float left, float right)
     return fabsf(left - right) < 0.01f;
 }
 
-static void check_rect_close(extractpdf_rect actual, extractpdf_rect expected)
+static void check_rect_close(quantapdf_rect actual, quantapdf_rect expected)
 {
     CHECK(close_float(actual.x0, expected.x0));
     CHECK(close_float(actual.y0, expected.y0));
@@ -50,44 +50,44 @@ static void sibling_fixture_path(
     memcpy(out_path + prefix, name, name_size + 1);
 }
 
-static extractpdf_document *open_document(const char *path)
+static quantapdf_document *open_document(const char *path)
 {
-    extractpdf_document *document = NULL;
+    quantapdf_document *document = NULL;
 
-    CHECK(extractpdf_open(path, NULL, &document) == EXTRACTPDF_OK);
+    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
     CHECK(document != NULL);
     return document;
 }
 
-static extractpdf_rect page_box(
-    extractpdf_document *document,
-    extractpdf_page_box box)
+static quantapdf_rect page_box(
+    quantapdf_document *document,
+    quantapdf_page_box box)
 {
-    extractpdf_page *page = NULL;
-    extractpdf_rect bounds = {0};
+    quantapdf_page *page = NULL;
+    quantapdf_rect bounds = {0};
 
-    CHECK(extractpdf_load_page(document, 0, &page) == EXTRACTPDF_OK);
+    CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
     CHECK(page != NULL);
-    CHECK(extractpdf_page_box_bounds(page, box, &bounds) == EXTRACTPDF_OK);
-    extractpdf_drop_page(page);
+    CHECK(quantapdf_page_box_bounds(page, box, &bounds) == QUANTAPDF_OK);
+    quantapdf_drop_page(page);
     return bounds;
 }
 
-static extractpdf_rect page_bounds(extractpdf_document *document)
+static quantapdf_rect page_bounds(quantapdf_document *document)
 {
-    extractpdf_page *page = NULL;
-    extractpdf_rect bounds = {0};
+    quantapdf_page *page = NULL;
+    quantapdf_rect bounds = {0};
 
-    CHECK(extractpdf_load_page(document, 0, &page) == EXTRACTPDF_OK);
+    CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
     CHECK(page != NULL);
-    CHECK(extractpdf_page_bounds(page, &bounds) == EXTRACTPDF_OK);
-    extractpdf_drop_page(page);
+    CHECK(quantapdf_page_bounds(page, &bounds) == QUANTAPDF_OK);
+    quantapdf_drop_page(page);
     return bounds;
 }
 
-static extractpdf_page_trim make_trim(extractpdf_rect bounds)
+static quantapdf_page_trim make_trim(quantapdf_rect bounds)
 {
-    extractpdf_page_trim trim;
+    quantapdf_page_trim trim;
 
     trim.struct_size = sizeof(trim);
     trim.page_index = 0;
@@ -209,39 +209,39 @@ int trim_run_outside_crop_test(void)
     static const float changed_media_raw[4] = {10, 10, 290, 190};
     char path[1024];
     const char *output_path = "trim-outside-crop-output.pdf";
-    extractpdf_document *document;
-    extractpdf_document *reopened;
-    extractpdf_output *baseline = NULL;
-    extractpdf_output *changed = NULL;
+    quantapdf_document *document;
+    quantapdf_document *reopened;
+    quantapdf_output *baseline = NULL;
+    quantapdf_output *changed = NULL;
     const unsigned char *baseline_data = NULL;
     const unsigned char *changed_data = NULL;
     size_t baseline_size = 0;
     size_t changed_size = 0;
-    extractpdf_rect source_media;
-    extractpdf_rect source_visible;
-    extractpdf_page_trim noop;
-    extractpdf_page_trim trim;
+    quantapdf_rect source_media;
+    quantapdf_rect source_visible;
+    quantapdf_page_trim noop;
+    quantapdf_page_trim trim;
 
     sibling_fixture_path("crop-cropbox-outside-media.pdf", path, sizeof(path));
     document = open_document(path);
-    source_media = page_box(document, EXTRACTPDF_PAGE_BOX_MEDIA);
+    source_media = page_box(document, QUANTAPDF_PAGE_BOX_MEDIA);
     source_visible = page_bounds(document);
-    check_rect_close(source_media, (extractpdf_rect){0, -10, 300, 190});
-    check_rect_close(source_visible, (extractpdf_rect){0, 0, 280, 190});
+    check_rect_close(source_media, (quantapdf_rect){0, -10, 300, 190});
+    check_rect_close(source_visible, (quantapdf_rect){0, 0, 280, 190});
 
     noop = make_trim(source_media);
-    CHECK(extractpdf_trim_pages(document, &noop, 1, &baseline) == EXTRACTPDF_OK);
+    CHECK(quantapdf_trim_pages(document, &noop, 1, &baseline) == QUANTAPDF_OK);
     CHECK(baseline != NULL);
-    CHECK(extractpdf_output_data(
-              baseline, &baseline_data, &baseline_size) == EXTRACTPDF_OK);
+    CHECK(quantapdf_output_data(
+              baseline, &baseline_data, &baseline_size) == QUANTAPDF_OK);
     CHECK(raw_expect_outside_relation(
               baseline_data, baseline_size, source_media_raw, crop_raw));
 
-    trim = make_trim((extractpdf_rect){10, 0, 290, 180});
-    CHECK(extractpdf_trim_pages(document, &trim, 1, &changed) == EXTRACTPDF_OK);
+    trim = make_trim((quantapdf_rect){10, 0, 290, 180});
+    CHECK(quantapdf_trim_pages(document, &trim, 1, &changed) == QUANTAPDF_OK);
     CHECK(changed != NULL);
-    CHECK(extractpdf_output_data(
-              changed, &changed_data, &changed_size) == EXTRACTPDF_OK);
+    CHECK(quantapdf_output_data(
+              changed, &changed_data, &changed_size) == QUANTAPDF_OK);
     CHECK(raw_expect_outside_relation(
               changed_data, changed_size, changed_media_raw, crop_raw));
     CHECK(trim_raw_expect_preserved_cropbox(
@@ -250,24 +250,24 @@ int trim_run_outside_crop_test(void)
               baseline_data, baseline_size, changed_data, changed_size));
 
     check_rect_close(
-        page_box(document, EXTRACTPDF_PAGE_BOX_MEDIA), source_media);
+        page_box(document, QUANTAPDF_PAGE_BOX_MEDIA), source_media);
     check_rect_close(page_bounds(document), source_visible);
 
     (void)remove(output_path);
     CHECK(write_bytes(output_path, changed_data, changed_size));
     reopened = open_document(output_path);
-    check_rect_close(page_bounds(reopened), (extractpdf_rect){0, 0, 270, 180});
+    check_rect_close(page_bounds(reopened), (quantapdf_rect){0, 0, 270, 180});
     check_rect_close(
-        page_box(reopened, EXTRACTPDF_PAGE_BOX_CROP),
-        (extractpdf_rect){0, 0, 270, 180});
+        page_box(reopened, QUANTAPDF_PAGE_BOX_CROP),
+        (quantapdf_rect){0, 0, 270, 180});
     check_rect_close(
-        page_box(reopened, EXTRACTPDF_PAGE_BOX_MEDIA),
-        (extractpdf_rect){0, 0, 280, 180});
-    extractpdf_close(reopened);
+        page_box(reopened, QUANTAPDF_PAGE_BOX_MEDIA),
+        (quantapdf_rect){0, 0, 280, 180});
+    quantapdf_close(reopened);
     (void)remove(output_path);
 
-    extractpdf_drop_output(changed);
-    extractpdf_drop_output(baseline);
-    extractpdf_close(document);
+    quantapdf_drop_output(changed);
+    quantapdf_drop_output(baseline);
+    quantapdf_close(document);
     return 1;
 }

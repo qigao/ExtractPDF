@@ -4,8 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-extractpdf_status extractpdf_extract_text(
-    extractpdf_page *page,
+quantapdf_status quantapdf_extract_text(
+    quantapdf_page *page,
     char **out_utf8,
     size_t *out_size)
 {
@@ -22,7 +22,7 @@ extractpdf_status extractpdf_extract_text(
         *out_size = 0;
 
     if (page == NULL || out_utf8 == NULL || out_size == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
 
     ctx = page->document->ctx;
     fz_var(buffer);
@@ -44,20 +44,20 @@ extractpdf_status extractpdf_extract_text(
 
     if (caught_code != FZ_ERROR_NONE) {
         fz_drop_buffer(ctx, buffer);
-        return extractpdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_mupdf(caught_code);
     }
     if (buffer == NULL) {
-        return EXTRACTPDF_ERROR_NOMEM;
+        return QUANTAPDF_ERROR_NOMEM;
     }
     if (size == SIZE_MAX) {
         fz_drop_buffer(ctx, buffer);
-        return EXTRACTPDF_ERROR_NOMEM;
+        return QUANTAPDF_ERROR_NOMEM;
     }
 
     copy = (char *)malloc(size + 1);
     if (copy == NULL) {
         fz_drop_buffer(ctx, buffer);
-        return EXTRACTPDF_ERROR_NOMEM;
+        return QUANTAPDF_ERROR_NOMEM;
     }
 
     if (size != 0)
@@ -67,10 +67,10 @@ extractpdf_status extractpdf_extract_text(
 
     *out_utf8 = copy;
     *out_size = size;
-    return EXTRACTPDF_OK;
+    return QUANTAPDF_OK;
 }
 
-void extractpdf_free(void *memory)
+void quantapdf_free(void *memory)
 {
     free(memory);
 }

@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static void extractpdf_copy_rect(extractpdf_rect *out, fz_rect in)
+static void quantapdf_copy_rect(quantapdf_rect *out, fz_rect in)
 {
     out->x0 = in.x0;
     out->y0 = in.y0;
@@ -13,7 +13,7 @@ static void extractpdf_copy_rect(extractpdf_rect *out, fz_rect in)
     out->y1 = in.y1;
 }
 
-static void extractpdf_union_rect(extractpdf_rect *dst, fz_rect in)
+static void quantapdf_union_rect(quantapdf_rect *dst, fz_rect in)
 {
     if (in.x0 < dst->x0)
         dst->x0 = in.x0;
@@ -25,7 +25,7 @@ static void extractpdf_union_rect(extractpdf_rect *dst, fz_rect in)
         dst->y1 = in.y1;
 }
 
-static void *extractpdf_calloc_array(size_t count, size_t element_size)
+static void *quantapdf_calloc_array(size_t count, size_t element_size)
 {
     if (count == 0)
         return NULL;
@@ -34,7 +34,7 @@ static void *extractpdf_calloc_array(size_t count, size_t element_size)
     return calloc(count, element_size);
 }
 
-static int extractpdf_increment_size(size_t *value)
+static int quantapdf_increment_size(size_t *value)
 {
     if (*value == SIZE_MAX)
         return 0;
@@ -42,7 +42,7 @@ static int extractpdf_increment_size(size_t *value)
     return 1;
 }
 
-static size_t extractpdf_utf8_encode(int value, char out[4])
+static size_t quantapdf_utf8_encode(int value, char out[4])
 {
     uint32_t rune;
 
@@ -75,7 +75,7 @@ static size_t extractpdf_utf8_encode(int value, char out[4])
     return 4;
 }
 
-static uint32_t extractpdf_normalize_codepoint(int value)
+static uint32_t quantapdf_normalize_codepoint(int value)
 {
     if (value < 0 || value > 0x10ffff ||
         (value >= 0xd800 && value <= 0xdfff))
@@ -83,7 +83,7 @@ static uint32_t extractpdf_normalize_codepoint(int value)
     return (uint32_t)value;
 }
 
-static void extractpdf_dispose_text_page(extractpdf_text_page *text)
+static void quantapdf_dispose_text_page(quantapdf_text_page *text)
 {
     if (text == NULL)
         return;
@@ -96,7 +96,7 @@ static void extractpdf_dispose_text_page(extractpdf_text_page *text)
     free(text);
 }
 
-static int extractpdf_count_structured_text(
+static int quantapdf_count_structured_text(
     const fz_stext_page *source,
     size_t *out_blocks,
     size_t *out_lines,
@@ -112,16 +112,16 @@ static int extractpdf_count_structured_text(
 
         if (block->type != FZ_STEXT_BLOCK_TEXT)
             continue;
-        if (!extractpdf_increment_size(&blocks))
+        if (!quantapdf_increment_size(&blocks))
             return 0;
 
         for (line = block->u.t.first_line; line != NULL; line = line->next) {
             const fz_stext_char *ch;
 
-            if (!extractpdf_increment_size(&lines))
+            if (!quantapdf_increment_size(&lines))
                 return 0;
             for (ch = line->first_char; ch != NULL; ch = ch->next) {
-                if (!extractpdf_increment_size(&chars))
+                if (!quantapdf_increment_size(&chars))
                     return 0;
             }
         }
@@ -133,29 +133,29 @@ static int extractpdf_count_structured_text(
     return 1;
 }
 
-static extractpdf_text_page *extractpdf_allocate_text_page(
+static quantapdf_text_page *quantapdf_allocate_text_page(
     size_t block_count,
     size_t line_count,
     size_t char_count)
 {
-    extractpdf_text_page *text;
+    quantapdf_text_page *text;
     size_t string_capacity;
 
     if (char_count > (SIZE_MAX - 1) / 5)
         return NULL;
     string_capacity = char_count * 5 + 1;
 
-    text = (extractpdf_text_page *)calloc(1, sizeof(*text));
+    text = (quantapdf_text_page *)calloc(1, sizeof(*text));
     if (text == NULL)
         return NULL;
 
-    text->blocks = (extractpdf_text_block_internal *)extractpdf_calloc_array(
+    text->blocks = (quantapdf_text_block_internal *)quantapdf_calloc_array(
         block_count, sizeof(*text->blocks));
-    text->lines = (extractpdf_text_line_internal *)extractpdf_calloc_array(
+    text->lines = (quantapdf_text_line_internal *)quantapdf_calloc_array(
         line_count, sizeof(*text->lines));
-    text->spans = (extractpdf_text_span_internal *)extractpdf_calloc_array(
+    text->spans = (quantapdf_text_span_internal *)quantapdf_calloc_array(
         char_count, sizeof(*text->spans));
-    text->chars = (extractpdf_text_char_internal *)extractpdf_calloc_array(
+    text->chars = (quantapdf_text_char_internal *)quantapdf_calloc_array(
         char_count, sizeof(*text->chars));
     text->strings = (char *)malloc(string_capacity);
 
@@ -163,7 +163,7 @@ static extractpdf_text_page *extractpdf_allocate_text_page(
         (line_count != 0 && text->lines == NULL) ||
         (char_count != 0 && (text->spans == NULL || text->chars == NULL)) ||
         text->strings == NULL) {
-        extractpdf_dispose_text_page(text);
+        quantapdf_dispose_text_page(text);
         return NULL;
     }
 
@@ -174,7 +174,7 @@ static extractpdf_text_page *extractpdf_allocate_text_page(
     return text;
 }
 
-static int extractpdf_same_style(
+static int quantapdf_same_style(
     const fz_stext_char *ch,
     fz_font *font,
     float size,
@@ -189,8 +189,8 @@ static int extractpdf_same_style(
         ch->flags == flags;
 }
 
-static void extractpdf_project_structured_text(
-    extractpdf_text_page *text,
+static void quantapdf_project_structured_text(
+    quantapdf_text_page *text,
     const fz_stext_page *source)
 {
     const fz_stext_block *source_block;
@@ -204,20 +204,20 @@ static void extractpdf_project_structured_text(
          source_block != NULL;
          source_block = source_block->next) {
         const fz_stext_line *source_line;
-        extractpdf_text_block_internal *block;
+        quantapdf_text_block_internal *block;
 
         if (source_block->type != FZ_STEXT_BLOCK_TEXT)
             continue;
 
         block = &text->blocks[block_index++];
-        extractpdf_copy_rect(&block->bounds, source_block->bbox);
+        quantapdf_copy_rect(&block->bounds, source_block->bbox);
         block->first_line = line_index;
 
         for (source_line = source_block->u.t.first_line;
              source_line != NULL;
              source_line = source_line->next) {
             const fz_stext_char *source_char;
-            extractpdf_text_line_internal *line = &text->lines[line_index++];
+            quantapdf_text_line_internal *line = &text->lines[line_index++];
             fz_font *style_font = NULL;
             float style_size = 0.0f;
             uint32_t style_argb = 0;
@@ -226,7 +226,7 @@ static void extractpdf_project_structured_text(
             size_t current_span_index = 0;
             int have_span = 0;
 
-            extractpdf_copy_rect(&line->bounds, source_line->bbox);
+            quantapdf_copy_rect(&line->bounds, source_line->bbox);
             line->direction_x = source_line->dir.x;
             line->direction_y = source_line->dir.y;
             line->writing_mode = source_line->wmode;
@@ -235,14 +235,14 @@ static void extractpdf_project_structured_text(
             for (source_char = source_line->first_char;
                  source_char != NULL;
                  source_char = source_char->next) {
-                extractpdf_text_span_internal *span;
-                extractpdf_text_char_internal *ch;
+                quantapdf_text_span_internal *span;
+                quantapdf_text_char_internal *ch;
                 fz_rect char_bounds;
                 char encoded[4];
                 size_t encoded_size;
 
                 if (!have_span ||
-                    !extractpdf_same_style(
+                    !quantapdf_same_style(
                         source_char,
                         style_font,
                         style_size,
@@ -255,7 +255,7 @@ static void extractpdf_project_structured_text(
                     current_span_index = span_index++;
                     span = &text->spans[current_span_index];
                     char_bounds = fz_rect_from_quad(source_char->quad);
-                    extractpdf_copy_rect(&span->bounds, char_bounds);
+                    quantapdf_copy_rect(&span->bounds, char_bounds);
                     span->font_size = source_char->size;
                     span->argb = source_char->argb;
                     span->bidi_level = source_char->bidi;
@@ -273,18 +273,18 @@ static void extractpdf_project_structured_text(
                 else {
                     span = &text->spans[current_span_index];
                     char_bounds = fz_rect_from_quad(source_char->quad);
-                    extractpdf_union_rect(&span->bounds, char_bounds);
+                    quantapdf_union_rect(&span->bounds, char_bounds);
                 }
 
                 span = &text->spans[current_span_index];
                 ch = &text->chars[char_index];
-                ch->codepoint = extractpdf_normalize_codepoint(source_char->c);
+                ch->codepoint = quantapdf_normalize_codepoint(source_char->c);
                 ch->bidi = source_char->bidi;
                 ch->flags = source_char->flags;
                 ch->quad = source_char->quad;
                 ch->span_index = current_span_index;
 
-                encoded_size = extractpdf_utf8_encode(source_char->c, encoded);
+                encoded_size = quantapdf_utf8_encode(source_char->c, encoded);
                 memcpy(text->strings + string_pos, encoded, encoded_size);
                 string_pos += encoded_size;
                 span->text_size += encoded_size;
@@ -307,24 +307,24 @@ static void extractpdf_project_structured_text(
         text->strings[0] = '\0';
 }
 
-extractpdf_status extractpdf_extract_structured_text(
-    extractpdf_page *page,
-    extractpdf_text_page **out_text)
+quantapdf_status quantapdf_extract_structured_text(
+    quantapdf_page *page,
+    quantapdf_text_page **out_text)
 {
     fz_context *ctx;
     fz_stext_page *source = NULL;
-    extractpdf_text_page *text = NULL;
+    quantapdf_text_page *text = NULL;
     size_t block_count = 0;
     size_t line_count = 0;
     size_t char_count = 0;
     int caught_code = FZ_ERROR_NONE;
 
     if (out_text == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
     *out_text = NULL;
 
     if (page == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
 
     ctx = page->document->ctx;
     fz_var(source);
@@ -341,86 +341,86 @@ extractpdf_status extractpdf_extract_structured_text(
     }
 
     if (caught_code != FZ_ERROR_NONE)
-        return extractpdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_mupdf(caught_code);
     if (source == NULL)
-        return EXTRACTPDF_ERROR_NOMEM;
+        return QUANTAPDF_ERROR_NOMEM;
 
-    if (!extractpdf_count_structured_text(
+    if (!quantapdf_count_structured_text(
             source, &block_count, &line_count, &char_count)) {
         fz_drop_stext_page(ctx, source);
-        return EXTRACTPDF_ERROR_NOMEM;
+        return QUANTAPDF_ERROR_NOMEM;
     }
 
-    text = extractpdf_allocate_text_page(block_count, line_count, char_count);
+    text = quantapdf_allocate_text_page(block_count, line_count, char_count);
     if (text == NULL) {
         fz_drop_stext_page(ctx, source);
-        return EXTRACTPDF_ERROR_NOMEM;
+        return QUANTAPDF_ERROR_NOMEM;
     }
 
-    extractpdf_project_structured_text(text, source);
+    quantapdf_project_structured_text(text, source);
     fz_drop_stext_page(ctx, source);
 
     *out_text = text;
-    return EXTRACTPDF_OK;
+    return QUANTAPDF_OK;
 }
 
-extractpdf_status extractpdf_text_block_count(
-    const extractpdf_text_page *text,
+quantapdf_status quantapdf_text_block_count(
+    const quantapdf_text_page *text,
     size_t *out_count)
 {
     if (out_count == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
     *out_count = 0;
     if (text == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
 
     *out_count = text->block_count;
-    return EXTRACTPDF_OK;
+    return QUANTAPDF_OK;
 }
 
-extractpdf_status extractpdf_text_get_block_info(
-    const extractpdf_text_page *text,
+quantapdf_status quantapdf_text_get_block_info(
+    const quantapdf_text_page *text,
     size_t block_index,
-    extractpdf_text_block_info *out_info)
+    quantapdf_text_block_info *out_info)
 {
     size_t minimum_size;
 
     if (out_info == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
-    minimum_size = offsetof(extractpdf_text_block_info, bounds) +
+        return QUANTAPDF_ERROR_ARGUMENT;
+    minimum_size = offsetof(quantapdf_text_block_info, bounds) +
         sizeof(out_info->bounds);
     if (out_info->struct_size < minimum_size)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
 
-    out_info->bounds = (extractpdf_rect){ 0 };
+    out_info->bounds = (quantapdf_rect){ 0 };
     if (text == NULL || block_index >= text->block_count)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
 
     out_info->bounds = text->blocks[block_index].bounds;
-    return EXTRACTPDF_OK;
+    return QUANTAPDF_OK;
 }
 
-extractpdf_status extractpdf_text_line_count(
-    const extractpdf_text_page *text,
+quantapdf_status quantapdf_text_line_count(
+    const quantapdf_text_page *text,
     size_t block_index,
     size_t *out_count)
 {
     if (out_count == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
     *out_count = 0;
     if (text == NULL || block_index >= text->block_count)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
 
     *out_count = text->blocks[block_index].line_count;
-    return EXTRACTPDF_OK;
+    return QUANTAPDF_OK;
 }
 
-static const extractpdf_text_line_internal *extractpdf_lookup_line(
-    const extractpdf_text_page *text,
+static const quantapdf_text_line_internal *quantapdf_lookup_line(
+    const quantapdf_text_page *text,
     size_t block_index,
     size_t line_index)
 {
-    const extractpdf_text_block_internal *block;
+    const quantapdf_text_block_internal *block;
 
     if (text == NULL || block_index >= text->block_count)
         return NULL;
@@ -430,132 +430,132 @@ static const extractpdf_text_line_internal *extractpdf_lookup_line(
     return &text->lines[block->first_line + line_index];
 }
 
-extractpdf_status extractpdf_text_get_line_info(
-    const extractpdf_text_page *text,
+quantapdf_status quantapdf_text_get_line_info(
+    const quantapdf_text_page *text,
     size_t block_index,
     size_t line_index,
-    extractpdf_text_line_info *out_info)
+    quantapdf_text_line_info *out_info)
 {
-    const extractpdf_text_line_internal *line;
+    const quantapdf_text_line_internal *line;
     size_t minimum_size;
 
     if (out_info == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
-    minimum_size = offsetof(extractpdf_text_line_info, writing_mode) +
+        return QUANTAPDF_ERROR_ARGUMENT;
+    minimum_size = offsetof(quantapdf_text_line_info, writing_mode) +
         sizeof(out_info->writing_mode);
     if (out_info->struct_size < minimum_size)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
 
-    out_info->bounds = (extractpdf_rect){ 0 };
+    out_info->bounds = (quantapdf_rect){ 0 };
     out_info->direction_x = 0.0f;
     out_info->direction_y = 0.0f;
     out_info->writing_mode = 0;
 
-    line = extractpdf_lookup_line(text, block_index, line_index);
+    line = quantapdf_lookup_line(text, block_index, line_index);
     if (line == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
 
     out_info->bounds = line->bounds;
     out_info->direction_x = line->direction_x;
     out_info->direction_y = line->direction_y;
     out_info->writing_mode = line->writing_mode;
-    return EXTRACTPDF_OK;
+    return QUANTAPDF_OK;
 }
 
-extractpdf_status extractpdf_text_span_count(
-    const extractpdf_text_page *text,
+quantapdf_status quantapdf_text_span_count(
+    const quantapdf_text_page *text,
     size_t block_index,
     size_t line_index,
     size_t *out_count)
 {
-    const extractpdf_text_line_internal *line;
+    const quantapdf_text_line_internal *line;
 
     if (out_count == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
     *out_count = 0;
 
-    line = extractpdf_lookup_line(text, block_index, line_index);
+    line = quantapdf_lookup_line(text, block_index, line_index);
     if (line == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
 
     *out_count = line->span_count;
-    return EXTRACTPDF_OK;
+    return QUANTAPDF_OK;
 }
 
-static const extractpdf_text_span_internal *extractpdf_lookup_span(
-    const extractpdf_text_page *text,
+static const quantapdf_text_span_internal *quantapdf_lookup_span(
+    const quantapdf_text_page *text,
     size_t block_index,
     size_t line_index,
     size_t span_index)
 {
-    const extractpdf_text_line_internal *line;
+    const quantapdf_text_line_internal *line;
 
-    line = extractpdf_lookup_line(text, block_index, line_index);
+    line = quantapdf_lookup_line(text, block_index, line_index);
     if (line == NULL || span_index >= line->span_count)
         return NULL;
     return &text->spans[line->first_span + span_index];
 }
 
-extractpdf_status extractpdf_text_get_span_info(
-    const extractpdf_text_page *text,
+quantapdf_status quantapdf_text_get_span_info(
+    const quantapdf_text_page *text,
     size_t block_index,
     size_t line_index,
     size_t span_index,
-    extractpdf_text_span_info *out_info)
+    quantapdf_text_span_info *out_info)
 {
-    const extractpdf_text_span_internal *span;
+    const quantapdf_text_span_internal *span;
     size_t minimum_size;
 
     if (out_info == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
-    minimum_size = offsetof(extractpdf_text_span_info, bidi_level) +
+        return QUANTAPDF_ERROR_ARGUMENT;
+    minimum_size = offsetof(quantapdf_text_span_info, bidi_level) +
         sizeof(out_info->bidi_level);
     if (out_info->struct_size < minimum_size)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
 
-    out_info->bounds = (extractpdf_rect){ 0 };
+    out_info->bounds = (quantapdf_rect){ 0 };
     out_info->font_size = 0.0f;
     out_info->argb = 0;
     out_info->bidi_level = 0;
 
-    span = extractpdf_lookup_span(text, block_index, line_index, span_index);
+    span = quantapdf_lookup_span(text, block_index, line_index, span_index);
     if (span == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
 
     out_info->bounds = span->bounds;
     out_info->font_size = span->font_size;
     out_info->argb = span->argb;
     out_info->bidi_level = span->bidi_level;
-    return EXTRACTPDF_OK;
+    return QUANTAPDF_OK;
 }
 
-extractpdf_status extractpdf_text_span_text(
-    const extractpdf_text_page *text,
+quantapdf_status quantapdf_text_span_text(
+    const quantapdf_text_page *text,
     size_t block_index,
     size_t line_index,
     size_t span_index,
     const char **out_utf8,
     size_t *out_size)
 {
-    const extractpdf_text_span_internal *span;
+    const quantapdf_text_span_internal *span;
 
     if (out_utf8 != NULL)
         *out_utf8 = NULL;
     if (out_size != NULL)
         *out_size = 0;
     if (out_utf8 == NULL || out_size == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
 
-    span = extractpdf_lookup_span(text, block_index, line_index, span_index);
+    span = quantapdf_lookup_span(text, block_index, line_index, span_index);
     if (span == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
 
     *out_utf8 = text->strings + span->text_offset;
     *out_size = span->text_size;
-    return EXTRACTPDF_OK;
+    return QUANTAPDF_OK;
 }
 
-void extractpdf_drop_text_page(extractpdf_text_page *text)
+void quantapdf_drop_text_page(quantapdf_text_page *text)
 {
-    extractpdf_dispose_text_page(text);
+    quantapdf_dispose_text_page(text);
 }

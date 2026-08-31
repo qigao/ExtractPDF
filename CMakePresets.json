@@ -1,0 +1,39 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 23,
+    "patch": 0
+  },
+  "include": [
+    "presets/BuildPresets.json",
+    "presets/TestPresets.json"
+  ],
+  "configurePresets": [
+    {
+      "name": "base-win-dev-user",
+      "hidden": true,
+      "inherits": "dev-win-msvc-ninja"
+    },
+    {
+      "name": "base-win-release-user",
+      "hidden": true,
+      "inherits": "release-win-msvc-ninja"
+    },
+    {
+      "name": "base-linux-dev-user",
+      "hidden": true,
+      "inherits": "dev-linux-ninja"
+    },
+    {
+      "name": "base-linux-release-user",
+      "hidden": true,
+      "inherits": "release-linux-ninja"
+    },
+    {
+      "name": "base-macos-release-user",
+      "hidden": true,
+      "inherits": "release-macos-ninja"
+    }
+  ]
+}

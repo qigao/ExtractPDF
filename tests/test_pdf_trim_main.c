@@ -1,6 +1,6 @@
 #include "test_pdf_trim_internal.h"
 
-int extractpdf_pdf_trim_base_main(void);
+int quantapdf_pdf_trim_base_main(void);
 
 int main(void)
 {
@@ -12,5 +12,5 @@ int main(void)
         return 1;
     if (!trim_run_outside_crop_test())
         return 1;
-    return extractpdf_pdf_trim_base_main();
+    return quantapdf_pdf_trim_base_main();
 }

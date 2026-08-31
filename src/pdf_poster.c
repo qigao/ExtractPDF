@@ -9,12 +9,70 @@ static void poster_discard_log(void *user, const char *message)
     (void)message;
 }
 
+static quantapdf_status poster_run_preflight(
+    fz_context *ctx,
+    pdf_document *document,
+    quantapdf_pdf_poster_plan *plan,
+    int *test_fault)
+{
+    quantapdf_status status = QUANTAPDF_OK;
+    int caught_code = FZ_ERROR_NONE;
+
+    fz_var(status);
+    fz_var(caught_code);
+    fz_try(ctx)
+    {
+#if defined(QUANTAPDF_TESTING)
+        if (test_fault != NULL &&
+            *test_fault == QUANTAPDF_TEST_POSTER_FAULT_ANNOTATION_PREFLIGHT) {
+            *test_fault = QUANTAPDF_TEST_POSTER_FAULT_NONE;
+            fz_throw(ctx, FZ_ERROR_FORMAT, "poster annotation preflight fault");
+        }
+#else
+        (void)test_fault;
+#endif
+        status = quantapdf_pdf_poster_annotations_preflight(
+            ctx, document, plan);
+        if (status == QUANTAPDF_OK) {
+#if defined(QUANTAPDF_TESTING)
+            if (test_fault != NULL &&
+                *test_fault == QUANTAPDF_TEST_POSTER_FAULT_WIDGET_PREFLIGHT) {
+                *test_fault = QUANTAPDF_TEST_POSTER_FAULT_NONE;
+                fz_throw(ctx, FZ_ERROR_FORMAT, "poster widget preflight fault");
+            }
+#endif
+            status = quantapdf_pdf_poster_widget_provenance_preflight(
+                ctx, document, plan);
+        }
+        if (status == QUANTAPDF_OK) {
+#if defined(QUANTAPDF_TESTING)
+            if (test_fault != NULL &&
+                *test_fault == QUANTAPDF_TEST_POSTER_FAULT_NAVIGATION_PREFLIGHT) {
+                *test_fault = QUANTAPDF_TEST_POSTER_FAULT_NONE;
+                fz_throw(ctx, FZ_ERROR_FORMAT, "poster navigation preflight fault");
+            }
+#endif
+            status = quantapdf_pdf_poster_navigation_preflight(
+                ctx, document, plan);
+        }
+    }
+    fz_catch(ctx)
+    {
+        caught_code = fz_caught(ctx);
+        fz_report_error(ctx);
+    }
+
+    if (caught_code != FZ_ERROR_NONE)
+        return quantapdf_status_from_mupdf(caught_code);
+    return status;
+}
+
 static pdf_obj *poster_create_tile_page(
     fz_context *ctx,
     pdf_document *document,
     pdf_obj *source_page,
-    const extractpdf_pdf_poster_split_plan *split,
-    const extractpdf_pdf_poster_tile_plan *tile)
+    const quantapdf_pdf_poster_split_plan *split,
+    const quantapdf_pdf_poster_tile_plan *tile)
 {
     pdf_obj *page_dict = NULL;
     pdf_obj *page_ref = NULL;
@@ -66,7 +124,7 @@ static pdf_obj *poster_create_tile_page(
 
 static void poster_drop_private_splits(
     fz_context *ctx,
-    extractpdf_pdf_poster_private_split *runtime,
+    quantapdf_pdf_poster_private_split *runtime,
     size_t split_count)
 {
     size_t split_index;
@@ -84,31 +142,31 @@ static void poster_drop_private_splits(
     free(runtime);
 }
 
-static extractpdf_status poster_build_private_tiles(
+static quantapdf_status poster_build_private_tiles(
     fz_context *ctx,
     pdf_document *document,
-    const extractpdf_pdf_poster_plan *plan,
-    extractpdf_pdf_poster_private_split **out_runtime)
+    const quantapdf_pdf_poster_plan *plan,
+    quantapdf_pdf_poster_private_split **out_runtime)
 {
-    extractpdf_pdf_poster_private_split *runtime;
+    quantapdf_pdf_poster_private_split *runtime;
     size_t split_index;
     int caught_code = FZ_ERROR_NONE;
 
     *out_runtime = NULL;
     if (plan->split_count > SIZE_MAX / sizeof(*runtime))
-        return EXTRACTPDF_ERROR_NOMEM;
-    runtime = (extractpdf_pdf_poster_private_split *)calloc(
+        return QUANTAPDF_ERROR_NOMEM;
+    runtime = (quantapdf_pdf_poster_private_split *)calloc(
         plan->split_count, sizeof(*runtime));
     if (runtime == NULL)
-        return EXTRACTPDF_ERROR_NOMEM;
+        return QUANTAPDF_ERROR_NOMEM;
 
     fz_var(caught_code);
     fz_try(ctx)
     {
         for (split_index = 0; split_index < plan->split_count; ++split_index) {
-            const extractpdf_pdf_poster_split_plan *split =
+            const quantapdf_pdf_poster_split_plan *split =
                 &plan->splits[split_index];
-            extractpdf_pdf_poster_private_split *private_split =
+            quantapdf_pdf_poster_private_split *private_split =
                 &runtime[split_index];
             size_t tile_index;
 
@@ -144,17 +202,17 @@ static extractpdf_status poster_build_private_tiles(
 
     if (caught_code != FZ_ERROR_NONE) {
         poster_drop_private_splits(ctx, runtime, plan->split_count);
-        return extractpdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_mupdf(caught_code);
     }
     *out_runtime = runtime;
-    return EXTRACTPDF_OK;
+    return QUANTAPDF_OK;
 }
 
-static extractpdf_status poster_splice_private_tiles(
+static quantapdf_status poster_splice_private_tiles(
     fz_context *ctx,
     pdf_document *document,
-    const extractpdf_pdf_poster_plan *plan,
-    extractpdf_pdf_poster_private_split *runtime)
+    const quantapdf_pdf_poster_plan *plan,
+    quantapdf_pdf_poster_private_split *runtime)
 {
     size_t reverse;
     int caught_code = FZ_ERROR_NONE;
@@ -164,7 +222,7 @@ static extractpdf_status poster_splice_private_tiles(
     {
         for (reverse = plan->split_count; reverse > 0; --reverse) {
             size_t split_index = reverse - 1;
-            const extractpdf_pdf_poster_split_plan *split =
+            const quantapdf_pdf_poster_split_plan *split =
                 &plan->splits[split_index];
             size_t tile_index;
             int source_index;
@@ -190,35 +248,35 @@ static extractpdf_status poster_splice_private_tiles(
     }
 
     if (caught_code != FZ_ERROR_NONE)
-        return extractpdf_status_from_mupdf(caught_code);
-    return EXTRACTPDF_OK;
+        return quantapdf_status_from_mupdf(caught_code);
+    return QUANTAPDF_OK;
 }
 
-static extractpdf_status poster_transform_changed(
+static quantapdf_status poster_transform_changed(
     fz_context *source_ctx,
     pdf_document *source_pdf,
-    const extractpdf_page_poster_split *splits,
+    const quantapdf_page_poster_split *splits,
     size_t split_count,
-    extractpdf_pdf_poster_plan *source_plan,
-    extractpdf_output **out_output)
+    quantapdf_pdf_poster_plan *source_plan,
+    quantapdf_output **out_output)
 {
-    extractpdf_output *seed = NULL;
+    quantapdf_output *seed = NULL;
     fz_context *private_ctx = NULL;
     fz_stream *stream = NULL;
     pdf_document *private_document = NULL;
-    extractpdf_pdf_poster_plan *private_plan = NULL;
-    extractpdf_pdf_poster_private_split *runtime = NULL;
-    extractpdf_status status;
+    quantapdf_pdf_poster_plan *private_plan = NULL;
+    quantapdf_pdf_poster_private_split *runtime = NULL;
+    quantapdf_status status;
     int caught_code = FZ_ERROR_NONE;
 
-    status = extractpdf_serialize_pdf(source_ctx, source_pdf, &seed);
-    if (status != EXTRACTPDF_OK)
+    status = quantapdf_serialize_pdf(source_ctx, source_pdf, &seed);
+    if (status != QUANTAPDF_OK)
         return status;
 
     private_ctx = fz_new_context(NULL, NULL, FZ_STORE_DEFAULT);
     if (private_ctx == NULL) {
-        extractpdf_drop_output(seed);
-        return EXTRACTPDF_ERROR_NOMEM;
+        quantapdf_drop_output(seed);
+        return QUANTAPDF_ERROR_NOMEM;
     }
     fz_set_error_callback(private_ctx, poster_discard_log, NULL);
     fz_set_warning_callback(private_ctx, poster_discard_log, NULL);
@@ -243,119 +301,109 @@ static extractpdf_status poster_transform_changed(
         fz_report_error(private_ctx);
     }
     if (caught_code != FZ_ERROR_NONE) {
-        status = extractpdf_status_from_mupdf(caught_code);
+        status = quantapdf_status_from_mupdf(caught_code);
         goto cleanup;
     }
 
-    status = extractpdf_pdf_poster_check_security(private_ctx, private_document);
-    if (status != EXTRACTPDF_OK)
+    status = quantapdf_pdf_poster_check_security(private_ctx, private_document);
+    if (status != QUANTAPDF_OK)
         goto cleanup;
-    status = extractpdf_pdf_poster_build_plan(
+    status = quantapdf_pdf_poster_build_plan(
         private_ctx,
         private_document,
         splits,
         split_count,
         1,
         &private_plan);
-    if (status != EXTRACTPDF_OK)
+    if (status != QUANTAPDF_OK)
         goto cleanup;
-    status = extractpdf_pdf_poster_annotations_preflight(
-        private_ctx, private_document, private_plan);
-    if (status != EXTRACTPDF_OK)
-        goto cleanup;
-    status = extractpdf_pdf_poster_widget_provenance_preflight(
-        private_ctx, private_document, private_plan);
-    if (status != EXTRACTPDF_OK)
-        goto cleanup;
-    status = extractpdf_pdf_poster_navigation_preflight(
-        private_ctx, private_document, private_plan);
-    if (status != EXTRACTPDF_OK)
+    status = poster_run_preflight(
+        private_ctx, private_document, private_plan, NULL);
+    if (status != QUANTAPDF_OK)
         goto cleanup;
 
     source_plan->expansion_policy_applied = 1;
     private_plan->expansion_policy_applied = 1;
-    if (!extractpdf_pdf_poster_plan_equivalent(source_plan, private_plan) ||
-        !extractpdf_pdf_poster_annotation_plans_equivalent(
+    if (!quantapdf_pdf_poster_plan_equivalent(source_plan, private_plan) ||
+        !quantapdf_pdf_poster_annotation_plans_equivalent(
             source_plan, private_plan) ||
-        !extractpdf_pdf_poster_navigation_plans_equivalent(
+        !quantapdf_pdf_poster_navigation_plans_equivalent(
             source_plan, private_plan)) {
-        status = EXTRACTPDF_ERROR_FORMAT;
+        status = QUANTAPDF_ERROR_FORMAT;
         goto cleanup;
     }
 
     status = poster_build_private_tiles(
         private_ctx, private_document, private_plan, &runtime);
-    if (status != EXTRACTPDF_OK)
+    if (status != QUANTAPDF_OK)
         goto cleanup;
-    status = extractpdf_pdf_poster_apply_navigation(
+    status = quantapdf_pdf_poster_apply_navigation(
         private_ctx, private_document, private_plan, runtime);
-    if (status != EXTRACTPDF_OK)
+    if (status != QUANTAPDF_OK)
         goto cleanup;
-    status = extractpdf_pdf_poster_apply_annotations(
+    status = quantapdf_pdf_poster_apply_annotations(
         private_ctx, private_document, private_plan, runtime);
-    if (status != EXTRACTPDF_OK)
+    if (status != QUANTAPDF_OK)
         goto cleanup;
     status = poster_splice_private_tiles(
         private_ctx, private_document, private_plan, runtime);
-    if (status != EXTRACTPDF_OK)
+    if (status != QUANTAPDF_OK)
         goto cleanup;
 
-    status = extractpdf_serialize_pdf(
+    status = quantapdf_serialize_pdf(
         private_ctx, private_document, out_output);
 
 cleanup:
     poster_drop_private_splits(
         private_ctx, runtime, private_plan != NULL ? private_plan->split_count : 0);
-    extractpdf_pdf_poster_drop_annotation_plans(private_plan);
-    extractpdf_pdf_poster_drop_plan(private_plan);
+    quantapdf_pdf_poster_drop_annotation_plans(private_plan);
+    quantapdf_pdf_poster_drop_plan(private_plan);
     pdf_drop_document(private_ctx, private_document);
     fz_drop_context(private_ctx);
-    extractpdf_drop_output(seed);
+    quantapdf_drop_output(seed);
     return status;
 }
 
-extractpdf_status extractpdf_poster_split_pages(
-    extractpdf_document *document,
-    const extractpdf_page_poster_split *splits,
+quantapdf_status quantapdf_poster_split_pages(
+    quantapdf_document *document,
+    const quantapdf_page_poster_split *splits,
     size_t split_count,
-    extractpdf_output **out_output)
+    quantapdf_output **out_output)
 {
     pdf_document *source_pdf;
-    extractpdf_pdf_poster_plan *plan = NULL;
-    extractpdf_status status;
+    quantapdf_pdf_poster_plan *plan = NULL;
+    quantapdf_status status;
 
     if (out_output == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
     *out_output = NULL;
 
     if (document == NULL || document->ctx == NULL || document->doc == NULL ||
         splits == NULL || split_count == 0)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
 
     source_pdf = pdf_document_from_fz_document(document->ctx, document->doc);
     if (source_pdf == NULL)
-        return EXTRACTPDF_ERROR_UNSUPPORTED;
+        return QUANTAPDF_ERROR_UNSUPPORTED;
 
-    status = extractpdf_pdf_poster_check_security(document->ctx, source_pdf);
-    if (status != EXTRACTPDF_OK)
+    status = quantapdf_pdf_poster_check_security(document->ctx, source_pdf);
+    if (status != QUANTAPDF_OK)
         return status;
-    status = extractpdf_pdf_poster_build_plan(
+    status = quantapdf_pdf_poster_build_plan(
         document->ctx, source_pdf, splits, split_count, 0, &plan);
-    if (status != EXTRACTPDF_OK)
+    if (status != QUANTAPDF_OK)
         return status;
 
     if (!plan->any_changed) {
-        status = extractpdf_serialize_pdf(document->ctx, source_pdf, out_output);
+        status = quantapdf_serialize_pdf(document->ctx, source_pdf, out_output);
     } else {
-        status = extractpdf_pdf_poster_annotations_preflight(
-            document->ctx, source_pdf, plan);
-        if (status == EXTRACTPDF_OK)
-            status = extractpdf_pdf_poster_widget_provenance_preflight(
-                document->ctx, source_pdf, plan);
-        if (status == EXTRACTPDF_OK)
-            status = extractpdf_pdf_poster_navigation_preflight(
-                document->ctx, source_pdf, plan);
-        if (status == EXTRACTPDF_OK) {
+        int *test_fault = NULL;
+#if defined(QUANTAPDF_TESTING)
+        test_fault = &document->test_poster_fault;
+#endif
+        status = poster_run_preflight(
+            document->ctx, source_pdf, plan, test_fault);
+        if (status == QUANTAPDF_OK) {
             plan->expansion_policy_applied = 1;
             status = poster_transform_changed(
                 document->ctx,
@@ -367,7 +415,7 @@ extractpdf_status extractpdf_poster_split_pages(
         }
     }
 
-    extractpdf_pdf_poster_drop_annotation_plans(plan);
-    extractpdf_pdf_poster_drop_plan(plan);
+    quantapdf_pdf_poster_drop_annotation_plans(plan);
+    quantapdf_pdf_poster_drop_plan(plan);
     return status;
 }

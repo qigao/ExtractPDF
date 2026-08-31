@@ -1,4 +1,4 @@
-name: ExtractPDF v2 foundation
+name: QuantaPDF CI
 
 on:
   push:
@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: extractpdf-v2-${{ github.head_ref || github.ref_name }}
+  group: quantapdf-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 env:
@@ -52,6 +52,7 @@ jobs:
           git -C "$RUNNER_TEMP/vcpkg" checkout --detach FETCH_HEAD
           "$RUNNER_TEMP/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
           echo "VCPKG_ROOT=$RUNNER_TEMP/vcpkg" >> "$GITHUB_ENV"
+          echo "PROJECT_ROOT=$RUNNER_TEMP" >> "$GITHUB_ENV"
 
       - name: Install MuPDF 1.28.2 with vcpkg
         shell: bash
@@ -69,35 +70,23 @@ jobs:
 
       - name: Configure static build
         shell: bash
-        run: |
-          cmake -S . -B build \
-            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
-            -DVCPKG_TARGET_TRIPLET=x64-linux \
-            -DVCPKG_OVERLAY_PORTS="$GITHUB_WORKSPACE/vcpkg-ports" \
-            -DBUILD_SHARED_LIBS=OFF
+        run: cmake --fresh --preset linux-release-user
 
       - name: Build static library and tests
-        run: cmake --build build --parallel 2
+        run: cmake --build --preset linux-release-user --parallel 2
 
       - name: Test static build
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --preset linux-release-user
 
       - name: Configure sanitizer build
         shell: bash
-        run: |
-          cmake -S . -B build-asan \
-            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
-            -DVCPKG_TARGET_TRIPLET=x64-linux \
-            -DVCPKG_OVERLAY_PORTS="$GITHUB_WORKSPACE/vcpkg-ports" \
-            -DBUILD_SHARED_LIBS=OFF \
-            -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
-            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+        run: cmake --fresh --preset linux-dev-user
 
       - name: Build sanitizer configuration
-        run: cmake --build build-asan --parallel 2
+        run: cmake --build --preset linux-dev-user --parallel 2
 
       - name: Test sanitizer configuration
-        run: ctest --test-dir build-asan --output-on-failure
+        run: ctest --preset linux-dev-user
 
   macos:
     if: >-
@@ -134,16 +123,18 @@ jobs:
           git -C "$RUNNER_TEMP/vcpkg" checkout --detach FETCH_HEAD
           "$RUNNER_TEMP/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
           echo "VCPKG_ROOT=$RUNNER_TEMP/vcpkg" >> "$GITHUB_ENV"
+          echo "PROJECT_ROOT=$RUNNER_TEMP" >> "$GITHUB_ENV"
 
       - name: Select vcpkg triplet
         shell: bash
         run: |
           case "$(uname -m)" in
-            arm64) triplet=arm64-osx ;;
-            x86_64) triplet=x64-osx ;;
+            arm64) triplet=arm64-osx; preset=macos-arm64-release-user ;;
+            x86_64) triplet=x64-osx; preset=macos-x64-release-user ;;
             *) echo "Unsupported macOS architecture: $(uname -m)" >&2; exit 1 ;;
           esac
           echo "VCPKG_TRIPLET=$triplet" >> "$GITHUB_ENV"
+          echo "CMAKE_PRESET=$preset" >> "$GITHUB_ENV"
 
       - name: Install MuPDF 1.28.2 with vcpkg
         shell: bash
@@ -161,18 +152,13 @@ jobs:
 
       - name: Configure
         shell: bash
-        run: |
-          cmake -S . -B build \
-            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
-            -DVCPKG_TARGET_TRIPLET="$VCPKG_TRIPLET" \
-            -DVCPKG_OVERLAY_PORTS="$GITHUB_WORKSPACE/vcpkg-ports" \
-            -DBUILD_SHARED_LIBS=OFF
+        run: cmake --fresh --preset "$CMAKE_PRESET"
 
       - name: Build
-        run: cmake --build build --parallel 2
+        run: cmake --build --preset "$CMAKE_PRESET" --parallel 2
 
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --preset "$CMAKE_PRESET"
 
   windows:
     if: >-
@@ -211,6 +197,7 @@ jobs:
           git -C $root checkout --detach FETCH_HEAD
           & "$root\bootstrap-vcpkg.bat" -disableMetrics
           "VCPKG_ROOT=$root" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "PROJECT_ROOT=$env:RUNNER_TEMP" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Install static MuPDF 1.28.2 with vcpkg
         shell: pwsh
@@ -226,17 +213,23 @@ jobs:
           path: ${{ runner.temp }}/vcpkg-binary-cache
           key: ${{ steps.vcpkg-cache.outputs.cache-primary-key }}
 
-      - name: Configure ExtractPDF DLL
+      - name: Locate Visual Studio developer environment
         shell: pwsh
         run: |
-          cmake -S . -B build -A x64 `
-            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT\scripts\buildsystems\vcpkg.cmake" `
-            -DVCPKG_TARGET_TRIPLET=x64-windows-static-md `
-            -DVCPKG_OVERLAY_PORTS="$env:GITHUB_WORKSPACE\vcpkg-ports" `
-            -DBUILD_SHARED_LIBS=ON
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          $installation = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $installation) { throw "Visual Studio C++ toolchain not found" }
+          $vsdev = Join-Path $installation "Common7\Tools\VsDevCmd.bat"
+          "VSDEVCMD=$vsdev" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Configure QuantaPDF DLL
+        shell: cmd
+        run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && set "VCPKG_ROOT=%RUNNER_TEMP%\vcpkg" && cmake --fresh --preset win-release-user
 
       - name: Build
-        run: cmake --build build --config Release
+        shell: cmd
+        run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && set "VCPKG_ROOT=%RUNNER_TEMP%\vcpkg" && cmake --build --preset win-release-user
 
       - name: Test
-        run: ctest --test-dir build -C Release --output-on-failure
+        shell: cmd
+        run: call "%VSDEVCMD%" -arch=x64 -host_arch=x64 >nul && set "VCPKG_ROOT=%RUNNER_TEMP%\vcpkg" && ctest --preset win-release-user

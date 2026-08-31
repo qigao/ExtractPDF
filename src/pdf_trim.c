@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-static void extractpdf_pdf_trim_discard_log(
+static void quantapdf_pdf_trim_discard_log(
     void *user,
     const char *message)
 {
@@ -12,52 +12,52 @@ static void extractpdf_pdf_trim_discard_log(
     (void)message;
 }
 
-static int extractpdf_pdf_trim_close_float(float left, float right)
+static int quantapdf_pdf_trim_close_float(float left, float right)
 {
     return fabsf(left - right) < 0.001f;
 }
 
-static int extractpdf_pdf_trim_rect_equivalent(fz_rect left, fz_rect right)
+static int quantapdf_pdf_trim_rect_equivalent(fz_rect left, fz_rect right)
 {
-    return extractpdf_pdf_trim_close_float(left.x0, right.x0) &&
-        extractpdf_pdf_trim_close_float(left.y0, right.y0) &&
-        extractpdf_pdf_trim_close_float(left.x1, right.x1) &&
-        extractpdf_pdf_trim_close_float(left.y1, right.y1);
+    return quantapdf_pdf_trim_close_float(left.x0, right.x0) &&
+        quantapdf_pdf_trim_close_float(left.y0, right.y0) &&
+        quantapdf_pdf_trim_close_float(left.x1, right.x1) &&
+        quantapdf_pdf_trim_close_float(left.y1, right.y1);
 }
 
-static int extractpdf_pdf_trim_plan_equivalent(
-    const extractpdf_pdf_trim_plan *left,
-    const extractpdf_pdf_trim_plan *right)
+static int quantapdf_pdf_trim_plan_equivalent(
+    const quantapdf_pdf_trim_plan *left,
+    const quantapdf_pdf_trim_plan *right)
 {
     return left->page_index == right->page_index &&
         left->requested_public.x0 == right->requested_public.x0 &&
         left->requested_public.y0 == right->requested_public.y0 &&
         left->requested_public.x1 == right->requested_public.x1 &&
         left->requested_public.y1 == right->requested_public.y1 &&
-        extractpdf_pdf_trim_rect_equivalent(
+        quantapdf_pdf_trim_rect_equivalent(
             left->requested_media_pdf, right->requested_media_pdf) &&
-        extractpdf_pdf_trim_rect_equivalent(
+        quantapdf_pdf_trim_rect_equivalent(
             left->output_visible_pdf, right->output_visible_pdf) &&
         left->changed == right->changed &&
         left->frame_changed == right->frame_changed;
 }
 
-static int extractpdf_pdf_trim_view_equivalent(
-    const extractpdf_pdf_page_box_view *left,
-    const extractpdf_pdf_page_box_view *right)
+static int quantapdf_pdf_trim_view_equivalent(
+    const quantapdf_pdf_page_box_view *left,
+    const quantapdf_pdf_page_box_view *right)
 {
-    return extractpdf_pdf_trim_rect_equivalent(
+    return quantapdf_pdf_trim_rect_equivalent(
                left->media_pdf, right->media_pdf) &&
-        extractpdf_pdf_trim_rect_equivalent(
+        quantapdf_pdf_trim_rect_equivalent(
             left->crop_pdf, right->crop_pdf) &&
-        extractpdf_pdf_trim_rect_equivalent(
+        quantapdf_pdf_trim_rect_equivalent(
             left->visible_pdf, right->visible_pdf) &&
         left->has_explicit_crop == right->has_explicit_crop &&
         left->rotate_degrees == right->rotate_degrees &&
-        extractpdf_pdf_trim_close_float(left->user_unit, right->user_unit);
+        quantapdf_pdf_trim_close_float(left->user_unit, right->user_unit);
 }
 
-static void extractpdf_pdf_trim_put_mediabox(
+static void quantapdf_pdf_trim_put_mediabox(
     fz_context *ctx,
     pdf_document *document,
     pdf_obj *page_obj,
@@ -85,38 +85,38 @@ static void extractpdf_pdf_trim_put_mediabox(
     }
 }
 
-static extractpdf_status extractpdf_pdf_trim_transform_changed(
+static quantapdf_status quantapdf_pdf_trim_transform_changed(
     fz_context *source_ctx,
     pdf_document *source_pdf,
-    const extractpdf_page_trim *trims,
+    const quantapdf_page_trim *trims,
     size_t trim_count,
-    const extractpdf_pdf_trim_plan *source_plans,
-    extractpdf_output **out_output)
+    const quantapdf_pdf_trim_plan *source_plans,
+    quantapdf_output **out_output)
 {
-    extractpdf_output *seed = NULL;
-    extractpdf_pdf_trim_plan *private_plans = NULL;
-    extractpdf_pdf_page_box_view *private_views = NULL;
+    quantapdf_output *seed = NULL;
+    quantapdf_pdf_trim_plan *private_plans = NULL;
+    quantapdf_pdf_page_box_view *private_views = NULL;
     fz_context *private_ctx = NULL;
     fz_stream *stream = NULL;
     pdf_document *private_document = NULL;
-    extractpdf_status status;
+    quantapdf_status status;
     int private_any_changed = 0;
     int caught_code = FZ_ERROR_NONE;
     size_t index;
 
-    status = extractpdf_serialize_pdf(source_ctx, source_pdf, &seed);
-    if (status != EXTRACTPDF_OK)
+    status = quantapdf_serialize_pdf(source_ctx, source_pdf, &seed);
+    if (status != QUANTAPDF_OK)
         return status;
 
     private_ctx = fz_new_context(NULL, NULL, FZ_STORE_DEFAULT);
     if (private_ctx == NULL) {
-        extractpdf_drop_output(seed);
-        return EXTRACTPDF_ERROR_NOMEM;
+        quantapdf_drop_output(seed);
+        return QUANTAPDF_ERROR_NOMEM;
     }
     fz_set_error_callback(
-        private_ctx, extractpdf_pdf_trim_discard_log, NULL);
+        private_ctx, quantapdf_pdf_trim_discard_log, NULL);
     fz_set_warning_callback(
-        private_ctx, extractpdf_pdf_trim_discard_log, NULL);
+        private_ctx, quantapdf_pdf_trim_discard_log, NULL);
 
     fz_var(stream);
     fz_var(private_document);
@@ -139,72 +139,72 @@ static extractpdf_status extractpdf_pdf_trim_transform_changed(
     }
 
     if (caught_code != FZ_ERROR_NONE) {
-        status = extractpdf_status_from_mupdf(caught_code);
+        status = quantapdf_status_from_mupdf(caught_code);
         pdf_drop_document(private_ctx, private_document);
         fz_drop_context(private_ctx);
-        extractpdf_drop_output(seed);
+        quantapdf_drop_output(seed);
         return status;
     }
 
-    status = extractpdf_pdf_trim_check_security(
+    status = quantapdf_pdf_trim_check_security(
         private_ctx, private_document);
-    if (status != EXTRACTPDF_OK)
+    if (status != QUANTAPDF_OK)
         goto cleanup;
 
     if (trim_count > SIZE_MAX / sizeof(*private_plans) ||
         trim_count > SIZE_MAX / sizeof(*private_views)) {
-        status = EXTRACTPDF_ERROR_NOMEM;
+        status = QUANTAPDF_ERROR_NOMEM;
         goto cleanup;
     }
-    private_plans = (extractpdf_pdf_trim_plan *)calloc(
+    private_plans = (quantapdf_pdf_trim_plan *)calloc(
         trim_count, sizeof(*private_plans));
-    private_views = (extractpdf_pdf_page_box_view *)calloc(
+    private_views = (quantapdf_pdf_page_box_view *)calloc(
         trim_count, sizeof(*private_views));
     if (private_plans == NULL || private_views == NULL) {
-        status = EXTRACTPDF_ERROR_NOMEM;
+        status = QUANTAPDF_ERROR_NOMEM;
         goto cleanup;
     }
 
-    status = extractpdf_pdf_trim_build_plan(
+    status = quantapdf_pdf_trim_build_plan(
         private_ctx,
         private_document,
         trims,
         trim_count,
         private_plans,
         &private_any_changed);
-    if (status != EXTRACTPDF_OK)
+    if (status != QUANTAPDF_OK)
         goto cleanup;
     if (!private_any_changed) {
-        status = EXTRACTPDF_ERROR_FORMAT;
+        status = QUANTAPDF_ERROR_FORMAT;
         goto cleanup;
     }
 
     for (index = 0; index < trim_count; ++index) {
-        extractpdf_pdf_page_box_view source_view;
+        quantapdf_pdf_page_box_view source_view;
 
-        if (!extractpdf_pdf_trim_plan_equivalent(
+        if (!quantapdf_pdf_trim_plan_equivalent(
                 &source_plans[index], &private_plans[index])) {
-            status = EXTRACTPDF_ERROR_FORMAT;
+            status = QUANTAPDF_ERROR_FORMAT;
             goto cleanup;
         }
 
-        status = extractpdf_pdf_page_box_resolve(
+        status = quantapdf_pdf_page_box_resolve(
             source_ctx,
             source_pdf,
             source_plans[index].page_index,
             &source_view);
-        if (status != EXTRACTPDF_OK)
+        if (status != QUANTAPDF_OK)
             goto cleanup;
-        status = extractpdf_pdf_page_box_resolve(
+        status = quantapdf_pdf_page_box_resolve(
             private_ctx,
             private_document,
             private_plans[index].page_index,
             &private_views[index]);
-        if (status != EXTRACTPDF_OK)
+        if (status != QUANTAPDF_OK)
             goto cleanup;
-        if (!extractpdf_pdf_trim_view_equivalent(
+        if (!quantapdf_pdf_trim_view_equivalent(
                 &source_view, &private_views[index])) {
-            status = EXTRACTPDF_ERROR_FORMAT;
+            status = QUANTAPDF_ERROR_FORMAT;
             goto cleanup;
         }
     }
@@ -216,7 +216,7 @@ static extractpdf_status extractpdf_pdf_trim_transform_changed(
         for (index = 0; index < trim_count; ++index) {
             if (!private_plans[index].changed)
                 continue;
-            extractpdf_pdf_trim_put_mediabox(
+            quantapdf_pdf_trim_put_mediabox(
                 private_ctx,
                 private_document,
                 private_views[index].page_obj,
@@ -229,11 +229,11 @@ static extractpdf_status extractpdf_pdf_trim_transform_changed(
         fz_report_error(private_ctx);
     }
     if (caught_code != FZ_ERROR_NONE) {
-        status = extractpdf_status_from_mupdf(caught_code);
+        status = quantapdf_status_from_mupdf(caught_code);
         goto cleanup;
     }
 
-    status = extractpdf_serialize_pdf(
+    status = quantapdf_serialize_pdf(
         private_ctx, private_document, out_output);
 
 cleanup:
@@ -241,53 +241,53 @@ cleanup:
     free(private_plans);
     pdf_drop_document(private_ctx, private_document);
     fz_drop_context(private_ctx);
-    extractpdf_drop_output(seed);
+    quantapdf_drop_output(seed);
     return status;
 }
 
-extractpdf_status extractpdf_trim_pages(
-    extractpdf_document *document,
-    const extractpdf_page_trim *trims,
+quantapdf_status quantapdf_trim_pages(
+    quantapdf_document *document,
+    const quantapdf_page_trim *trims,
     size_t trim_count,
-    extractpdf_output **out_output)
+    quantapdf_output **out_output)
 {
     pdf_document *source_pdf;
-    extractpdf_pdf_trim_plan *plans = NULL;
-    extractpdf_status status;
+    quantapdf_pdf_trim_plan *plans = NULL;
+    quantapdf_status status;
     int any_changed = 0;
 
     if (out_output == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
     *out_output = NULL;
 
     if (document == NULL || document->ctx == NULL || document->doc == NULL ||
         trims == NULL || trim_count == 0)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
 
     source_pdf = pdf_document_from_fz_document(document->ctx, document->doc);
     if (source_pdf == NULL)
-        return EXTRACTPDF_ERROR_UNSUPPORTED;
+        return QUANTAPDF_ERROR_UNSUPPORTED;
 
-    status = extractpdf_pdf_trim_check_security(document->ctx, source_pdf);
-    if (status != EXTRACTPDF_OK)
+    status = quantapdf_pdf_trim_check_security(document->ctx, source_pdf);
+    if (status != QUANTAPDF_OK)
         return status;
 
     if (trim_count > SIZE_MAX / sizeof(*plans))
-        return EXTRACTPDF_ERROR_NOMEM;
-    plans = (extractpdf_pdf_trim_plan *)calloc(trim_count, sizeof(*plans));
+        return QUANTAPDF_ERROR_NOMEM;
+    plans = (quantapdf_pdf_trim_plan *)calloc(trim_count, sizeof(*plans));
     if (plans == NULL)
-        return EXTRACTPDF_ERROR_NOMEM;
+        return QUANTAPDF_ERROR_NOMEM;
 
-    status = extractpdf_pdf_trim_build_plan(
+    status = quantapdf_pdf_trim_build_plan(
         document->ctx,
         source_pdf,
         trims,
         trim_count,
         plans,
         &any_changed);
-    if (status == EXTRACTPDF_OK) {
+    if (status == QUANTAPDF_OK) {
         if (any_changed) {
-            status = extractpdf_pdf_trim_transform_changed(
+            status = quantapdf_pdf_trim_transform_changed(
                 document->ctx,
                 source_pdf,
                 trims,
@@ -296,7 +296,7 @@ extractpdf_status extractpdf_trim_pages(
                 out_output);
         }
         else {
-            status = extractpdf_serialize_pdf(
+            status = quantapdf_serialize_pdf(
                 document->ctx, source_pdf, out_output);
         }
     }

@@ -1,4 +1,4 @@
-#include <extractpdf/extractpdf.h>
+#include <quantapdf/quantapdf.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,20 +16,20 @@ static void check_impl(int condition, const char *expression, int line)
 
 int main(void)
 {
-    fprintf(stderr, "[extractpdf.status] start\n");
+    fprintf(stderr, "[quantapdf.status] start\n");
     fflush(stderr);
 
-    CHECK(strcmp(extractpdf_status_string(EXTRACTPDF_OK), "ok") == 0);
-    CHECK(strcmp(extractpdf_status_string(EXTRACTPDF_ERROR_ARGUMENT), "invalid argument") == 0);
-    CHECK(strcmp(extractpdf_status_string(EXTRACTPDF_ERROR_IO), "I/O error") == 0);
-    CHECK(strcmp(extractpdf_status_string(EXTRACTPDF_ERROR_PASSWORD), "password required or invalid") == 0);
-    CHECK(strcmp(extractpdf_status_string(EXTRACTPDF_ERROR_FORMAT), "invalid document format") == 0);
-    CHECK(strcmp(extractpdf_status_string(EXTRACTPDF_ERROR_UNSUPPORTED), "unsupported operation or content") == 0);
-    CHECK(strcmp(extractpdf_status_string(EXTRACTPDF_ERROR_NOMEM), "out of memory") == 0);
-    CHECK(strcmp(extractpdf_status_string(EXTRACTPDF_ERROR_MUPDF), "MuPDF error") == 0);
-    CHECK(strcmp(extractpdf_status_string((extractpdf_status)999), "unknown error") == 0);
+    CHECK(strcmp(quantapdf_status_string(QUANTAPDF_OK), "ok") == 0);
+    CHECK(strcmp(quantapdf_status_string(QUANTAPDF_ERROR_ARGUMENT), "invalid argument") == 0);
+    CHECK(strcmp(quantapdf_status_string(QUANTAPDF_ERROR_IO), "I/O error") == 0);
+    CHECK(strcmp(quantapdf_status_string(QUANTAPDF_ERROR_PASSWORD), "password required or invalid") == 0);
+    CHECK(strcmp(quantapdf_status_string(QUANTAPDF_ERROR_FORMAT), "invalid document format") == 0);
+    CHECK(strcmp(quantapdf_status_string(QUANTAPDF_ERROR_UNSUPPORTED), "unsupported operation or content") == 0);
+    CHECK(strcmp(quantapdf_status_string(QUANTAPDF_ERROR_NOMEM), "out of memory") == 0);
+    CHECK(strcmp(quantapdf_status_string(QUANTAPDF_ERROR_MUPDF), "MuPDF error") == 0);
+    CHECK(strcmp(quantapdf_status_string((quantapdf_status)999), "unknown error") == 0);
 
-    fprintf(stderr, "[extractpdf.status] complete\n");
+    fprintf(stderr, "[quantapdf.status] complete\n");
     fflush(stderr);
     return EXIT_SUCCESS;
 }

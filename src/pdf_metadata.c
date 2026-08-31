@@ -4,22 +4,22 @@
 #include <stdlib.h>
 #include <string.h>
 
-static pdf_obj *extractpdf_metadata_key(extractpdf_metadata_field field)
+static pdf_obj *quantapdf_metadata_key(quantapdf_metadata_field field)
 {
     switch (field) {
-    case EXTRACTPDF_METADATA_TITLE: return PDF_NAME(Title);
-    case EXTRACTPDF_METADATA_AUTHOR: return PDF_NAME(Author);
-    case EXTRACTPDF_METADATA_SUBJECT: return PDF_NAME(Subject);
-    case EXTRACTPDF_METADATA_KEYWORDS: return PDF_NAME(Keywords);
-    case EXTRACTPDF_METADATA_CREATOR: return PDF_NAME(Creator);
-    case EXTRACTPDF_METADATA_PRODUCER: return PDF_NAME(Producer);
-    case EXTRACTPDF_METADATA_CREATION_DATE: return PDF_NAME(CreationDate);
-    case EXTRACTPDF_METADATA_MODIFICATION_DATE: return PDF_NAME(ModDate);
+    case QUANTAPDF_METADATA_TITLE: return PDF_NAME(Title);
+    case QUANTAPDF_METADATA_AUTHOR: return PDF_NAME(Author);
+    case QUANTAPDF_METADATA_SUBJECT: return PDF_NAME(Subject);
+    case QUANTAPDF_METADATA_KEYWORDS: return PDF_NAME(Keywords);
+    case QUANTAPDF_METADATA_CREATOR: return PDF_NAME(Creator);
+    case QUANTAPDF_METADATA_PRODUCER: return PDF_NAME(Producer);
+    case QUANTAPDF_METADATA_CREATION_DATE: return PDF_NAME(CreationDate);
+    case QUANTAPDF_METADATA_MODIFICATION_DATE: return PDF_NAME(ModDate);
     default: return NULL;
     }
 }
 
-static int extractpdf_pdf_dict_find(
+static int quantapdf_pdf_dict_find(
     fz_context *ctx,
     pdf_obj *dictionary,
     pdf_obj *key,
@@ -39,9 +39,9 @@ static int extractpdf_pdf_dict_find(
     return 0;
 }
 
-extractpdf_status extractpdf_document_metadata(
-    extractpdf_document *document,
-    extractpdf_metadata_field field,
+quantapdf_status quantapdf_document_metadata(
+    quantapdf_document *document,
+    quantapdf_metadata_field field,
     char **out_utf8,
     size_t *out_size)
 {
@@ -65,9 +65,9 @@ extractpdf_status extractpdf_document_metadata(
     if (out_size != NULL)
         *out_size = 0;
 
-    key = extractpdf_metadata_key(field);
+    key = quantapdf_metadata_key(field);
     if (document == NULL || out_utf8 == NULL || out_size == NULL || key == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
 
     ctx = document->ctx;
 
@@ -89,14 +89,14 @@ extractpdf_status extractpdf_document_metadata(
         if (pdf != NULL) {
             trailer = pdf_trailer(ctx, pdf);
             if (trailer != NULL)
-                info_present = extractpdf_pdf_dict_find(
+                info_present = quantapdf_pdf_dict_find(
                     ctx, trailer, PDF_NAME(Info), &info);
 
             if (info_present) {
                 if (!pdf_is_dict(ctx, info)) {
                     malformed_info = 1;
                 } else {
-                    value_present = extractpdf_pdf_dict_find(
+                    value_present = quantapdf_pdf_dict_find(
                         ctx, info, key, &value);
                     if (value_present) {
                         if (!pdf_is_string(ctx, value)) {
@@ -117,19 +117,19 @@ extractpdf_status extractpdf_document_metadata(
     }
 
     if (caught_code != FZ_ERROR_NONE)
-        return extractpdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_mupdf(caught_code);
     if (pdf == NULL)
-        return EXTRACTPDF_ERROR_UNSUPPORTED;
+        return QUANTAPDF_ERROR_UNSUPPORTED;
     if (malformed_info || malformed_value)
-        return EXTRACTPDF_ERROR_FORMAT;
+        return QUANTAPDF_ERROR_FORMAT;
     if (!info_present || !value_present)
-        return EXTRACTPDF_OK;
+        return QUANTAPDF_OK;
     if (text_size == SIZE_MAX)
-        return EXTRACTPDF_ERROR_NOMEM;
+        return QUANTAPDF_ERROR_NOMEM;
 
     copy = (char *)malloc(text_size + 1);
     if (copy == NULL)
-        return EXTRACTPDF_ERROR_NOMEM;
+        return QUANTAPDF_ERROR_NOMEM;
 
     if (text_size != 0)
         memcpy(copy, text, text_size);
@@ -137,5 +137,5 @@ extractpdf_status extractpdf_document_metadata(
 
     *out_utf8 = copy;
     *out_size = text_size;
-    return EXTRACTPDF_OK;
+    return QUANTAPDF_OK;
 }

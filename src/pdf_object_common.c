@@ -3,7 +3,7 @@
 #include <math.h>
 #include <stdint.h>
 
-int extractpdf_pdf_dict_find(
+int quantapdf_pdf_dict_find(
     fz_context *ctx,
     pdf_obj *dictionary,
     pdf_obj *key,
@@ -24,12 +24,12 @@ int extractpdf_pdf_dict_find(
     return 0;
 }
 
-extractpdf_status extractpdf_pdf_read_rect(
+quantapdf_status quantapdf_pdf_read_rect(
     fz_context *ctx,
     pdf_obj *dictionary,
     pdf_obj *key,
     fz_matrix page_ctm,
-    extractpdf_rect *out_rect)
+    quantapdf_rect *out_rect)
 {
     pdf_obj *rect_obj = NULL;
     float values[4];
@@ -38,19 +38,19 @@ extractpdf_status extractpdf_pdf_read_rect(
     int present;
     int index;
 
-    present = extractpdf_pdf_dict_find(
+    present = quantapdf_pdf_dict_find(
         ctx, dictionary, key, &rect_obj);
     if (!present || !pdf_is_array(ctx, rect_obj) ||
         pdf_array_len(ctx, rect_obj) != 4)
-        return EXTRACTPDF_ERROR_FORMAT;
+        return QUANTAPDF_ERROR_FORMAT;
 
     for (index = 0; index < 4; ++index) {
         pdf_obj *value = pdf_array_get(ctx, rect_obj, index);
         if (!pdf_is_number(ctx, value))
-            return EXTRACTPDF_ERROR_FORMAT;
+            return QUANTAPDF_ERROR_FORMAT;
         values[index] = pdf_to_real(ctx, value);
         if (!isfinite(values[index]))
-            return EXTRACTPDF_ERROR_FORMAT;
+            return QUANTAPDF_ERROR_FORMAT;
     }
 
     raw.x0 = values[0] < values[2] ? values[0] : values[2];
@@ -61,7 +61,7 @@ extractpdf_status extractpdf_pdf_read_rect(
 
     if (!isfinite(transformed.x0) || !isfinite(transformed.y0) ||
         !isfinite(transformed.x1) || !isfinite(transformed.y1))
-        return EXTRACTPDF_ERROR_FORMAT;
+        return QUANTAPDF_ERROR_FORMAT;
 
     out_rect->x0 = transformed.x0 < transformed.x1 ?
         transformed.x0 : transformed.x1;
@@ -71,10 +71,10 @@ extractpdf_status extractpdf_pdf_read_rect(
         transformed.y0 : transformed.y1;
     out_rect->y1 = transformed.y0 < transformed.y1 ?
         transformed.y1 : transformed.y0;
-    return EXTRACTPDF_OK;
+    return QUANTAPDF_OK;
 }
 
-extractpdf_status extractpdf_pdf_read_optional_uint32(
+quantapdf_status quantapdf_pdf_read_optional_uint32(
     fz_context *ctx,
     pdf_obj *dictionary,
     pdf_obj *key,
@@ -86,17 +86,17 @@ extractpdf_status extractpdf_pdf_read_optional_uint32(
     int present;
 
     *out_value = missing_value;
-    present = extractpdf_pdf_dict_find(
+    present = quantapdf_pdf_dict_find(
         ctx, dictionary, key, &value_obj);
     if (!present)
-        return EXTRACTPDF_OK;
+        return QUANTAPDF_OK;
     if (!pdf_is_int(ctx, value_obj))
-        return EXTRACTPDF_ERROR_FORMAT;
+        return QUANTAPDF_ERROR_FORMAT;
 
     value = pdf_to_int64(ctx, value_obj);
     if (value < 0 || (uint64_t)value > UINT32_MAX)
-        return EXTRACTPDF_ERROR_FORMAT;
+        return QUANTAPDF_ERROR_FORMAT;
 
     *out_value = (uint32_t)value;
-    return EXTRACTPDF_OK;
+    return QUANTAPDF_OK;
 }

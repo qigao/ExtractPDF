@@ -2,21 +2,21 @@
 
 #include <stdlib.h>
 
-extractpdf_status extractpdf_load_page(
-    extractpdf_document *document,
+quantapdf_status quantapdf_load_page(
+    quantapdf_document *document,
     int page_index,
-    extractpdf_page **out_page)
+    quantapdf_page **out_page)
 {
-    extractpdf_page *page;
+    quantapdf_page *page;
     int page_count = 0;
     int caught_code = FZ_ERROR_NONE;
 
     if (out_page == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
     *out_page = NULL;
 
     if (document == NULL || page_index < 0)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
 
     fz_var(page_count);
     fz_var(caught_code);
@@ -32,13 +32,13 @@ extractpdf_status extractpdf_load_page(
     }
 
     if (caught_code != FZ_ERROR_NONE)
-        return extractpdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_mupdf(caught_code);
     if (page_index >= page_count)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
 
-    page = (extractpdf_page *)calloc(1, sizeof(*page));
+    page = (quantapdf_page *)calloc(1, sizeof(*page));
     if (page == NULL)
-        return EXTRACTPDF_ERROR_NOMEM;
+        return QUANTAPDF_ERROR_NOMEM;
 
     page->document = document;
     caught_code = FZ_ERROR_NONE;
@@ -55,22 +55,22 @@ extractpdf_status extractpdf_load_page(
 
     if (caught_code != FZ_ERROR_NONE) {
         free(page);
-        return extractpdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_mupdf(caught_code);
     }
 
     *out_page = page;
-    return EXTRACTPDF_OK;
+    return QUANTAPDF_OK;
 }
 
-extractpdf_status extractpdf_page_bounds(
-    extractpdf_page *page,
-    extractpdf_rect *out_bounds)
+quantapdf_status quantapdf_page_bounds(
+    quantapdf_page *page,
+    quantapdf_rect *out_bounds)
 {
     fz_rect bounds;
     int caught_code = FZ_ERROR_NONE;
 
     if (page == NULL || out_bounds == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
 
     fz_var(bounds);
     fz_var(caught_code);
@@ -86,36 +86,36 @@ extractpdf_status extractpdf_page_bounds(
     }
 
     if (caught_code != FZ_ERROR_NONE)
-        return extractpdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_mupdf(caught_code);
 
     out_bounds->x0 = bounds.x0;
     out_bounds->y0 = bounds.y0;
     out_bounds->x1 = bounds.x1;
     out_bounds->y1 = bounds.y1;
-    return EXTRACTPDF_OK;
+    return QUANTAPDF_OK;
 }
 
-extractpdf_status extractpdf_page_box_bounds(
-    extractpdf_page *page,
-    extractpdf_page_box box,
-    extractpdf_rect *out_bounds)
+quantapdf_status quantapdf_page_box_bounds(
+    quantapdf_page *page,
+    quantapdf_page_box box,
+    quantapdf_rect *out_bounds)
 {
     fz_box_type mupdf_box;
     fz_rect bounds;
     int caught_code = FZ_ERROR_NONE;
 
     if (page == NULL || out_bounds == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
 
     switch (box) {
-    case EXTRACTPDF_PAGE_BOX_MEDIA:
+    case QUANTAPDF_PAGE_BOX_MEDIA:
         mupdf_box = FZ_MEDIA_BOX;
         break;
-    case EXTRACTPDF_PAGE_BOX_CROP:
+    case QUANTAPDF_PAGE_BOX_CROP:
         mupdf_box = FZ_CROP_BOX;
         break;
     default:
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
     }
 
     fz_var(bounds);
@@ -132,16 +132,16 @@ extractpdf_status extractpdf_page_box_bounds(
     }
 
     if (caught_code != FZ_ERROR_NONE)
-        return extractpdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_mupdf(caught_code);
 
     out_bounds->x0 = bounds.x0;
     out_bounds->y0 = bounds.y0;
     out_bounds->x1 = bounds.x1;
     out_bounds->y1 = bounds.y1;
-    return EXTRACTPDF_OK;
+    return QUANTAPDF_OK;
 }
 
-void extractpdf_drop_page(extractpdf_page *page)
+void quantapdf_drop_page(quantapdf_page *page)
 {
     if (page == NULL)
         return;

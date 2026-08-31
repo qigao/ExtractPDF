@@ -1,0 +1,45 @@
+{
+  "version": 6,
+  "include": [
+    "Platforms.json",
+    "Compilers.json",
+    "Options.json"
+  ],
+  "configurePresets": [
+    {
+      "name": "dev-win-msvc-ninja",
+      "hidden": true,
+      "inherits": ["ISWindows", "quantapdf-debug", "Msvc", "pkg-vcpkg"],
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/Msvc"
+    },
+    {
+      "name": "release-win-msvc-ninja",
+      "hidden": true,
+      "inherits": ["ISWindows", "quantapdf-release", "Msvc", "pkg-vcpkg"],
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/Msvc-Release"
+    },
+    {
+      "name": "dev-linux-ninja",
+      "hidden": true,
+      "inherits": ["ISLinux", "quantapdf-debug", "Gcc", "pkg-vcpkg"],
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/linux-gcc-debug"
+    },
+    {
+      "name": "release-linux-ninja",
+      "hidden": true,
+      "inherits": ["ISLinux", "quantapdf-release", "Gcc", "pkg-vcpkg"],
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/linux-gcc-release"
+    },
+    {
+      "name": "release-macos-ninja",
+      "hidden": true,
+      "inherits": ["ISMac", "quantapdf-release", "Clang", "pkg-vcpkg"],
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/macos-clang-release"
+    }
+  ]
+}

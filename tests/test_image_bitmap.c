@@ -1,4 +1,4 @@
-#include <extractpdf/extractpdf.h>
+#include <quantapdf/quantapdf.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,10 +20,10 @@ static void test_decode_retained_occurrence(void)
         0xff, 0x00, 0x00,
         0x00, 0xff, 0x00
     };
-    extractpdf_document *document = NULL;
-    extractpdf_page *page = NULL;
-    extractpdf_image_page *images = NULL;
-    extractpdf_bitmap *bitmap = NULL;
+    quantapdf_document *document = NULL;
+    quantapdf_page *page = NULL;
+    quantapdf_image_page *images = NULL;
+    quantapdf_bitmap *bitmap = NULL;
     const unsigned char *data = NULL;
     size_t size = 0;
     int width = 0;
@@ -31,39 +31,39 @@ static void test_decode_retained_occurrence(void)
     int stride = 0;
     int components = 0;
 
-    CHECK(extractpdf_open(PAGE_IMAGES_PDF, NULL, &document) == EXTRACTPDF_OK);
-    CHECK(extractpdf_load_page(document, 0, &page) == EXTRACTPDF_OK);
-    CHECK(extractpdf_extract_images(page, &images) == EXTRACTPDF_OK);
+    CHECK(quantapdf_open(PAGE_IMAGES_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
+    CHECK(quantapdf_extract_images(page, &images) == QUANTAPDF_OK);
 
     /* Decode must use the retained occurrence, not the source page. */
-    extractpdf_drop_page(page);
+    quantapdf_drop_page(page);
     page = NULL;
 
-    CHECK(extractpdf_image_render(images, 0, &bitmap) == EXTRACTPDF_OK);
+    CHECK(quantapdf_image_render(images, 0, &bitmap) == QUANTAPDF_OK);
     CHECK(bitmap != NULL);
 
     /* The returned bitmap owns its decoded pixels independently. */
-    extractpdf_drop_image_page(images);
+    quantapdf_drop_image_page(images);
     images = NULL;
 
-    CHECK(extractpdf_bitmap_dimensions(
+    CHECK(quantapdf_bitmap_dimensions(
         bitmap,
         &width,
         &height,
         &stride,
-        &components) == EXTRACTPDF_OK);
+        &components) == QUANTAPDF_OK);
     CHECK(width == 2);
     CHECK(height == 1);
     CHECK(stride == 6);
     CHECK(components == 3);
 
-    CHECK(extractpdf_bitmap_data(bitmap, &data, &size) == EXTRACTPDF_OK);
+    CHECK(quantapdf_bitmap_data(bitmap, &data, &size) == QUANTAPDF_OK);
     CHECK(data != NULL);
     CHECK(size == sizeof(expected));
     CHECK(memcmp(data, expected, sizeof(expected)) == 0);
 
-    extractpdf_drop_bitmap(bitmap);
-    extractpdf_close(document);
+    quantapdf_drop_bitmap(bitmap);
+    quantapdf_close(document);
 }
 
 static void test_decode_soft_mask(void)
@@ -71,11 +71,11 @@ static void test_decode_soft_mask(void)
     static const unsigned char expected[] = {
         0x80, 0x00, 0x00, 0x80
     };
-    extractpdf_document *document = NULL;
-    extractpdf_page *page = NULL;
-    extractpdf_image_page *images = NULL;
-    extractpdf_bitmap *bitmap = NULL;
-    extractpdf_image_info info = { sizeof(info) };
+    quantapdf_document *document = NULL;
+    quantapdf_page *page = NULL;
+    quantapdf_image_page *images = NULL;
+    quantapdf_bitmap *bitmap = NULL;
+    quantapdf_image_info info = { sizeof(info) };
     const unsigned char *data = NULL;
     size_t count = 0;
     size_t size = 0;
@@ -84,65 +84,65 @@ static void test_decode_soft_mask(void)
     int stride = 0;
     int components = 0;
 
-    CHECK(extractpdf_open(PAGE_IMAGES_ALPHA_PDF, NULL, &document) == EXTRACTPDF_OK);
-    CHECK(extractpdf_load_page(document, 0, &page) == EXTRACTPDF_OK);
-    CHECK(extractpdf_extract_images(page, &images) == EXTRACTPDF_OK);
-    extractpdf_drop_page(page);
+    CHECK(quantapdf_open(PAGE_IMAGES_ALPHA_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
+    CHECK(quantapdf_extract_images(page, &images) == QUANTAPDF_OK);
+    quantapdf_drop_page(page);
     page = NULL;
 
-    CHECK(extractpdf_image_count(images, &count) == EXTRACTPDF_OK);
+    CHECK(quantapdf_image_count(images, &count) == QUANTAPDF_OK);
     CHECK(count == 1);
-    CHECK(extractpdf_image_get_info(images, 0, &info) == EXTRACTPDF_OK);
+    CHECK(quantapdf_image_get_info(images, 0, &info) == QUANTAPDF_OK);
     CHECK(info.has_alpha == 1);
 
-    CHECK(extractpdf_image_render(images, 0, &bitmap) == EXTRACTPDF_OK);
+    CHECK(quantapdf_image_render(images, 0, &bitmap) == QUANTAPDF_OK);
     CHECK(bitmap != NULL);
-    extractpdf_drop_image_page(images);
+    quantapdf_drop_image_page(images);
     images = NULL;
 
-    CHECK(extractpdf_bitmap_dimensions(
+    CHECK(quantapdf_bitmap_dimensions(
         bitmap,
         &width,
         &height,
         &stride,
-        &components) == EXTRACTPDF_OK);
+        &components) == QUANTAPDF_OK);
     CHECK(width == 1);
     CHECK(height == 1);
     CHECK(stride == 4);
     CHECK(components == 4);
 
-    CHECK(extractpdf_bitmap_data(bitmap, &data, &size) == EXTRACTPDF_OK);
+    CHECK(quantapdf_bitmap_data(bitmap, &data, &size) == QUANTAPDF_OK);
     CHECK(size == sizeof(expected));
     CHECK(memcmp(data, expected, sizeof(expected)) == 0);
 
-    extractpdf_drop_bitmap(bitmap);
-    extractpdf_close(document);
+    quantapdf_drop_bitmap(bitmap);
+    quantapdf_close(document);
 }
 
 static void test_argument_contract(void)
 {
     int sentinel = 0;
-    extractpdf_document *document = NULL;
-    extractpdf_page *page = NULL;
-    extractpdf_image_page *images = NULL;
-    extractpdf_bitmap *bitmap = (extractpdf_bitmap *)&sentinel;
+    quantapdf_document *document = NULL;
+    quantapdf_page *page = NULL;
+    quantapdf_image_page *images = NULL;
+    quantapdf_bitmap *bitmap = (quantapdf_bitmap *)&sentinel;
 
-    CHECK(extractpdf_image_render(NULL, 0, &bitmap) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(quantapdf_image_render(NULL, 0, &bitmap) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(bitmap == NULL);
-    CHECK(extractpdf_image_render(NULL, 0, NULL) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(quantapdf_image_render(NULL, 0, NULL) == QUANTAPDF_ERROR_ARGUMENT);
 
-    CHECK(extractpdf_open(PAGE_IMAGES_PDF, NULL, &document) == EXTRACTPDF_OK);
-    CHECK(extractpdf_load_page(document, 0, &page) == EXTRACTPDF_OK);
-    CHECK(extractpdf_extract_images(page, &images) == EXTRACTPDF_OK);
-    extractpdf_drop_page(page);
+    CHECK(quantapdf_open(PAGE_IMAGES_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
+    CHECK(quantapdf_extract_images(page, &images) == QUANTAPDF_OK);
+    quantapdf_drop_page(page);
 
-    bitmap = (extractpdf_bitmap *)&sentinel;
-    CHECK(extractpdf_image_render(images, 99, &bitmap) == EXTRACTPDF_ERROR_ARGUMENT);
+    bitmap = (quantapdf_bitmap *)&sentinel;
+    CHECK(quantapdf_image_render(images, 99, &bitmap) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(bitmap == NULL);
-    CHECK(extractpdf_image_render(images, 0, NULL) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(quantapdf_image_render(images, 0, NULL) == QUANTAPDF_ERROR_ARGUMENT);
 
-    extractpdf_drop_image_page(images);
-    extractpdf_close(document);
+    quantapdf_drop_image_page(images);
+    quantapdf_close(document);
 }
 
 int main(void)

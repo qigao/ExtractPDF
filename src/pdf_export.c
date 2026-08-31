@@ -3,7 +3,7 @@
 #include <limits.h>
 #include <stdlib.h>
 
-static void extractpdf_drop_pdf_export_state(
+static void quantapdf_drop_pdf_export_state(
     fz_context *ctx,
     pdf_document *destination,
     pdf_graft_map *graft)
@@ -14,11 +14,11 @@ static void extractpdf_drop_pdf_export_state(
         pdf_drop_document(ctx, destination);
 }
 
-extractpdf_status extractpdf_export_pages(
-    extractpdf_document *document,
+quantapdf_status quantapdf_export_pages(
+    quantapdf_document *document,
     const int *page_indices,
     size_t page_count,
-    extractpdf_output **out_output)
+    quantapdf_output **out_output)
 {
     fz_context *ctx;
     pdf_document *source_pdf;
@@ -29,17 +29,17 @@ extractpdf_status extractpdf_export_pages(
     size_t i;
 
     if (out_output == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
     *out_output = NULL;
 
     if (document == NULL || page_indices == NULL || page_count == 0 ||
         page_count > (size_t)INT_MAX)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
 
     ctx = document->ctx;
     source_pdf = pdf_specifics(ctx, document->doc);
     if (source_pdf == NULL)
-        return EXTRACTPDF_ERROR_UNSUPPORTED;
+        return QUANTAPDF_ERROR_UNSUPPORTED;
 
     fz_var(source_page_count);
     fz_var(caught_code);
@@ -55,11 +55,11 @@ extractpdf_status extractpdf_export_pages(
     }
 
     if (caught_code != FZ_ERROR_NONE)
-        return extractpdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_mupdf(caught_code);
 
     for (i = 0; i < page_count; ++i) {
         if (page_indices[i] < 0 || page_indices[i] >= source_page_count)
-            return EXTRACTPDF_ERROR_ARGUMENT;
+            return QUANTAPDF_ERROR_ARGUMENT;
     }
 
     caught_code = FZ_ERROR_NONE;
@@ -83,21 +83,21 @@ extractpdf_status extractpdf_export_pages(
     }
 
     if (caught_code != FZ_ERROR_NONE) {
-        extractpdf_status status = extractpdf_status_from_mupdf(caught_code);
-        extractpdf_drop_pdf_export_state(ctx, destination, graft);
+        quantapdf_status status = quantapdf_status_from_mupdf(caught_code);
+        quantapdf_drop_pdf_export_state(ctx, destination, graft);
         return status;
     }
 
     {
-        extractpdf_status status = extractpdf_serialize_pdf(
+        quantapdf_status status = quantapdf_serialize_pdf(
             ctx, destination, out_output);
-        extractpdf_drop_pdf_export_state(ctx, destination, graft);
+        quantapdf_drop_pdf_export_state(ctx, destination, graft);
         return status;
     }
 }
 
-extractpdf_status extractpdf_output_data(
-    const extractpdf_output *output,
+quantapdf_status quantapdf_output_data(
+    const quantapdf_output *output,
     const unsigned char **out_data,
     size_t *out_size)
 {
@@ -107,14 +107,14 @@ extractpdf_status extractpdf_output_data(
         *out_size = 0;
 
     if (output == NULL || out_data == NULL || out_size == NULL)
-        return EXTRACTPDF_ERROR_ARGUMENT;
+        return QUANTAPDF_ERROR_ARGUMENT;
 
     *out_data = output->data;
     *out_size = output->size;
-    return EXTRACTPDF_OK;
+    return QUANTAPDF_OK;
 }
 
-void extractpdf_drop_output(extractpdf_output *output)
+void quantapdf_drop_output(quantapdf_output *output)
 {
     if (output == NULL)
         return;

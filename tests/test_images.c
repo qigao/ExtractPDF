@@ -1,4 +1,4 @@
-#include <extractpdf/extractpdf.h>
+#include <quantapdf/quantapdf.h>
 #include <math.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -24,13 +24,13 @@ static int close_float(float a, float b)
 }
 
 static void quad_bounds(
-    const extractpdf_quad *quad,
+    const quantapdf_quad *quad,
     float *x0,
     float *y0,
     float *x1,
     float *y1)
 {
-    const extractpdf_point points[4] = {
+    const quantapdf_point points[4] = {
         quad->ul, quad->ur, quad->ll, quad->lr
     };
     size_t i;
@@ -49,7 +49,7 @@ static void quad_bounds(
     }
 }
 
-static void check_zero_quad(const extractpdf_quad *quad)
+static void check_zero_quad(const quantapdf_quad *quad)
 {
     CHECK(quad->ul.x == 0.0f);
     CHECK(quad->ul.y == 0.0f);
@@ -62,7 +62,7 @@ static void check_zero_quad(const extractpdf_quad *quad)
 }
 
 static void check_info(
-    const extractpdf_image_info *info,
+    const quantapdf_image_info *info,
     float expected_x0,
     float expected_y0,
     float expected_x1,
@@ -89,70 +89,70 @@ static void check_info(
 
 static void test_occurrences_and_lifetime(void)
 {
-    extractpdf_document *document = NULL;
-    extractpdf_page *page = NULL;
-    extractpdf_image_page *images = NULL;
-    extractpdf_image_info info0 = { sizeof(info0) };
-    extractpdf_image_info info1 = { sizeof(info1) };
+    quantapdf_document *document = NULL;
+    quantapdf_page *page = NULL;
+    quantapdf_image_page *images = NULL;
+    quantapdf_image_info info0 = { sizeof(info0) };
+    quantapdf_image_info info1 = { sizeof(info1) };
     size_t count = 0;
 
-    CHECK(extractpdf_open(PAGE_IMAGES_PDF, NULL, &document) == EXTRACTPDF_OK);
-    CHECK(extractpdf_load_page(document, 0, &page) == EXTRACTPDF_OK);
-    CHECK(extractpdf_extract_images(page, &images) == EXTRACTPDF_OK);
+    CHECK(quantapdf_open(PAGE_IMAGES_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
+    CHECK(quantapdf_extract_images(page, &images) == QUANTAPDF_OK);
     CHECK(images != NULL);
 
     /* The image snapshot may outlive the page, but not the document. */
-    extractpdf_drop_page(page);
+    quantapdf_drop_page(page);
     page = NULL;
 
-    CHECK(extractpdf_image_count(images, &count) == EXTRACTPDF_OK);
+    CHECK(quantapdf_image_count(images, &count) == QUANTAPDF_OK);
     CHECK(count == 2);
 
-    CHECK(extractpdf_image_get_info(images, 0, &info0) == EXTRACTPDF_OK);
-    CHECK(extractpdf_image_get_info(images, 1, &info1) == EXTRACTPDF_OK);
+    CHECK(quantapdf_image_get_info(images, 0, &info0) == QUANTAPDF_OK);
+    CHECK(quantapdf_image_get_info(images, 1, &info1) == QUANTAPDF_OK);
 
     check_info(&info0, 10.0f, 60.0f, 50.0f, 80.0f);
     check_info(&info1, 100.0f, 10.0f, 120.0f, 50.0f);
 
-    extractpdf_drop_image_page(images);
-    extractpdf_close(document);
+    quantapdf_drop_image_page(images);
+    quantapdf_close(document);
 }
 
 static void test_argument_and_version_contract(void)
 {
     int sentinel = 0;
-    extractpdf_document *document = NULL;
-    extractpdf_page *page = NULL;
-    extractpdf_image_page *images = (extractpdf_image_page *)&sentinel;
-    extractpdf_image_info invalid_info;
-    extractpdf_image_info undersized;
-    extractpdf_image_info minimum;
-    size_t minimum_size = offsetof(extractpdf_image_info, has_alpha) + sizeof(minimum.has_alpha);
+    quantapdf_document *document = NULL;
+    quantapdf_page *page = NULL;
+    quantapdf_image_page *images = (quantapdf_image_page *)&sentinel;
+    quantapdf_image_info invalid_info;
+    quantapdf_image_info undersized;
+    quantapdf_image_info minimum;
+    size_t minimum_size = offsetof(quantapdf_image_info, has_alpha) + sizeof(minimum.has_alpha);
     size_t count = 99;
     size_t i;
     struct {
-        extractpdf_image_info info;
+        quantapdf_image_info info;
         unsigned char tail[16];
     } oversized;
 
-    CHECK(extractpdf_extract_images(NULL, &images) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(quantapdf_extract_images(NULL, &images) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(images == NULL);
-    CHECK(extractpdf_extract_images(NULL, NULL) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(quantapdf_extract_images(NULL, NULL) == QUANTAPDF_ERROR_ARGUMENT);
 
-    CHECK(extractpdf_image_count(NULL, &count) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(quantapdf_image_count(NULL, &count) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(count == 0);
-    CHECK(extractpdf_image_count(NULL, NULL) == EXTRACTPDF_ERROR_ARGUMENT);
-    CHECK(extractpdf_image_get_info(NULL, 0, NULL) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(quantapdf_image_count(NULL, NULL) == QUANTAPDF_ERROR_ARGUMENT);
+    CHECK(quantapdf_image_get_info(NULL, 0, NULL) == QUANTAPDF_ERROR_ARGUMENT);
 
-    CHECK(extractpdf_open(PAGE_IMAGES_PDF, NULL, &document) == EXTRACTPDF_OK);
-    CHECK(extractpdf_load_page(document, 0, &page) == EXTRACTPDF_OK);
-    CHECK(extractpdf_extract_images(page, &images) == EXTRACTPDF_OK);
-    extractpdf_drop_page(page);
+    CHECK(quantapdf_open(PAGE_IMAGES_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
+    CHECK(quantapdf_extract_images(page, &images) == QUANTAPDF_OK);
+    quantapdf_drop_page(page);
     page = NULL;
 
     memset(&invalid_info, 0x5a, sizeof(invalid_info));
     invalid_info.struct_size = sizeof(invalid_info);
-    CHECK(extractpdf_image_get_info(images, 99, &invalid_info) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(quantapdf_image_get_info(images, 99, &invalid_info) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(invalid_info.struct_size == sizeof(invalid_info));
     check_zero_quad(&invalid_info.quad);
     CHECK(invalid_info.pixel_width == 0);
@@ -165,14 +165,14 @@ static void test_argument_and_version_contract(void)
     undersized.struct_size = minimum_size - 1;
     undersized.pixel_width = 77;
     undersized.quad.ul.x = 7.0f;
-    CHECK(extractpdf_image_get_info(images, 0, &undersized) == EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(quantapdf_image_get_info(images, 0, &undersized) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(undersized.struct_size == minimum_size - 1);
     CHECK(undersized.pixel_width == 77);
     CHECK(undersized.quad.ul.x == 7.0f);
 
     memset(&minimum, 0, sizeof(minimum));
     minimum.struct_size = minimum_size;
-    CHECK(extractpdf_image_get_info(images, 0, &minimum) == EXTRACTPDF_OK);
+    CHECK(quantapdf_image_get_info(images, 0, &minimum) == QUANTAPDF_OK);
     CHECK(minimum.struct_size == minimum_size);
     CHECK(minimum.pixel_width == 2);
     CHECK(minimum.pixel_height == 1);
@@ -182,35 +182,35 @@ static void test_argument_and_version_contract(void)
 
     memset(&oversized, 0xa5, sizeof(oversized));
     oversized.info.struct_size = sizeof(oversized);
-    CHECK(extractpdf_image_get_info(images, 0, &oversized.info) == EXTRACTPDF_OK);
+    CHECK(quantapdf_image_get_info(images, 0, &oversized.info) == QUANTAPDF_OK);
     CHECK(oversized.info.struct_size == sizeof(oversized));
     CHECK(oversized.info.pixel_width == 2);
     for (i = 0; i < sizeof(oversized.tail); ++i)
         CHECK(oversized.tail[i] == 0xa5);
 
-    extractpdf_drop_image_page(images);
-    extractpdf_close(document);
-    extractpdf_drop_image_page(NULL);
+    quantapdf_drop_image_page(images);
+    quantapdf_close(document);
+    quantapdf_drop_image_page(NULL);
 }
 
 static void test_empty_page(void)
 {
-    extractpdf_document *document = NULL;
-    extractpdf_page *page = NULL;
-    extractpdf_image_page *images = NULL;
+    quantapdf_document *document = NULL;
+    quantapdf_page *page = NULL;
+    quantapdf_image_page *images = NULL;
     size_t count = 99;
 
-    CHECK(extractpdf_open(ONE_PAGE_PDF, NULL, &document) == EXTRACTPDF_OK);
-    CHECK(extractpdf_load_page(document, 0, &page) == EXTRACTPDF_OK);
-    CHECK(extractpdf_extract_images(page, &images) == EXTRACTPDF_OK);
+    CHECK(quantapdf_open(ONE_PAGE_PDF, NULL, &document) == QUANTAPDF_OK);
+    CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
+    CHECK(quantapdf_extract_images(page, &images) == QUANTAPDF_OK);
     CHECK(images != NULL);
-    extractpdf_drop_page(page);
+    quantapdf_drop_page(page);
 
-    CHECK(extractpdf_image_count(images, &count) == EXTRACTPDF_OK);
+    CHECK(quantapdf_image_count(images, &count) == QUANTAPDF_OK);
     CHECK(count == 0);
 
-    extractpdf_drop_image_page(images);
-    extractpdf_close(document);
+    quantapdf_drop_image_page(images);
+    quantapdf_close(document);
 }
 
 int main(void)

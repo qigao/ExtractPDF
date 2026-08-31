@@ -1,4 +1,4 @@
-#include <extractpdf/extractpdf.h>
+#include <quantapdf/quantapdf.h>
 #include "test_pdf_crop_internal.h"
 
 #include <math.h>
@@ -9,22 +9,22 @@
 #include <string.h>
 
 typedef struct crop_observation {
-    extractpdf_rect page_bounds;
-    extractpdf_rect crop_bounds;
-    extractpdf_rect text_bounds;
-    extractpdf_quad image_quad;
-    extractpdf_rect uri_hotspot;
+    quantapdf_rect page_bounds;
+    quantapdf_rect crop_bounds;
+    quantapdf_rect text_bounds;
+    quantapdf_quad image_quad;
+    quantapdf_rect uri_hotspot;
     char uri[128];
-    extractpdf_rect internal_hotspot;
+    quantapdf_rect internal_hotspot;
     int internal_target_page;
-    extractpdf_point internal_target;
-    extractpdf_annotation_info annotation;
+    quantapdf_point internal_target;
+    quantapdf_annotation_info annotation;
     char annotation_contents[128];
-    extractpdf_form_field_info field;
+    quantapdf_form_field_info field;
     char field_name[128];
     char field_value[128];
-    extractpdf_form_widget_info widget;
-    extractpdf_outline_info outline;
+    quantapdf_form_widget_info widget;
+    quantapdf_outline_info outline;
     char outline_title[128];
 } crop_observation;
 
@@ -42,19 +42,19 @@ static int close_float(float left, float right)
     return fabsf(left - right) < 0.01f;
 }
 
-static extractpdf_output *output_sentinel(void)
+static quantapdf_output *output_sentinel(void)
 {
-    return (extractpdf_output *)(uintptr_t)1;
+    return (quantapdf_output *)(uintptr_t)1;
 }
 
-static extractpdf_page_crop make_crop(
+static quantapdf_page_crop make_crop(
     int page_index,
     float x0,
     float y0,
     float x1,
     float y1)
 {
-    extractpdf_page_crop crop;
+    quantapdf_page_crop crop;
 
     crop.struct_size = sizeof(crop);
     crop.page_index = page_index;
@@ -66,30 +66,30 @@ static extractpdf_page_crop make_crop(
 }
 
 static void expect_crop_error(
-    extractpdf_document *document,
-    const extractpdf_page_crop *crops,
+    quantapdf_document *document,
+    const quantapdf_page_crop *crops,
     size_t count,
-    extractpdf_status expected)
+    quantapdf_status expected)
 {
-    extractpdf_output *output = output_sentinel();
+    quantapdf_output *output = output_sentinel();
 
-    CHECK(extractpdf_crop_pages(document, crops, count, &output) == expected);
+    CHECK(quantapdf_crop_pages(document, crops, count, &output) == expected);
     CHECK(output == NULL);
 }
 
-static extractpdf_rect page_bounds(extractpdf_document *document, int page_index)
+static quantapdf_rect page_bounds(quantapdf_document *document, int page_index)
 {
-    extractpdf_page *page = NULL;
-    extractpdf_rect bounds = {0};
+    quantapdf_page *page = NULL;
+    quantapdf_rect bounds = {0};
 
-    CHECK(extractpdf_load_page(document, page_index, &page) == EXTRACTPDF_OK);
+    CHECK(quantapdf_load_page(document, page_index, &page) == QUANTAPDF_OK);
     CHECK(page != NULL);
-    CHECK(extractpdf_page_bounds(page, &bounds) == EXTRACTPDF_OK);
-    extractpdf_drop_page(page);
+    CHECK(quantapdf_page_bounds(page, &bounds) == QUANTAPDF_OK);
+    quantapdf_drop_page(page);
     return bounds;
 }
 
-static void check_rect_close(extractpdf_rect actual, extractpdf_rect expected)
+static void check_rect_close(quantapdf_rect actual, quantapdf_rect expected)
 {
     CHECK(close_float(actual.x0, expected.x0));
     CHECK(close_float(actual.y0, expected.y0));
@@ -97,13 +97,13 @@ static void check_rect_close(extractpdf_rect actual, extractpdf_rect expected)
     CHECK(close_float(actual.y1, expected.y1));
 }
 
-static void check_point_close(extractpdf_point actual, extractpdf_point expected)
+static void check_point_close(quantapdf_point actual, quantapdf_point expected)
 {
     CHECK(close_float(actual.x, expected.x));
     CHECK(close_float(actual.y, expected.y));
 }
 
-static extractpdf_rect shifted_rect(extractpdf_rect rect, float x, float y)
+static quantapdf_rect shifted_rect(quantapdf_rect rect, float x, float y)
 {
     rect.x0 -= x;
     rect.x1 -= x;
@@ -112,7 +112,7 @@ static extractpdf_rect shifted_rect(extractpdf_rect rect, float x, float y)
     return rect;
 }
 
-static extractpdf_point shifted_point(extractpdf_point point, float x, float y)
+static quantapdf_point shifted_point(quantapdf_point point, float x, float y)
 {
     point.x -= x;
     point.y -= y;
@@ -120,8 +120,8 @@ static extractpdf_point shifted_point(extractpdf_point point, float x, float y)
 }
 
 static void check_quad_shifted(
-    extractpdf_quad actual,
-    extractpdf_quad source,
+    quantapdf_quad actual,
+    quantapdf_quad source,
     float x,
     float y)
 {
@@ -145,11 +145,11 @@ static void copy_text(
     destination[size] = '\0';
 }
 
-static extractpdf_document *open_document(const char *path, const char *password)
+static quantapdf_document *open_document(const char *path, const char *password)
 {
-    extractpdf_document *document = NULL;
+    quantapdf_document *document = NULL;
 
-    CHECK(extractpdf_open(path, password, &document) == EXTRACTPDF_OK);
+    CHECK(quantapdf_open(path, password, &document) == QUANTAPDF_OK);
     CHECK(document != NULL);
     return document;
 }
@@ -167,72 +167,72 @@ static int write_bytes(const char *path, const unsigned char *data, size_t size)
     return fclose(file) == 0;
 }
 
-static extractpdf_rect find_text_bounds(
-    extractpdf_page *page,
+static quantapdf_rect find_text_bounds(
+    quantapdf_page *page,
     const char *needle)
 {
-    extractpdf_text_page *text = NULL;
+    quantapdf_text_page *text = NULL;
     size_t block_count = 0;
     size_t block_index;
-    extractpdf_rect result = {0};
+    quantapdf_rect result = {0};
     int found = 0;
 
-    CHECK(extractpdf_extract_structured_text(page, &text) == EXTRACTPDF_OK);
+    CHECK(quantapdf_extract_structured_text(page, &text) == QUANTAPDF_OK);
     CHECK(text != NULL);
-    CHECK(extractpdf_text_block_count(text, &block_count) == EXTRACTPDF_OK);
+    CHECK(quantapdf_text_block_count(text, &block_count) == QUANTAPDF_OK);
     for (block_index = 0; block_index < block_count && !found; ++block_index) {
         size_t line_count = 0;
         size_t line_index;
-        CHECK(extractpdf_text_line_count(
-                  text, block_index, &line_count) == EXTRACTPDF_OK);
+        CHECK(quantapdf_text_line_count(
+                  text, block_index, &line_count) == QUANTAPDF_OK);
         for (line_index = 0; line_index < line_count && !found; ++line_index) {
             size_t span_count = 0;
             size_t span_index;
-            CHECK(extractpdf_text_span_count(
-                      text, block_index, line_index, &span_count) == EXTRACTPDF_OK);
+            CHECK(quantapdf_text_span_count(
+                      text, block_index, line_index, &span_count) == QUANTAPDF_OK);
             for (span_index = 0; span_index < span_count; ++span_index) {
                 const char *span_text = NULL;
                 size_t span_size = 0;
-                extractpdf_text_span_info info = {0};
+                quantapdf_text_span_info info = {0};
 
-                CHECK(extractpdf_text_span_text(
+                CHECK(quantapdf_text_span_text(
                           text,
                           block_index,
                           line_index,
                           span_index,
                           &span_text,
-                          &span_size) == EXTRACTPDF_OK);
+                          &span_size) == QUANTAPDF_OK);
                 if (span_text == NULL || span_size < strlen(needle) ||
                     strstr(span_text, needle) == NULL)
                     continue;
                 info.struct_size = sizeof(info);
-                CHECK(extractpdf_text_get_span_info(
+                CHECK(quantapdf_text_get_span_info(
                           text,
                           block_index,
                           line_index,
                           span_index,
-                          &info) == EXTRACTPDF_OK);
+                          &info) == QUANTAPDF_OK);
                 result = info.bounds;
                 found = 1;
                 break;
             }
         }
     }
-    extractpdf_drop_text_page(text);
+    quantapdf_drop_text_page(text);
     CHECK(found);
     return result;
 }
 
 static void capture_observation(
-    extractpdf_document *document,
+    quantapdf_document *document,
     crop_observation *observation)
 {
-    extractpdf_page *page = NULL;
-    extractpdf_image_page *images = NULL;
-    extractpdf_link_page *links = NULL;
-    extractpdf_annotation_page *annotations = NULL;
-    extractpdf_form *form = NULL;
-    extractpdf_outline *outline = NULL;
+    quantapdf_page *page = NULL;
+    quantapdf_image_page *images = NULL;
+    quantapdf_link_page *links = NULL;
+    quantapdf_annotation_page *annotations = NULL;
+    quantapdf_form *form = NULL;
+    quantapdf_outline *outline = NULL;
     size_t count = 0;
     size_t index;
     int saw_uri = 0;
@@ -244,40 +244,40 @@ static void capture_observation(
     observation->widget.struct_size = sizeof(observation->widget);
     observation->outline.struct_size = sizeof(observation->outline);
 
-    CHECK(extractpdf_load_page(document, 0, &page) == EXTRACTPDF_OK);
-    CHECK(extractpdf_page_bounds(page, &observation->page_bounds) == EXTRACTPDF_OK);
-    CHECK(extractpdf_page_box_bounds(
-              page, EXTRACTPDF_PAGE_BOX_CROP, &observation->crop_bounds) ==
-          EXTRACTPDF_OK);
+    CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
+    CHECK(quantapdf_page_bounds(page, &observation->page_bounds) == QUANTAPDF_OK);
+    CHECK(quantapdf_page_box_bounds(
+              page, QUANTAPDF_PAGE_BOX_CROP, &observation->crop_bounds) ==
+          QUANTAPDF_OK);
     observation->text_bounds = find_text_bounds(page, "CROP-TEXT");
 
-    CHECK(extractpdf_extract_images(page, &images) == EXTRACTPDF_OK);
-    CHECK(extractpdf_image_count(images, &count) == EXTRACTPDF_OK);
+    CHECK(quantapdf_extract_images(page, &images) == QUANTAPDF_OK);
+    CHECK(quantapdf_image_count(images, &count) == QUANTAPDF_OK);
     CHECK(count == 1);
     {
-        extractpdf_image_info info = {0};
+        quantapdf_image_info info = {0};
         info.struct_size = sizeof(info);
-        CHECK(extractpdf_image_get_info(images, 0, &info) == EXTRACTPDF_OK);
+        CHECK(quantapdf_image_get_info(images, 0, &info) == QUANTAPDF_OK);
         observation->image_quad = info.quad;
     }
 
-    CHECK(extractpdf_extract_links(page, &links) == EXTRACTPDF_OK);
-    CHECK(extractpdf_link_count(links, &count) == EXTRACTPDF_OK);
+    CHECK(quantapdf_extract_links(page, &links) == QUANTAPDF_OK);
+    CHECK(quantapdf_link_count(links, &count) == QUANTAPDF_OK);
     CHECK(count == 2);
     for (index = 0; index < count; ++index) {
-        extractpdf_link_info info = {0};
+        quantapdf_link_info info = {0};
         info.struct_size = sizeof(info);
-        CHECK(extractpdf_link_get_info(links, index, &info) == EXTRACTPDF_OK);
-        if (info.kind == EXTRACTPDF_LINK_URI) {
+        CHECK(quantapdf_link_get_info(links, index, &info) == QUANTAPDF_OK);
+        if (info.kind == QUANTAPDF_LINK_URI) {
             const char *uri = NULL;
             size_t uri_size = 0;
             CHECK(!saw_uri);
-            CHECK(extractpdf_link_uri(
-                      links, index, &uri, &uri_size) == EXTRACTPDF_OK);
+            CHECK(quantapdf_link_uri(
+                      links, index, &uri, &uri_size) == QUANTAPDF_OK);
             observation->uri_hotspot = info.hotspot;
             copy_text(observation->uri, sizeof(observation->uri), uri, uri_size);
             saw_uri = 1;
-        } else if (info.kind == EXTRACTPDF_LINK_INTERNAL) {
+        } else if (info.kind == QUANTAPDF_LINK_INTERNAL) {
             CHECK(!saw_internal);
             observation->internal_hotspot = info.hotspot;
             observation->internal_target_page = info.target_page;
@@ -287,16 +287,16 @@ static void capture_observation(
     }
     CHECK(saw_uri && saw_internal);
 
-    CHECK(extractpdf_extract_annotations(page, &annotations) == EXTRACTPDF_OK);
-    CHECK(extractpdf_annotation_count(annotations, &count) == EXTRACTPDF_OK);
+    CHECK(quantapdf_extract_annotations(page, &annotations) == QUANTAPDF_OK);
+    CHECK(quantapdf_annotation_count(annotations, &count) == QUANTAPDF_OK);
     CHECK(count == 1);
-    CHECK(extractpdf_annotation_get_info(
-              annotations, 0, &observation->annotation) == EXTRACTPDF_OK);
+    CHECK(quantapdf_annotation_get_info(
+              annotations, 0, &observation->annotation) == QUANTAPDF_OK);
     {
         const char *contents = NULL;
         size_t contents_size = 0;
-        CHECK(extractpdf_annotation_contents(
-                  annotations, 0, &contents, &contents_size) == EXTRACTPDF_OK);
+        CHECK(quantapdf_annotation_contents(
+                  annotations, 0, &contents, &contents_size) == QUANTAPDF_OK);
         copy_text(
             observation->annotation_contents,
             sizeof(observation->annotation_contents),
@@ -304,21 +304,21 @@ static void capture_observation(
             contents_size);
     }
 
-    CHECK(extractpdf_document_form(document, &form) == EXTRACTPDF_OK);
+    CHECK(quantapdf_document_form(document, &form) == QUANTAPDF_OK);
     CHECK(form != NULL);
-    CHECK(extractpdf_form_field_count(form, &count) == EXTRACTPDF_OK);
+    CHECK(quantapdf_form_field_count(form, &count) == QUANTAPDF_OK);
     CHECK(count == 1);
-    CHECK(extractpdf_form_field_get_info(
-              form, 0, &observation->field) == EXTRACTPDF_OK);
+    CHECK(quantapdf_form_field_get_info(
+              form, 0, &observation->field) == QUANTAPDF_OK);
     {
         const char *name = NULL;
         size_t name_size = 0;
-        extractpdf_form_value_info value_info = {0};
+        quantapdf_form_value_info value_info = {0};
         const char *value = NULL;
         size_t value_size = 0;
 
-        CHECK(extractpdf_form_field_name(
-                  form, 0, &name, &name_size) == EXTRACTPDF_OK);
+        CHECK(quantapdf_form_field_name(
+                  form, 0, &name, &name_size) == QUANTAPDF_OK);
         copy_text(
             observation->field_name,
             sizeof(observation->field_name),
@@ -326,33 +326,33 @@ static void capture_observation(
             name_size);
         CHECK(observation->field.value_count == 1);
         value_info.struct_size = sizeof(value_info);
-        CHECK(extractpdf_form_field_value_get_info(
-                  form, 0, 0, &value_info) == EXTRACTPDF_OK);
-        CHECK(value_info.kind == EXTRACTPDF_FORM_VALUE_UTF8);
-        CHECK(extractpdf_form_field_value_utf8(
-                  form, 0, 0, &value, &value_size) == EXTRACTPDF_OK);
+        CHECK(quantapdf_form_field_value_get_info(
+                  form, 0, 0, &value_info) == QUANTAPDF_OK);
+        CHECK(value_info.kind == QUANTAPDF_FORM_VALUE_UTF8);
+        CHECK(quantapdf_form_field_value_utf8(
+                  form, 0, 0, &value, &value_size) == QUANTAPDF_OK);
         copy_text(
             observation->field_value,
             sizeof(observation->field_value),
             value,
             value_size);
     }
-    CHECK(extractpdf_form_widget_count(form, &count) == EXTRACTPDF_OK);
+    CHECK(quantapdf_form_widget_count(form, &count) == QUANTAPDF_OK);
     CHECK(count == 1);
-    CHECK(extractpdf_form_widget_get_info(
-              form, 0, &observation->widget) == EXTRACTPDF_OK);
+    CHECK(quantapdf_form_widget_get_info(
+              form, 0, &observation->widget) == QUANTAPDF_OK);
 
-    CHECK(extractpdf_document_outline(document, &outline) == EXTRACTPDF_OK);
+    CHECK(quantapdf_document_outline(document, &outline) == QUANTAPDF_OK);
     CHECK(outline != NULL);
-    CHECK(extractpdf_outline_count(outline, &count) == EXTRACTPDF_OK);
+    CHECK(quantapdf_outline_count(outline, &count) == QUANTAPDF_OK);
     CHECK(count == 1);
-    CHECK(extractpdf_outline_get_info(
-              outline, 0, &observation->outline) == EXTRACTPDF_OK);
+    CHECK(quantapdf_outline_get_info(
+              outline, 0, &observation->outline) == QUANTAPDF_OK);
     {
         const char *title = NULL;
         size_t title_size = 0;
-        CHECK(extractpdf_outline_title(
-                  outline, 0, &title, &title_size) == EXTRACTPDF_OK);
+        CHECK(quantapdf_outline_title(
+                  outline, 0, &title, &title_size) == QUANTAPDF_OK);
         copy_text(
             observation->outline_title,
             sizeof(observation->outline_title),
@@ -360,12 +360,12 @@ static void capture_observation(
             title_size);
     }
 
-    extractpdf_drop_outline(outline);
-    extractpdf_drop_form(form);
-    extractpdf_drop_annotation_page(annotations);
-    extractpdf_drop_link_page(links);
-    extractpdf_drop_image_page(images);
-    extractpdf_drop_page(page);
+    quantapdf_drop_outline(outline);
+    quantapdf_drop_form(form);
+    quantapdf_drop_annotation_page(annotations);
+    quantapdf_drop_link_page(links);
+    quantapdf_drop_image_page(images);
+    quantapdf_drop_page(page);
 }
 
 static void expect_observation_same(
@@ -418,7 +418,7 @@ static void expect_observation_cropped(
 {
     check_rect_close(
         actual->page_bounds,
-        (extractpdf_rect){0.0f, 0.0f, 300.0f, 220.0f});
+        (quantapdf_rect){0.0f, 0.0f, 300.0f, 220.0f});
     check_rect_close(actual->crop_bounds, actual->page_bounds);
     check_rect_close(
         actual->text_bounds,
@@ -471,63 +471,63 @@ static void expect_observation_cropped(
 
 static void test_inherited_cropbox(void)
 {
-    extractpdf_document *document = open_document(CROP_INHERITED_PDF, NULL);
-    extractpdf_output *noop = NULL;
-    extractpdf_output *changed = NULL;
+    quantapdf_document *document = open_document(CROP_INHERITED_PDF, NULL);
+    quantapdf_output *noop = NULL;
+    quantapdf_output *changed = NULL;
     const unsigned char *noop_data = NULL;
     const unsigned char *changed_data = NULL;
     size_t noop_size = 0;
     size_t changed_size = 0;
-    extractpdf_rect bounds = page_bounds(document, 0);
-    extractpdf_page_crop full;
-    extractpdf_page_crop crop;
+    quantapdf_rect bounds = page_bounds(document, 0);
+    quantapdf_page_crop full;
+    quantapdf_page_crop crop;
     const float expected_raw[4] = {30.0f, 30.0f, 370.0f, 270.0f};
 
-    check_rect_close(bounds, (extractpdf_rect){0.0f, 0.0f, 380.0f, 260.0f});
+    check_rect_close(bounds, (quantapdf_rect){0.0f, 0.0f, 380.0f, 260.0f});
     full = make_crop(0, 0.0f, 0.0f, 380.0f, 260.0f);
     crop = make_crop(0, 20.0f, 10.0f, 360.0f, 250.0f);
 
-    CHECK(extractpdf_crop_pages(document, &full, 1, &noop) == EXTRACTPDF_OK);
+    CHECK(quantapdf_crop_pages(document, &full, 1, &noop) == QUANTAPDF_OK);
     CHECK(noop != NULL);
-    CHECK(extractpdf_output_data(noop, &noop_data, &noop_size) == EXTRACTPDF_OK);
+    CHECK(quantapdf_output_data(noop, &noop_data, &noop_size) == QUANTAPDF_OK);
     CHECK(crop_raw_expect_local_cropbox(
               noop_data, noop_size, 0, 0, NULL));
 
-    CHECK(extractpdf_crop_pages(document, &crop, 1, &changed) == EXTRACTPDF_OK);
+    CHECK(quantapdf_crop_pages(document, &crop, 1, &changed) == QUANTAPDF_OK);
     CHECK(changed != NULL);
-    CHECK(extractpdf_output_data(
-              changed, &changed_data, &changed_size) == EXTRACTPDF_OK);
+    CHECK(quantapdf_output_data(
+              changed, &changed_data, &changed_size) == QUANTAPDF_OK);
     CHECK(crop_raw_expect_local_cropbox(
               changed_data, changed_size, 0, 1, expected_raw));
     CHECK(crop_raw_expect_preserved_graph(
               noop_data, noop_size, changed_data, changed_size));
 
-    extractpdf_drop_output(changed);
-    extractpdf_drop_output(noop);
-    extractpdf_close(document);
+    quantapdf_drop_output(changed);
+    quantapdf_drop_output(noop);
+    quantapdf_close(document);
 }
 
 int main(void)
 {
-    extractpdf_document *document = NULL;
-    extractpdf_document *other = NULL;
-    extractpdf_document *reopened = NULL;
-    extractpdf_output *first = NULL;
-    extractpdf_output *second = NULL;
-    extractpdf_output *output = output_sentinel();
+    quantapdf_document *document = NULL;
+    quantapdf_document *other = NULL;
+    quantapdf_document *reopened = NULL;
+    quantapdf_output *first = NULL;
+    quantapdf_output *second = NULL;
+    quantapdf_output *output = output_sentinel();
     const unsigned char *first_data = NULL;
     const unsigned char *second_data = NULL;
     const unsigned char *changed_data = NULL;
     size_t first_size = 0;
     size_t second_size = 0;
     size_t changed_size = 0;
-    extractpdf_rect source_before;
-    extractpdf_rect source_after;
-    extractpdf_page_crop full;
-    extractpdf_page_crop crop;
-    extractpdf_page_crop pair[2];
-    extractpdf_page_crop changed_crops[2];
-    extractpdf_page_crop bad;
+    quantapdf_rect source_before;
+    quantapdf_rect source_after;
+    quantapdf_page_crop full;
+    quantapdf_page_crop crop;
+    quantapdf_page_crop pair[2];
+    quantapdf_page_crop changed_crops[2];
+    quantapdf_page_crop bad;
     crop_observation source_observation;
     crop_observation source_after_observation;
     crop_observation output_observation;
@@ -539,98 +539,102 @@ int main(void)
     source_before = page_bounds(document, 0);
     check_rect_close(
         source_before,
-        (extractpdf_rect){0.0f, 0.0f, 400.0f, 300.0f});
+        (quantapdf_rect){0.0f, 0.0f, 400.0f, 300.0f});
 
     full = make_crop(0, 0.0f, 0.0f, 400.0f, 300.0f);
     crop = make_crop(0, 50.0f, 40.0f, 350.0f, 260.0f);
 
-    CHECK(extractpdf_crop_pages(document, &crop, 1, NULL) ==
-          EXTRACTPDF_ERROR_ARGUMENT);
+    CHECK(quantapdf_crop_pages(document, &crop, 1, NULL) ==
+          QUANTAPDF_ERROR_ARGUMENT);
 
-    expect_crop_error(NULL, &crop, 1, EXTRACTPDF_ERROR_ARGUMENT);
-    expect_crop_error(document, NULL, 1, EXTRACTPDF_ERROR_ARGUMENT);
-    expect_crop_error(document, &crop, 0, EXTRACTPDF_ERROR_ARGUMENT);
+    expect_crop_error(NULL, &crop, 1, QUANTAPDF_ERROR_ARGUMENT);
+    expect_crop_error(document, NULL, 1, QUANTAPDF_ERROR_ARGUMENT);
+    expect_crop_error(document, &crop, 0, QUANTAPDF_ERROR_ARGUMENT);
 
     bad = crop;
     bad.struct_size =
-        offsetof(extractpdf_page_crop, bounds) + sizeof(extractpdf_rect) - 1;
-    expect_crop_error(document, &bad, 1, EXTRACTPDF_ERROR_ARGUMENT);
+        offsetof(quantapdf_page_crop, bounds) + sizeof(quantapdf_rect) - 1;
+    expect_crop_error(document, &bad, 1, QUANTAPDF_ERROR_ARGUMENT);
+
+    bad = crop;
+    bad.struct_size = sizeof(bad) + sizeof(uint64_t);
+    expect_crop_error(document, &bad, 1, QUANTAPDF_ERROR_ARGUMENT);
 
     bad = crop;
     bad.page_index = -1;
-    expect_crop_error(document, &bad, 1, EXTRACTPDF_ERROR_ARGUMENT);
+    expect_crop_error(document, &bad, 1, QUANTAPDF_ERROR_ARGUMENT);
 
     bad = crop;
     bad.page_index = 2;
-    expect_crop_error(document, &bad, 1, EXTRACTPDF_ERROR_ARGUMENT);
+    expect_crop_error(document, &bad, 1, QUANTAPDF_ERROR_ARGUMENT);
 
     pair[0] = crop;
     pair[1] = make_crop(0, 60.0f, 50.0f, 340.0f, 250.0f);
-    expect_crop_error(document, pair, 2, EXTRACTPDF_ERROR_ARGUMENT);
+    expect_crop_error(document, pair, 2, QUANTAPDF_ERROR_ARGUMENT);
 
     bad = crop;
     bad.bounds.x0 = NAN;
-    expect_crop_error(document, &bad, 1, EXTRACTPDF_ERROR_ARGUMENT);
+    expect_crop_error(document, &bad, 1, QUANTAPDF_ERROR_ARGUMENT);
     bad = crop;
     bad.bounds.y0 = INFINITY;
-    expect_crop_error(document, &bad, 1, EXTRACTPDF_ERROR_ARGUMENT);
+    expect_crop_error(document, &bad, 1, QUANTAPDF_ERROR_ARGUMENT);
     bad = crop;
     bad.bounds.x1 = -INFINITY;
-    expect_crop_error(document, &bad, 1, EXTRACTPDF_ERROR_ARGUMENT);
+    expect_crop_error(document, &bad, 1, QUANTAPDF_ERROR_ARGUMENT);
 
     bad = crop;
     bad.bounds.x1 = bad.bounds.x0;
-    expect_crop_error(document, &bad, 1, EXTRACTPDF_ERROR_ARGUMENT);
+    expect_crop_error(document, &bad, 1, QUANTAPDF_ERROR_ARGUMENT);
     bad = crop;
     bad.bounds.y1 = bad.bounds.y0;
-    expect_crop_error(document, &bad, 1, EXTRACTPDF_ERROR_ARGUMENT);
+    expect_crop_error(document, &bad, 1, QUANTAPDF_ERROR_ARGUMENT);
     bad = crop;
     bad.bounds.x0 = 360.0f;
     bad.bounds.x1 = 350.0f;
-    expect_crop_error(document, &bad, 1, EXTRACTPDF_ERROR_ARGUMENT);
+    expect_crop_error(document, &bad, 1, QUANTAPDF_ERROR_ARGUMENT);
 
     bad = crop;
     bad.bounds.x0 = -1.0f;
-    expect_crop_error(document, &bad, 1, EXTRACTPDF_ERROR_ARGUMENT);
+    expect_crop_error(document, &bad, 1, QUANTAPDF_ERROR_ARGUMENT);
 
     other = open_document(NON_PDF, NULL);
-    expect_crop_error(other, &full, 1, EXTRACTPDF_ERROR_UNSUPPORTED);
-    extractpdf_close(other);
+    expect_crop_error(other, &full, 1, QUANTAPDF_ERROR_UNSUPPORTED);
+    quantapdf_close(other);
     other = NULL;
 
     other = open_document(ENCRYPTED_PDF, "user-pass");
-    expect_crop_error(other, &full, 1, EXTRACTPDF_ERROR_UNSUPPORTED);
-    extractpdf_close(other);
+    expect_crop_error(other, &full, 1, QUANTAPDF_ERROR_UNSUPPORTED);
+    quantapdf_close(other);
     other = NULL;
 
     other = open_document(SIGNED_PDF, NULL);
-    expect_crop_error(other, &full, 1, EXTRACTPDF_ERROR_UNSUPPORTED);
-    extractpdf_close(other);
+    expect_crop_error(other, &full, 1, QUANTAPDF_ERROR_UNSUPPORTED);
+    quantapdf_close(other);
     other = NULL;
 
     other = open_document(CROP_MALFORMED_BOX_PDF, NULL);
-    expect_crop_error(other, &full, 1, EXTRACTPDF_ERROR_FORMAT);
-    extractpdf_close(other);
+    expect_crop_error(other, &full, 1, QUANTAPDF_ERROR_FORMAT);
+    quantapdf_close(other);
     other = NULL;
 
     other = open_document(CROP_MALFORMED_ROTATE_PDF, NULL);
-    expect_crop_error(other, &full, 1, EXTRACTPDF_ERROR_FORMAT);
-    extractpdf_close(other);
+    expect_crop_error(other, &full, 1, QUANTAPDF_ERROR_FORMAT);
+    quantapdf_close(other);
     other = NULL;
 
     other = open_document(CROP_MALFORMED_USERUNIT_PDF, NULL);
-    expect_crop_error(other, &full, 1, EXTRACTPDF_ERROR_FORMAT);
-    extractpdf_close(other);
+    expect_crop_error(other, &full, 1, QUANTAPDF_ERROR_FORMAT);
+    quantapdf_close(other);
     other = NULL;
 
-    CHECK(extractpdf_crop_pages(document, &full, 1, &first) == EXTRACTPDF_OK);
+    CHECK(quantapdf_crop_pages(document, &full, 1, &first) == QUANTAPDF_OK);
     CHECK(first != NULL);
-    CHECK(extractpdf_crop_pages(document, &full, 1, &second) == EXTRACTPDF_OK);
+    CHECK(quantapdf_crop_pages(document, &full, 1, &second) == QUANTAPDF_OK);
     CHECK(second != NULL);
-    CHECK(extractpdf_output_data(first, &first_data, &first_size) ==
-          EXTRACTPDF_OK);
-    CHECK(extractpdf_output_data(second, &second_data, &second_size) ==
-          EXTRACTPDF_OK);
+    CHECK(quantapdf_output_data(first, &first_data, &first_size) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_output_data(second, &second_data, &second_size) ==
+          QUANTAPDF_OK);
     CHECK(first_data != NULL);
     CHECK(second_data != NULL);
     CHECK(first_size != 0);
@@ -649,22 +653,22 @@ int main(void)
     changed_crops[0] = make_crop(0, 50.0f, 40.0f, 350.0f, 260.0f);
     changed_crops[1] = make_crop(1, 20.0f, 30.0f, 380.0f, 270.0f);
     output = output_sentinel();
-    if (extractpdf_crop_pages(document, changed_crops, 2, &output) !=
-            EXTRACTPDF_OK ||
+    if (quantapdf_crop_pages(document, changed_crops, 2, &output) !=
+            QUANTAPDF_OK ||
         output == NULL) {
         fprintf(stderr, "valid crop failed\n");
         CHECK(output == NULL);
-        extractpdf_drop_output(first);
-        extractpdf_drop_output(second);
-        extractpdf_close(document);
+        quantapdf_drop_output(first);
+        quantapdf_drop_output(second);
+        quantapdf_close(document);
         return EXIT_FAILURE;
     }
 
     capture_observation(document, &source_after_observation);
     expect_observation_same(&source_after_observation, &source_observation);
 
-    CHECK(extractpdf_output_data(output, &changed_data, &changed_size) ==
-          EXTRACTPDF_OK);
+    CHECK(quantapdf_output_data(output, &changed_data, &changed_size) ==
+          QUANTAPDF_OK);
     CHECK(changed_data != NULL && changed_size != 0);
     CHECK(crop_raw_expect_local_cropbox(
               changed_data, changed_size, 0, 1, page0_raw));
@@ -673,20 +677,20 @@ int main(void)
     CHECK(crop_raw_expect_preserved_graph(
               first_data, first_size, changed_data, changed_size));
 
-    extractpdf_close(document);
+    quantapdf_close(document);
     document = NULL;
     CHECK(write_bytes(CROP_OUTPUT_PDF, changed_data, changed_size));
     reopened = open_document(CROP_OUTPUT_PDF, NULL);
     capture_observation(reopened, &output_observation);
     expect_observation_cropped(&output_observation, &source_observation);
-    extractpdf_close(reopened);
+    quantapdf_close(reopened);
     reopened = NULL;
 
     test_inherited_cropbox();
 
-    extractpdf_drop_output(output);
-    extractpdf_drop_output(first);
-    extractpdf_drop_output(second);
+    quantapdf_drop_output(output);
+    quantapdf_drop_output(first);
+    quantapdf_drop_output(second);
     (void)remove(CROP_OUTPUT_PDF);
     return EXIT_SUCCESS;
 }
