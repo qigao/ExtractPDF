@@ -178,6 +178,11 @@ int extractpdf_test_pdf_flatten_determinism(void)
 {
     extractpdf_document *document = NULL;
     extractpdf_output *output = NULL;
+    extractpdf_output *repeated = NULL;
+    const unsigned char *first_bytes = NULL;
+    const unsigned char *second_bytes = NULL;
+    size_t first_size = 0;
+    size_t second_size = 0;
     const uint32_t flags =
         EXTRACTPDF_FLATTEN_ANNOTATIONS | EXTRACTPDF_FLATTEN_WIDGETS;
 
@@ -192,6 +197,20 @@ int extractpdf_test_pdf_flatten_determinism(void)
     check_combined_output(output);
     CHECK(check_source_form(document) == 0);
 
+    CHECK(extractpdf_flatten_interactive(document, flags, &repeated) ==
+        EXTRACTPDF_OK);
+    CHECK(repeated != NULL);
+    CHECK(extractpdf_output_data(output, &first_bytes, &first_size) ==
+        EXTRACTPDF_OK);
+    CHECK(extractpdf_output_data(repeated, &second_bytes, &second_size) ==
+        EXTRACTPDF_OK);
+    CHECK(first_bytes != NULL);
+    CHECK(second_bytes != NULL);
+    CHECK(first_size == second_size);
+    CHECK(memcmp(first_bytes, second_bytes, first_size) == 0);
+    CHECK(check_source_form(document) == 0);
+
+    extractpdf_drop_output(repeated);
     extractpdf_drop_output(output);
     extractpdf_close(document);
     return 0;
