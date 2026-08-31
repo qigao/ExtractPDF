@@ -239,6 +239,55 @@ static void check_security_fail_closed(void)
     extractpdf_close(document);
 }
 
+static void check_semantic_noop(void)
+{
+    extractpdf_document *document = NULL;
+    extractpdf_output *first = NULL;
+    extractpdf_output *second = NULL;
+    const unsigned char *first_bytes = NULL;
+    const unsigned char *second_bytes = NULL;
+    const unsigned char *lifetime_bytes = NULL;
+    size_t first_size = 0;
+    size_t second_size = 0;
+    size_t lifetime_size = 0;
+    int page_count = 0;
+
+    document = open_document(FLATTEN_NO_ANNOTATIONS_PDF, NULL);
+    CHECK(extractpdf_page_count(document, &page_count) == EXTRACTPDF_OK);
+    CHECK(page_count == 1);
+
+    CHECK(extractpdf_flatten_interactive(
+        document, EXTRACTPDF_FLATTEN_ANNOTATIONS, &first) == EXTRACTPDF_OK);
+    CHECK(first != NULL);
+    CHECK(extractpdf_flatten_interactive(
+        document, EXTRACTPDF_FLATTEN_ANNOTATIONS, &second) == EXTRACTPDF_OK);
+    CHECK(second != NULL);
+
+    CHECK(extractpdf_output_data(first, &first_bytes, &first_size) ==
+        EXTRACTPDF_OK);
+    CHECK(extractpdf_output_data(second, &second_bytes, &second_size) ==
+        EXTRACTPDF_OK);
+    CHECK(first_bytes != NULL);
+    CHECK(second_bytes != NULL);
+    CHECK(first_size != 0);
+    CHECK(first_size == second_size);
+    CHECK(memcmp(first_bytes, second_bytes, first_size) == 0);
+    CHECK(extractpdf_page_count(document, &page_count) == EXTRACTPDF_OK);
+    CHECK(page_count == 1);
+
+    extractpdf_close(document);
+    document = NULL;
+
+    CHECK(extractpdf_output_data(first, &lifetime_bytes, &lifetime_size) ==
+        EXTRACTPDF_OK);
+    CHECK(lifetime_bytes != NULL);
+    CHECK(lifetime_size == first_size);
+    CHECK(memcmp(lifetime_bytes, first_bytes, first_size) == 0);
+
+    extractpdf_drop_output(second);
+    extractpdf_drop_output(first);
+}
+
 int extractpdf_test_pdf_flatten_determinism(void)
 {
     extractpdf_document *document = NULL;
@@ -254,6 +303,7 @@ int extractpdf_test_pdf_flatten_determinism(void)
         EXTRACTPDF_FLATTEN_ANNOTATIONS | EXTRACTPDF_FLATTEN_WIDGETS;
 
     check_security_fail_closed();
+    check_semantic_noop();
 
     CHECK(extractpdf_open(FLATTEN_COMBINED_ORDER_PDF, NULL, &document) ==
         EXTRACTPDF_OK);
