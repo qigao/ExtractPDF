@@ -68,6 +68,10 @@ static extractpdf_status flatten_transform_changed(
         private_ctx, private_document, flags, &private_plan);
     if (status != EXTRACTPDF_OK)
         goto cleanup;
+    status = extractpdf_pdf_flatten_validate_relationships(
+        private_ctx, private_document, private_plan);
+    if (status != EXTRACTPDF_OK)
+        goto cleanup;
     if (!extractpdf_pdf_flatten_plan_equivalent(source_plan, private_plan)) {
         status = EXTRACTPDF_ERROR_FORMAT;
         goto cleanup;
@@ -135,6 +139,12 @@ extractpdf_status extractpdf_flatten_interactive(
         document->ctx, source_pdf, flags, &source_plan);
     if (status != EXTRACTPDF_OK)
         return status;
+    status = extractpdf_pdf_flatten_validate_relationships(
+        document->ctx, source_pdf, source_plan);
+    if (status != EXTRACTPDF_OK) {
+        extractpdf_pdf_flatten_drop_plan(source_plan);
+        return status;
+    }
 
     if (!source_plan->any_changed) {
         status = extractpdf_serialize_pdf(
