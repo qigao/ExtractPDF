@@ -288,6 +288,43 @@ static void check_semantic_noop(void)
     extractpdf_drop_output(first);
 }
 
+static void check_failure_atomicity(void)
+{
+    extractpdf_document *document = NULL;
+    extractpdf_output *output = (extractpdf_output *)(uintptr_t)1;
+    extractpdf_page *page = NULL;
+    extractpdf_rect bounds = {0};
+    int before_count = 0;
+    int after_count = 0;
+
+    document = open_document(FLATTEN_CONTENTS_MALFORMED_PDF, NULL);
+    CHECK(extractpdf_page_count(document, &before_count) == EXTRACTPDF_OK);
+    CHECK(before_count > 0);
+
+    CHECK(extractpdf_flatten_interactive(
+        document, EXTRACTPDF_FLATTEN_ANNOTATIONS, &output) ==
+        EXTRACTPDF_ERROR_FORMAT);
+    CHECK(output == NULL);
+    CHECK(extractpdf_page_count(document, &after_count) == EXTRACTPDF_OK);
+    CHECK(after_count == before_count);
+
+    output = (extractpdf_output *)(uintptr_t)1;
+    CHECK(extractpdf_flatten_interactive(
+        document, EXTRACTPDF_FLATTEN_ANNOTATIONS, &output) ==
+        EXTRACTPDF_ERROR_FORMAT);
+    CHECK(output == NULL);
+    CHECK(extractpdf_page_count(document, &after_count) == EXTRACTPDF_OK);
+    CHECK(after_count == before_count);
+
+    CHECK(extractpdf_load_page(document, 0, &page) == EXTRACTPDF_OK);
+    CHECK(page != NULL);
+    CHECK(extractpdf_page_bounds(page, &bounds) == EXTRACTPDF_OK);
+    CHECK(bounds.x1 > bounds.x0);
+    CHECK(bounds.y1 > bounds.y0);
+    extractpdf_drop_page(page);
+    extractpdf_close(document);
+}
+
 int extractpdf_test_pdf_flatten_determinism(void)
 {
     extractpdf_document *document = NULL;
@@ -304,6 +341,7 @@ int extractpdf_test_pdf_flatten_determinism(void)
 
     check_security_fail_closed();
     check_semantic_noop();
+    check_failure_atomicity();
 
     CHECK(extractpdf_open(FLATTEN_COMBINED_ORDER_PDF, NULL, &document) ==
         EXTRACTPDF_OK);
