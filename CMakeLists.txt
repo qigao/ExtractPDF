@@ -104,6 +104,12 @@ target_link_libraries(quantapdf PRIVATE
   quantapdf_backend)
 set_target_properties(quantapdf PROPERTIES LINKER_LANGUAGE CXX)
 
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  # MuPDF is a transitional static dependency. Do not let symbols from it or
+  # its bundled dependencies preempt the same dependencies inside PDFium.
+  target_link_options(quantapdf INTERFACE "LINKER:--exclude-libs,ALL")
+endif()
+
 if(BUILD_SHARED_LIBS)
   target_compile_definitions(quantapdf
     PRIVATE QUANTAPDF_BUILDING_LIBRARY
