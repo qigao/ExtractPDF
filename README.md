@@ -5,11 +5,9 @@
 QuantaPDF is a compact native PDF kernel with a stable C11 ABI suitable for
 native callers and .NET P/Invoke.
 
-> **Backend migration:** the current migration branch has a pinned PDFium
-> `154.0.8021.0` + qpdf `12.4.0` foundation. Existing feature modules are being
-> replaced in phases and still compile MuPDF temporarily. This branch is not a
-> completed permissive binary distribution until the final MuPDF zero-residue
-> gate passes.
+> **Backends:** QuantaPDF uses pinned PDFium `154.0.8021.0` for document
+> inspection, rendering, and extraction, plus qpdf `12.4.0` for structural
+> transforms and editing. Both remain private implementation dependencies.
 
 ## Current v2 ABI
 
@@ -71,7 +69,7 @@ The current supported surface includes:
 
 ## API contract
 
-- The public header contains no PDFium, qpdf, or transitional MuPDF types.
+- The public header contains no PDFium or qpdf types.
 - Backend handles and C++ exceptions remain private to the library.
 - `quantapdf_page` and `quantapdf_bitmap` borrow their parent document. The document must outlive all derived page and bitmap handles.
 - A bitmap does not borrow its source page after rendering, so the page may be dropped before the bitmap, provided the document remains alive.
@@ -186,9 +184,6 @@ The backend foundation has two pinned dependency paths:
   optional OpenSSL, GnuTLS, and Zopfli features disabled.
 - PDFium and qpdf remain private implementation dependencies; only the
   `quantapdf_*` C ABI is public.
-- MuPDF `1.28.2` remains only as a migration-branch dependency for feature
-  modules not yet ported. It and `vcpkg-ports/libmupdf` are deleted at the
-  final removal gate.
 
 The target architecture is:
 
@@ -204,7 +199,7 @@ Only the `quantapdf_*` ABI is exported by the wrapper.
 
 Set `PROJECT_ROOT` to the parent package workspace and `VCPKG_ROOT` to a
 vcpkg checkout containing the baseline in `vcpkg.json`. The configure presets
-run manifest installation with the repository overlay automatically. Public
+run manifest installation automatically. Public
 configure, build, and test entry points live in the versioned
 `CMakeUserPresets.json`.
 
@@ -255,7 +250,7 @@ Normal pull-request updates use Linux as the fast development loop. Windows and 
 
 The workflow persists vcpkg binary packages and the exact hash-verified PDFium
 archive. Cache identities include OS/architecture, the pinned vcpkg commit,
-manifest/overlay content, and literal PDFium release `chromium-8021`.
+manifest content, and literal PDFium release `chromium-8021`.
 
 A feature is not considered cross-platform complete until Linux, macOS, and Windows pass on the same exact head SHA. Older green runs do not satisfy acceptance for a newer head.
 
@@ -264,8 +259,6 @@ A feature is not considered cross-platform complete until Linux, macOS, and Wind
 QuantaPDF source is distributed under the **Apache License 2.0**. See
 `LICENSE` and `THIRD_PARTY.md`.
 
-The in-progress migration branch still links MuPDF for unported features, so
-its current binaries remain subject to MuPDF's AGPL/commercial terms and must
-not be presented as the final permissive distribution. The final release gate
-removes MuPDF completely and audits both repository text and binary
-dependencies before that restriction is lifted.
+The PDFium and qpdf backend dependencies use permissive licenses. Their pinned
+license payloads and redistribution notices are installed with QuantaPDF; see
+`THIRD_PARTY.md` for details.

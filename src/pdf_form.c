@@ -1,4 +1,5 @@
-#include "pdf_form_common.h"
+#include "form_snapshot.h"
+#include "internal.h"
 #include "backend/qpdf_document.h"
 
 #include <stddef.h>
@@ -8,6 +9,22 @@
 struct quantapdf_form {
     quantapdf_pdf_form_model *model;
 };
+
+void quantapdf_pdf_form_drop_model(quantapdf_pdf_form_model *model)
+{
+    size_t index;
+
+    if (model == NULL)
+        return;
+    for (index = 0; index < model->option_count; ++index)
+        free(model->options[index].button_state);
+    free(model->fields);
+    free(model->values);
+    free(model->options);
+    free(model->widgets);
+    free(model->strings);
+    free(model);
+}
 
 static void quantapdf_form_reset_rect(quantapdf_rect *rect)
 {

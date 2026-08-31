@@ -14,7 +14,7 @@ static quantapdf_status quantapdf_render_page_transformed(
     quantapdf_bitmap **out_bitmap)
 {
     quantapdf_bitmap *bitmap;
-    quantapdf_pdfium_bitmap rendered;
+    quantapdf_pdfium_bitmap rendered = {0};
     quantapdf_status status;
     double user_unit;
 

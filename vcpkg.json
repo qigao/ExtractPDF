@@ -4,10 +4,6 @@
   "builtin-baseline": "f74a2eade17a628413746557d04db25ccf6e76f9",
   "dependencies": [
     {
-      "name": "libmupdf",
-      "default-features": false
-    },
-    {
       "name": "qpdf",
       "default-features": false
     }

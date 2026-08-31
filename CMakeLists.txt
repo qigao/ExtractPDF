@@ -9,10 +9,6 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(QuantaPDFPdfium)
 quantapdf_import_pdfium()
 
-find_package(unofficial-libmupdf CONFIG REQUIRED)
-if(NOT TARGET unofficial::libmupdf::libmupdf)
-  message(FATAL_ERROR "unofficial-libmupdf did not provide unofficial::libmupdf::libmupdf")
-endif()
 find_package(qpdf 12.4.0 EXACT CONFIG REQUIRED)
 if(NOT TARGET qpdf::libqpdf)
   message(FATAL_ERROR "qpdf did not provide qpdf::libqpdf")
@@ -55,27 +51,16 @@ add_library(quantapdf
   src/images.c
   src/image_bitmap.c
   src/links.c
-  src/pdf_rewrite_security.c
-  src/pdf_page_box_common.c
   src/pdf_crop.c
   src/pdf_trim.c
   src/pdf_poster.c
   src/pdf_export.c
-  src/pdf_output.c
   src/pdf_range.c
   src/pdf_merge.c
   src/output_file.c
   src/pdf_metadata.c
-  src/pdf_outline_common.c
   src/pdf_outline.c
-  src/pdf_object_common.c
-  src/pdf_annotation_common.c
   src/pdf_annotations.c
-  src/pdf_form_common.c
-  src/pdf_form_widgets.c
-  src/pdf_form_provenance_widgets.c
-  src/pdf_form_values.c
-  src/pdf_form_choices.c
   src/pdf_form.c
   src/pdf_edit.c
   src/pdf_edit_forms.c
@@ -86,15 +71,8 @@ target_include_directories(quantapdf PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
 target_link_libraries(quantapdf PRIVATE
-  unofficial::libmupdf::libmupdf
   quantapdf_backend)
 set_target_properties(quantapdf PROPERTIES LINKER_LANGUAGE CXX)
-
-if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-  # MuPDF is a transitional static dependency. Do not let symbols from it or
-  # its bundled dependencies preempt the same dependencies inside PDFium.
-  target_link_options(quantapdf INTERFACE "LINKER:--exclude-libs,ALL")
-endif()
 
 if(BUILD_SHARED_LIBS)
   target_compile_definitions(quantapdf
@@ -157,29 +135,27 @@ if(QUANTAPDF_BUILD_TESTS)
     TARGET_DIRECTORY quantapdf_test_pdf_trim
     PROPERTY COMPILE_DEFINITIONS "main=quantapdf_pdf_trim_base_main")
   target_sources(quantapdf_test_pdf_trim PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_trim_raw.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_trim_boxes.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/qpdf_test_helpers.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_trim_transforms.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_trim_policy.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_trim_batch.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_trim_outside_crop.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_trim_main.c")
-  target_link_libraries(quantapdf_test_pdf_trim PRIVATE
-    unofficial::libmupdf::libmupdf)
+  target_link_libraries(quantapdf_test_pdf_trim PRIVATE qpdf::libqpdf)
+  target_compile_features(quantapdf_test_pdf_trim PRIVATE cxx_std_20)
   set_property(SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split.c"
     TARGET_DIRECTORY quantapdf_test_pdf_poster_split
     PROPERTY COMPILE_DEFINITIONS "main=quantapdf_pdf_poster_split_base_main")
   target_sources(quantapdf_test_pdf_poster_split PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_raw.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_navigation_raw.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/qpdf_test_helpers.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_geometry.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_policy.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_interactive.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_navigation.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_batch.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_poster_split_main.c")
-  target_link_libraries(quantapdf_test_pdf_poster_split PRIVATE
-    unofficial::libmupdf::libmupdf)
+  target_link_libraries(quantapdf_test_pdf_poster_split PRIVATE qpdf::libqpdf)
+  target_compile_features(quantapdf_test_pdf_poster_split PRIVATE cxx_std_20)
   target_compile_definitions(quantapdf_test_pdf_poster_split PRIVATE
     POSTER_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/poster-split-output.pdf"
     POSTER_ROTATE_90_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/poster-rotate-90.pdf"

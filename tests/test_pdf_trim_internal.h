@@ -3,6 +3,10 @@
 
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 int trim_raw_expect_local_mediabox(
     const unsigned char *data,
     size_t size,
@@ -34,9 +38,19 @@ int trim_raw_expect_production_boxes(
     int expect_art,
     const float art[4]);
 
+int trim_raw_expect_outside_relation(
+    const unsigned char *data,
+    size_t size,
+    const float expected_media[4],
+    const float expected_crop[4]);
+
 int trim_run_frame_mode_tests(void);
 int trim_run_policy_tests(void);
 int trim_run_batch_tests(void);
 int trim_run_outside_crop_test(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

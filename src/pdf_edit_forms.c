@@ -1,5 +1,5 @@
 #include "pdf_edit_internal.h"
-#include "pdf_form_common.h"
+#include "form_snapshot.h"
 
 #include <stdlib.h>
 #include <string.h>

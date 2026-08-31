@@ -2,7 +2,6 @@
 #define QUANTAPDF_INTERNAL_H
 
 #include <quantapdf/quantapdf.h>
-#include <mupdf/fitz.h>
 
 #include "text_snapshot.h"
 #include "image_snapshot.h"
@@ -24,8 +23,6 @@ typedef enum quantapdf_test_poster_fault_internal {
 #endif
 
 struct quantapdf_document {
-    fz_context *ctx;
-    fz_document *doc;
     unsigned char *source_data;
     size_t source_size;
     quantapdf_pdfium_document *pdfium_document;
@@ -56,7 +53,6 @@ struct quantapdf_output {
     size_t size;
 };
 
-quantapdf_status quantapdf_status_from_backend(int code);
 quantapdf_status quantapdf_document_page_user_unit(
     quantapdf_document *document,
     int page_index,

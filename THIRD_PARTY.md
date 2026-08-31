@@ -1,6 +1,6 @@
 # Third-party components
 
-QuantaPDF's permissive backend migration pins the following components. Release
+QuantaPDF's backend stack pins the following components. Release
 packages install these notices alongside the library; floating "latest" assets
 and unverified system PDFium installations are not accepted.
 

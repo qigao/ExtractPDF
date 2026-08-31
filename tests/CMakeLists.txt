@@ -279,14 +279,14 @@ set_tests_properties(quantapdf.pdf_form_mutation PROPERTIES TIMEOUT 60)
 
 add_executable(quantapdf_test_pdf_crop
   test_pdf_crop.c
-  test_pdf_crop_raw.c
-  test_pdf_crop_defaults.c
+  qpdf_test_helpers.cpp
   test_pdf_crop_transforms.c)
 set_source_files_properties(test_pdf_crop.c PROPERTIES
   COMPILE_DEFINITIONS "main=quantapdf_pdf_crop_base_main")
 target_link_libraries(quantapdf_test_pdf_crop PRIVATE
   QuantaPDF::QuantaPDF
-  unofficial::libmupdf::libmupdf)
+  qpdf::libqpdf)
+target_compile_features(quantapdf_test_pdf_crop PRIVATE cxx_std_20)
 target_compile_definitions(quantapdf_test_pdf_crop PRIVATE
   CROP_INTERACTIVE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/crop-interactive.pdf"
   CROP_INHERITED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/crop-inherited.pdf"

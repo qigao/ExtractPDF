@@ -189,7 +189,7 @@ static void test_page_box_bounds(void)
     CHECK(quantapdf_page_box_bounds(page, QUANTAPDF_PAGE_BOX_MEDIA, NULL) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(quantapdf_page_box_bounds(page, (quantapdf_page_box)99, &sentinel) == QUANTAPDF_ERROR_ARGUMENT);
 
-    /* Box bounds use MuPDF/Fitz page space: CropBox top-left is (0,0), y increases down. */
+    /* Box bounds use display page space: CropBox top-left is (0,0), y increases down. */
     CHECK(quantapdf_page_box_bounds(page, QUANTAPDF_PAGE_BOX_MEDIA, &media) == QUANTAPDF_OK);
     CHECK(media.x0 == -10.0f);
     CHECK(media.y0 == -20.0f);

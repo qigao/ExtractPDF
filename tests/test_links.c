@@ -59,7 +59,7 @@ static void test_links_and_document_independent_lifetime(void)
 
     /*
      * Link snapshots contain only QuantaPDF-owned copies. They must not
-     * retain or require the source page, document, or MuPDF link objects.
+     * retain or require the source page, document, or backend link objects.
      */
     quantapdf_drop_page(page);
     page = NULL;
