@@ -132,10 +132,10 @@ static void check_closure_output(const extractpdf_output *output)
         RAW_CHECK(same_identity(ctx, pdf_array_get(ctx, kids, 0), keep_ref));
         RAW_CHECK(same_identity(
             ctx, pdf_array_get(ctx, audit_root_kids, 1), keep_ref));
-        RAW_CHECK(same_identity(
+        RAW_CHECK(pdf_dict_get(
             ctx,
-            pdf_dict_get(ctx, pdf_array_get(ctx, audit_root_kids, 0), PDF_NAME(Kids)),
-            audit_mid_kids));
+            pdf_array_get(ctx, audit_root_kids, 0),
+            PDF_NAME(Kids)) == NULL);
 
         q = pdf_dict_get(ctx, acroform, PDF_NAME(Q));
         RAW_CHECK(pdf_is_int(ctx, q));
