@@ -61,28 +61,66 @@ static int check_form_counts(
     return 0;
 }
 
-static void check_fully_pruned_output(const extractpdf_output *output)
+static pdf_document *open_output_pdf(
+    fz_context *ctx,
+    const extractpdf_output *output)
 {
     const unsigned char *bytes = NULL;
     size_t size = 0;
-    fz_context *ctx = fz_new_context(NULL, NULL, FZ_STORE_DEFAULT);
     fz_stream *stream = NULL;
+    pdf_document *document = NULL;
+
+    RAW_CHECK(extractpdf_output_data(output, &bytes, &size) == EXTRACTPDF_OK);
+    RAW_CHECK(bytes != NULL);
+    RAW_CHECK(size != 0);
+    fz_var(stream);
+    fz_var(document);
+    fz_try(ctx)
+    {
+        stream = fz_open_memory(ctx, bytes, size);
+        document = pdf_open_document_with_stream(ctx, stream);
+    }
+    fz_always(ctx)
+    {
+        fz_drop_stream(ctx, stream);
+    }
+    fz_catch(ctx)
+    {
+        pdf_drop_document(ctx, document);
+        fz_rethrow(ctx);
+    }
+    return document;
+}
+
+static void check_field_name(
+    fz_context *ctx,
+    pdf_obj *field,
+    const char *expected)
+{
+    pdf_obj *name = pdf_dict_get(ctx, field, PDF_NAME(T));
+    const char *text;
+
+    RAW_CHECK(pdf_is_dict(ctx, field));
+    RAW_CHECK(pdf_is_string(ctx, name));
+    text = pdf_to_text_string(ctx, name);
+    RAW_CHECK(text != NULL);
+    RAW_CHECK(strcmp(text, expected) == 0);
+}
+
+static void check_fully_pruned_output(const extractpdf_output *output)
+{
+    fz_context *ctx = fz_new_context(NULL, NULL, FZ_STORE_DEFAULT);
     pdf_document *document = NULL;
     pdf_obj *root;
     pdf_obj *page;
     int caught_code = FZ_ERROR_NONE;
 
     RAW_CHECK(ctx != NULL);
-    RAW_CHECK(extractpdf_output_data(output, &bytes, &size) == EXTRACTPDF_OK);
-    RAW_CHECK(bytes != NULL);
-    RAW_CHECK(size != 0);
-    fz_var(stream);
     fz_var(document);
     fz_var(caught_code);
     fz_try(ctx)
     {
-        stream = fz_open_memory(ctx, bytes, size);
-        document = pdf_open_document_with_stream(ctx, stream);
+        document = open_output_pdf(ctx, output);
         RAW_CHECK(document != NULL);
         root = pdf_dict_get(ctx, pdf_trailer(ctx, document), PDF_NAME(Root));
         RAW_CHECK(pdf_is_dict(ctx, root));
@@ -93,7 +131,72 @@ static void check_fully_pruned_output(const extractpdf_output *output)
     }
     fz_always(ctx)
     {
-        fz_drop_stream(ctx, stream);
+        pdf_drop_document(ctx, document);
+    }
+    fz_catch(ctx)
+    {
+        caught_code = fz_caught(ctx);
+        fz_report_error(ctx);
+    }
+    fz_drop_context(ctx);
+    RAW_CHECK(caught_code == FZ_ERROR_NONE);
+}
+
+static void check_deep_survivor_output(const extractpdf_output *output)
+{
+    fz_context *ctx = fz_new_context(NULL, NULL, FZ_STORE_DEFAULT);
+    pdf_document *document = NULL;
+    pdf_obj *root;
+    pdf_obj *acroform;
+    pdf_obj *fields;
+    pdf_obj *field;
+    pdf_obj *kids;
+    pdf_obj *page;
+    int caught_code = FZ_ERROR_NONE;
+
+    RAW_CHECK(ctx != NULL);
+    fz_var(document);
+    fz_var(caught_code);
+    fz_try(ctx)
+    {
+        document = open_output_pdf(ctx, output);
+        RAW_CHECK(document != NULL);
+        root = pdf_dict_get(ctx, pdf_trailer(ctx, document), PDF_NAME(Root));
+        RAW_CHECK(pdf_is_dict(ctx, root));
+        acroform = pdf_dict_get(ctx, root, PDF_NAME(AcroForm));
+        RAW_CHECK(pdf_is_dict(ctx, acroform));
+        fields = pdf_dict_get(ctx, acroform, PDF_NAME(Fields));
+        RAW_CHECK(pdf_is_array(ctx, fields));
+        RAW_CHECK(pdf_array_len(ctx, fields) == 1);
+
+        field = pdf_array_get(ctx, fields, 0);
+        check_field_name(ctx, field, "root");
+        kids = pdf_dict_get(ctx, field, PDF_NAME(Kids));
+        RAW_CHECK(pdf_is_array(ctx, kids));
+        RAW_CHECK(pdf_array_len(ctx, kids) == 1);
+
+        field = pdf_array_get(ctx, kids, 0);
+        check_field_name(ctx, field, "g1");
+        kids = pdf_dict_get(ctx, field, PDF_NAME(Kids));
+        RAW_CHECK(pdf_is_array(ctx, kids));
+        RAW_CHECK(pdf_array_len(ctx, kids) == 1);
+
+        field = pdf_array_get(ctx, kids, 0);
+        check_field_name(ctx, field, "g2");
+        kids = pdf_dict_get(ctx, field, PDF_NAME(Kids));
+        RAW_CHECK(pdf_is_array(ctx, kids));
+        RAW_CHECK(pdf_array_len(ctx, kids) == 1);
+
+        field = pdf_array_get(ctx, kids, 0);
+        check_field_name(ctx, field, "keep");
+        RAW_CHECK(pdf_dict_get(ctx, field, PDF_NAME(Kids)) == NULL);
+
+        page = pdf_lookup_page_obj(ctx, document, 0);
+        RAW_CHECK(pdf_is_dict(ctx, page));
+        RAW_CHECK(pdf_dict_get(ctx, page, PDF_NAME(Annots)) == NULL);
+    }
+    fz_always(ctx)
+    {
         pdf_drop_document(ctx, document);
     }
     fz_catch(ctx)
@@ -129,12 +232,34 @@ static int run_general_case(
     return 0;
 }
 
+static int run_deep_survivor_case(const char *path)
+{
+    extractpdf_document *document = NULL;
+    extractpdf_output *output = NULL;
+
+    CHECK(extractpdf_open(path, NULL, &document) == EXTRACTPDF_OK);
+    CHECK(document != NULL);
+    CHECK(check_form_counts(document, 2, 1) == 0);
+    CHECK(extractpdf_flatten_interactive(
+        document,
+        EXTRACTPDF_FLATTEN_WIDGETS,
+        &output) == EXTRACTPDF_OK);
+    CHECK(output != NULL);
+    check_deep_survivor_output(output);
+    CHECK(check_form_counts(document, 2, 1) == 0);
+
+    extractpdf_drop_output(output);
+    extractpdf_close(document);
+    return 0;
+}
+
 int extractpdf_test_pdf_flatten_form_multi(void)
 {
     extractpdf_document *document = NULL;
     extractpdf_output *output = NULL;
     char multi_root[1024];
     char deep[1024];
+    char deep_survivor[1024];
 
     CHECK(extractpdf_open(
         FLATTEN_MULTI_WIDGET_PDF, NULL, &document) == EXTRACTPDF_OK);
@@ -155,8 +280,14 @@ int extractpdf_test_pdf_flatten_form_multi(void)
     sibling_fixture_path(
         "flatten-form-multi-root.pdf", multi_root, sizeof(multi_root));
     sibling_fixture_path("flatten-form-deep.pdf", deep, sizeof(deep));
+    sibling_fixture_path(
+        "flatten-form-deep-survivor.pdf",
+        deep_survivor,
+        sizeof(deep_survivor));
 
     if (run_general_case(multi_root, 2, 2) != 0)
         return 1;
-    return run_general_case(deep, 1, 1);
+    if (run_general_case(deep, 1, 1) != 0)
+        return 1;
+    return run_deep_survivor_case(deep_survivor);
 }
