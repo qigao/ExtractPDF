@@ -63,7 +63,7 @@ static quantapdf_status poster_run_preflight(
     }
 
     if (caught_code != FZ_ERROR_NONE)
-        return quantapdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_backend(caught_code);
     return status;
 }
 
@@ -202,7 +202,7 @@ static quantapdf_status poster_build_private_tiles(
 
     if (caught_code != FZ_ERROR_NONE) {
         poster_drop_private_splits(ctx, runtime, plan->split_count);
-        return quantapdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_backend(caught_code);
     }
     *out_runtime = runtime;
     return QUANTAPDF_OK;
@@ -248,7 +248,7 @@ static quantapdf_status poster_splice_private_tiles(
     }
 
     if (caught_code != FZ_ERROR_NONE)
-        return quantapdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_backend(caught_code);
     return QUANTAPDF_OK;
 }
 
@@ -301,7 +301,7 @@ static quantapdf_status poster_transform_changed(
         fz_report_error(private_ctx);
     }
     if (caught_code != FZ_ERROR_NONE) {
-        status = quantapdf_status_from_mupdf(caught_code);
+        status = quantapdf_status_from_backend(caught_code);
         goto cleanup;
     }
 

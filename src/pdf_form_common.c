@@ -1033,7 +1033,7 @@ quantapdf_status quantapdf_pdf_form_build(
     if (caught_code != FZ_ERROR_NONE) {
         quantapdf_pdf_form_drop_model(model);
         quantapdf_pdf_form_drop_provenance(ctx, provenance);
-        return quantapdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_backend(caught_code);
     }
     if (status != QUANTAPDF_OK) {
         quantapdf_pdf_form_drop_model(model);

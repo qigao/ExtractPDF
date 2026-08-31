@@ -32,7 +32,7 @@ quantapdf_status quantapdf_pdf_edit_form_restore_widget_editing(
         }
         handles->items[i].editing_active = 0;
         if (caught_code != FZ_ERROR_NONE && status == QUANTAPDF_OK)
-            status = quantapdf_status_from_mupdf(caught_code);
+            status = quantapdf_status_from_backend(caught_code);
     }
     return status;
 }
@@ -141,7 +141,7 @@ quantapdf_status quantapdf_pdf_edit_form_prepare_widget_handles(
     }
 
     if (caught_code != FZ_ERROR_NONE)
-        status = quantapdf_status_from_mupdf(caught_code);
+        status = quantapdf_status_from_backend(caught_code);
     if (status != QUANTAPDF_OK)
         quantapdf_pdf_edit_form_drop_widget_handles(edit, out_handles);
     return status;
@@ -179,7 +179,7 @@ quantapdf_status quantapdf_pdf_edit_form_begin_widget_editing(
         return QUANTAPDF_OK;
     restore_status = quantapdf_pdf_edit_form_restore_widget_editing(edit, handles);
     (void)restore_status;
-    return quantapdf_status_from_mupdf(caught_code);
+    return quantapdf_status_from_backend(caught_code);
 }
 
 void quantapdf_pdf_edit_form_refresh_widget_handles(

@@ -44,7 +44,7 @@ quantapdf_status quantapdf_extract_text(
 
     if (caught_code != FZ_ERROR_NONE) {
         fz_drop_buffer(ctx, buffer);
-        return quantapdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_backend(caught_code);
     }
     if (buffer == NULL) {
         return QUANTAPDF_ERROR_NOMEM;

@@ -17,8 +17,8 @@ const char *quantapdf_status_string(quantapdf_status status)
         return "unsupported operation or content";
     case QUANTAPDF_ERROR_NOMEM:
         return "out of memory";
-    case QUANTAPDF_ERROR_MUPDF:
-        return "MuPDF error";
+    case QUANTAPDF_ERROR_BACKEND:
+        return "backend error";
     case QUANTAPDF_ERROR_STATE:
         return "invalid state";
     default:

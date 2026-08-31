@@ -172,7 +172,7 @@ quantapdf_status quantapdf_extract_annotations(
     }
 
     if (caught_code != FZ_ERROR_NONE)
-        return quantapdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_backend(caught_code);
     if (pdf_page == NULL)
         return QUANTAPDF_ERROR_UNSUPPORTED;
     if (status != QUANTAPDF_OK)
@@ -245,7 +245,7 @@ quantapdf_status quantapdf_extract_annotations(
 
     if (caught_code != FZ_ERROR_NONE) {
         quantapdf_status caught_status =
-            quantapdf_status_from_mupdf(caught_code);
+            quantapdf_status_from_backend(caught_code);
         quantapdf_dispose_annotation_page(annotations);
         return caught_status;
     }

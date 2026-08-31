@@ -91,7 +91,7 @@ quantapdf_status quantapdf_image_render(
     if (caught_code != FZ_ERROR_NONE) {
         fz_drop_pixmap(ctx, result);
         free(bitmap);
-        return quantapdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_backend(caught_code);
     }
 
     if (result == NULL) {

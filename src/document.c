@@ -20,7 +20,7 @@ static void quantapdf_dispose_document(quantapdf_document *document)
     free(document);
 }
 
-quantapdf_status quantapdf_status_from_mupdf(int code)
+quantapdf_status quantapdf_status_from_backend(int code)
 {
     switch (code) {
     case FZ_ERROR_ARGUMENT:
@@ -33,7 +33,7 @@ quantapdf_status quantapdf_status_from_mupdf(int code)
     case FZ_ERROR_SYSTEM:
         return QUANTAPDF_ERROR_IO;
     default:
-        return QUANTAPDF_ERROR_MUPDF;
+        return QUANTAPDF_ERROR_BACKEND;
     }
 }
 
@@ -86,7 +86,7 @@ quantapdf_status quantapdf_open(
     }
 
     if (caught_code != FZ_ERROR_NONE) {
-        quantapdf_status status = quantapdf_status_from_mupdf(caught_code);
+        quantapdf_status status = quantapdf_status_from_backend(caught_code);
         quantapdf_dispose_document(document);
         return status;
     }
@@ -124,7 +124,7 @@ quantapdf_status quantapdf_page_count(
     }
 
     if (caught_code != FZ_ERROR_NONE)
-        return quantapdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_backend(caught_code);
 
     *out_page_count = count;
     return QUANTAPDF_OK;

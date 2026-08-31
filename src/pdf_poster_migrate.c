@@ -341,6 +341,6 @@ quantapdf_status quantapdf_pdf_poster_apply_annotations(
         fz_report_error(ctx);
     }
     if (caught_code != FZ_ERROR_NONE)
-        return quantapdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_backend(caught_code);
     return status;
 }

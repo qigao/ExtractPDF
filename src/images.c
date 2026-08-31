@@ -164,7 +164,7 @@ quantapdf_status quantapdf_extract_images(
         fz_drop_device(ctx, device);
 
     if (caught_code != FZ_ERROR_NONE) {
-        quantapdf_status status = quantapdf_status_from_mupdf(caught_code);
+        quantapdf_status status = quantapdf_status_from_backend(caught_code);
         quantapdf_dispose_image_page(images);
         return status;
     }

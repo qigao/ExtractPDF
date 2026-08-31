@@ -117,7 +117,7 @@ quantapdf_status quantapdf_document_metadata(
     }
 
     if (caught_code != FZ_ERROR_NONE)
-        return quantapdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_backend(caught_code);
     if (pdf == NULL)
         return QUANTAPDF_ERROR_UNSUPPORTED;
     if (malformed_info || malformed_value)

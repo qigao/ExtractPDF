@@ -92,7 +92,7 @@ static quantapdf_status quantapdf_pdf_crop_transform_changed(
     }
 
     if (caught_code != FZ_ERROR_NONE) {
-        status = quantapdf_status_from_mupdf(caught_code);
+        status = quantapdf_status_from_backend(caught_code);
         pdf_drop_document(private_ctx, private_document);
         fz_drop_context(private_ctx);
         quantapdf_drop_output(seed);
@@ -162,7 +162,7 @@ static quantapdf_status quantapdf_pdf_crop_transform_changed(
         fz_report_error(private_ctx);
     }
     if (caught_code != FZ_ERROR_NONE) {
-        status = quantapdf_status_from_mupdf(caught_code);
+        status = quantapdf_status_from_backend(caught_code);
         goto cleanup;
     }
 

@@ -74,6 +74,8 @@ quantapdf_status quantapdf_extract_links(
 
     ctx = page->document->ctx;
     fz_var(head);
+    fz_var(count);
+    fz_var(index);
     fz_var(caught_code);
 
     fz_try(ctx)
@@ -87,7 +89,7 @@ quantapdf_status quantapdf_extract_links(
     }
 
     if (caught_code != FZ_ERROR_NONE) {
-        quantapdf_status status = quantapdf_status_from_mupdf(caught_code);
+        quantapdf_status status = quantapdf_status_from_backend(caught_code);
         quantapdf_dispose_link_page(snapshot);
         return status;
     }
@@ -159,7 +161,7 @@ quantapdf_status quantapdf_extract_links(
             }
 
             if (caught_code != FZ_ERROR_NONE) {
-                quantapdf_status status = quantapdf_status_from_mupdf(caught_code);
+                quantapdf_status status = quantapdf_status_from_backend(caught_code);
                 fz_drop_link(ctx, head);
                 quantapdf_dispose_link_page(snapshot);
                 return status;

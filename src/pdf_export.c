@@ -55,7 +55,7 @@ quantapdf_status quantapdf_export_pages(
     }
 
     if (caught_code != FZ_ERROR_NONE)
-        return quantapdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_backend(caught_code);
 
     for (i = 0; i < page_count; ++i) {
         if (page_indices[i] < 0 || page_indices[i] >= source_page_count)
@@ -83,7 +83,7 @@ quantapdf_status quantapdf_export_pages(
     }
 
     if (caught_code != FZ_ERROR_NONE) {
-        quantapdf_status status = quantapdf_status_from_mupdf(caught_code);
+        quantapdf_status status = quantapdf_status_from_backend(caught_code);
         quantapdf_drop_pdf_export_state(ctx, destination, graft);
         return status;
     }

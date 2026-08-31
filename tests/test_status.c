@@ -26,7 +26,7 @@ int main(void)
     CHECK(strcmp(quantapdf_status_string(QUANTAPDF_ERROR_FORMAT), "invalid document format") == 0);
     CHECK(strcmp(quantapdf_status_string(QUANTAPDF_ERROR_UNSUPPORTED), "unsupported operation or content") == 0);
     CHECK(strcmp(quantapdf_status_string(QUANTAPDF_ERROR_NOMEM), "out of memory") == 0);
-    CHECK(strcmp(quantapdf_status_string(QUANTAPDF_ERROR_MUPDF), "MuPDF error") == 0);
+    CHECK(strcmp(quantapdf_status_string(QUANTAPDF_ERROR_BACKEND), "backend error") == 0);
     CHECK(strcmp(quantapdf_status_string((quantapdf_status)999), "unknown error") == 0);
 
     fprintf(stderr, "[quantapdf.status] complete\n");

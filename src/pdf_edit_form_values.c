@@ -258,7 +258,7 @@ quantapdf_status quantapdf_pdf_edit_form_apply_text(
         edit->test_fault = QUANTAPDF_PDF_EDIT_TEST_FAULT_NONE;
         quantapdf_pdf_edit_form_drop_widget_handles(edit, &handles);
         free(text);
-        return QUANTAPDF_ERROR_MUPDF;
+        return QUANTAPDF_ERROR_BACKEND;
     }
 #endif
     status = quantapdf_pdf_edit_form_begin_widget_editing(edit, &handles);
@@ -306,6 +306,6 @@ quantapdf_status quantapdf_pdf_edit_form_apply_text(
     quantapdf_pdf_edit_form_drop_widget_handles(edit, &handles);
     free(text);
     if (caught_code != FZ_ERROR_NONE)
-        return quantapdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_backend(caught_code);
     return QUANTAPDF_OK;
 }

@@ -145,7 +145,7 @@ static void rollback_expect_failed_atomic(
     rollback_copy_editor_output(edit, &before, &before_size);
     quantapdf_test_pdf_edit_set_fault(edit, fault);
     ROLLBACK_CHECK(quantapdf_pdf_edit_form_set_values(edit, ref, update) ==
-        QUANTAPDF_ERROR_MUPDF);
+        QUANTAPDF_ERROR_BACKEND);
     rollback_copy_editor_output(edit, &after, &after_size);
     ROLLBACK_CHECK(before_size == after_size);
     ROLLBACK_CHECK(memcmp(before, after, before_size) == 0);

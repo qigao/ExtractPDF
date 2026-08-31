@@ -39,7 +39,7 @@ static quantapdf_status quantapdf_merge_one_output(
         source_page_count = pdf_count_pages(ctx, source);
 
         if (source_page_count < 0) {
-            status = QUANTAPDF_ERROR_MUPDF;
+            status = QUANTAPDF_ERROR_BACKEND;
         } else if (source_page_count > INT_MAX - *total_page_count) {
             status = QUANTAPDF_ERROR_ARGUMENT;
         } else {
@@ -65,7 +65,7 @@ static quantapdf_status quantapdf_merge_one_output(
     }
 
     if (caught_code != FZ_ERROR_NONE)
-        return quantapdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_backend(caught_code);
     if (status != QUANTAPDF_OK)
         return status;
 
@@ -117,7 +117,7 @@ quantapdf_status quantapdf_merge_outputs(
     }
 
     if (caught_code != FZ_ERROR_NONE) {
-        status = quantapdf_status_from_mupdf(caught_code);
+        status = quantapdf_status_from_backend(caught_code);
         fz_drop_context(ctx);
         return status;
     }

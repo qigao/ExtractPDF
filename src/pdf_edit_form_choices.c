@@ -436,6 +436,6 @@ quantapdf_status quantapdf_pdf_edit_form_apply_choice(
     quantapdf_pdf_edit_form_drop_widget_handles(edit, &handles);
     quantapdf_pdf_edit_choice_assignment_drop(&assignment);
     if (caught_code != FZ_ERROR_NONE)
-        return quantapdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_backend(caught_code);
     return QUANTAPDF_OK;
 }

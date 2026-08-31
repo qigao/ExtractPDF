@@ -116,6 +116,6 @@ struct quantapdf_output {
     size_t size;
 };
 
-quantapdf_status quantapdf_status_from_mupdf(int code);
+quantapdf_status quantapdf_status_from_backend(int code);
 
 #endif

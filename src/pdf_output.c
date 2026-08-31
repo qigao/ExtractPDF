@@ -58,14 +58,14 @@ quantapdf_status quantapdf_serialize_pdf(
     }
 
     if (caught_code != FZ_ERROR_NONE) {
-        quantapdf_status status = quantapdf_status_from_mupdf(caught_code);
+        quantapdf_status status = quantapdf_status_from_backend(caught_code);
         quantapdf_drop_pdf_serialization_state(ctx, buffer, memory_output);
         return status;
     }
 
     if (buffer_data == NULL || buffer_size == 0) {
         quantapdf_drop_pdf_serialization_state(ctx, buffer, memory_output);
-        return QUANTAPDF_ERROR_MUPDF;
+        return QUANTAPDF_ERROR_BACKEND;
     }
 
     result = (quantapdf_output *)calloc(1, sizeof(*result));

@@ -186,7 +186,7 @@ quantapdf_status quantapdf_pdf_outline_walk_strict(
     free(walk.stack);
 
     if (caught_code != FZ_ERROR_NONE)
-        return quantapdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_backend(caught_code);
     if (status != QUANTAPDF_OK)
         return status;
     if (walk.too_deep)

@@ -151,14 +151,14 @@ quantapdf_status quantapdf_pdf_edit_begin(
     }
 
     if (caught_code != FZ_ERROR_NONE) {
-        status = quantapdf_status_from_mupdf(caught_code);
+        status = quantapdf_status_from_backend(caught_code);
         quantapdf_dispose_pdf_edit(edit);
         return status;
     }
 
     if (edit->document == NULL || edit->session_cookie == 0) {
         quantapdf_dispose_pdf_edit(edit);
-        return QUANTAPDF_ERROR_MUPDF;
+        return QUANTAPDF_ERROR_BACKEND;
     }
 
     status = quantapdf_pdf_rewrite_check_security(edit->ctx, edit->document);
@@ -217,7 +217,7 @@ static quantapdf_status quantapdf_pdf_edit_snapshot_pdf(
 
     if (caught_code != FZ_ERROR_NONE) {
         quantapdf_status status =
-            quantapdf_status_from_mupdf(caught_code);
+            quantapdf_status_from_backend(caught_code);
         quantapdf_pdf_edit_drop_snapshot_state(
             edit->ctx, buffer, memory_output);
         return status;
@@ -226,7 +226,7 @@ static quantapdf_status quantapdf_pdf_edit_snapshot_pdf(
     if (data == NULL || size == 0) {
         quantapdf_pdf_edit_drop_snapshot_state(
             edit->ctx, buffer, memory_output);
-        return QUANTAPDF_ERROR_MUPDF;
+        return QUANTAPDF_ERROR_BACKEND;
     }
 
     result = (quantapdf_output *)calloc(1, sizeof(*result));
@@ -276,7 +276,7 @@ quantapdf_status quantapdf_pdf_edit_snapshot(
         QUANTAPDF_PDF_EDIT_TEST_FAULT_SNAPSHOT_BEFORE_PUBLISH) {
         edit->test_fault = QUANTAPDF_PDF_EDIT_TEST_FAULT_NONE;
         quantapdf_drop_output(result);
-        return QUANTAPDF_ERROR_MUPDF;
+        return QUANTAPDF_ERROR_BACKEND;
     }
 #endif
 

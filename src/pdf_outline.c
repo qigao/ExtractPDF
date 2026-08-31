@@ -310,7 +310,7 @@ static quantapdf_status quantapdf_flatten_pdf_outline(
     free(parent_stack);
 
     if (caught_code != FZ_ERROR_NONE)
-        return quantapdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_backend(caught_code);
     return status;
 }
 
@@ -353,7 +353,7 @@ quantapdf_status quantapdf_document_outline(
     }
 
     if (caught_code != FZ_ERROR_NONE)
-        return quantapdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_backend(caught_code);
     if (pdf == NULL)
         return QUANTAPDF_ERROR_UNSUPPORTED;
     if (preflight_status != QUANTAPDF_OK)

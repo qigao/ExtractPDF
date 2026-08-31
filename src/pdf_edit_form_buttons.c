@@ -262,6 +262,6 @@ quantapdf_status quantapdf_pdf_edit_form_apply_button(
     }
 
     if (caught_code != FZ_ERROR_NONE)
-        return quantapdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_backend(caught_code);
     return QUANTAPDF_OK;
 }

@@ -86,7 +86,7 @@ static quantapdf_status quantapdf_render_page_transformed(
         if (bitmap->pixmap != NULL)
             fz_drop_pixmap(ctx, bitmap->pixmap);
         free(bitmap);
-        return quantapdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_backend(caught_code);
     }
     if (bitmap->pixmap == NULL) {
         free(bitmap);

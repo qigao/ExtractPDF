@@ -167,7 +167,7 @@ static quantapdf_status quantapdf_pdf_edit_validate_page(
     }
 
     if (caught_code != FZ_ERROR_NONE)
-        return quantapdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_backend(caught_code);
     if (page_index >= page_count)
         return QUANTAPDF_ERROR_ARGUMENT;
     return QUANTAPDF_OK;
@@ -428,7 +428,7 @@ static quantapdf_status quantapdf_pdf_edit_scan_page(
 
     if (caught_code != FZ_ERROR_NONE) {
         pdf_drop_obj(edit->ctx, kept);
-        return quantapdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_backend(caught_code);
     }
     if (status != QUANTAPDF_OK) {
         pdf_drop_obj(edit->ctx, kept);
@@ -483,7 +483,7 @@ static quantapdf_status quantapdf_pdf_edit_resolve_live_annot(
     if (caught_code != FZ_ERROR_NONE) {
         if (page != NULL)
             fz_drop_page(edit->ctx, &page->super);
-        return quantapdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_backend(caught_code);
     }
     if (found == NULL) {
         if (page != NULL)
@@ -547,7 +547,7 @@ static quantapdf_status quantapdf_pdf_edit_resolve_live_view(
 
     if (caught_code != FZ_ERROR_NONE) {
         fz_drop_page(edit->ctx, &page->super);
-        return quantapdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_backend(caught_code);
     }
     if (status != QUANTAPDF_OK) {
         fz_drop_page(edit->ctx, &page->super);
@@ -845,10 +845,10 @@ quantapdf_status quantapdf_pdf_edit_annotation_create(
     free(contents_copy);
     if (caught_code != FZ_ERROR_NONE) {
         pdf_drop_obj(edit->ctx, object);
-        return quantapdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_backend(caught_code);
     }
     if (object == NULL)
-        return QUANTAPDF_ERROR_MUPDF;
+        return QUANTAPDF_ERROR_BACKEND;
 
     status = quantapdf_pdf_edit_register_object(
         edit, object, page_index, out_ref);
@@ -1011,7 +1011,7 @@ quantapdf_status quantapdf_pdf_edit_annotation_update(
 
     free(contents_copy);
     if (caught_code != FZ_ERROR_NONE)
-        return quantapdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_backend(caught_code);
     return QUANTAPDF_OK;
 }
 
@@ -1063,7 +1063,7 @@ quantapdf_status quantapdf_pdf_edit_annotation_delete(
     }
 
     if (caught_code != FZ_ERROR_NONE)
-        return quantapdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_backend(caught_code);
 
     pdf_drop_obj(edit->ctx, entry->object);
     entry->object = NULL;

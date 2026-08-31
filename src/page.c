@@ -32,7 +32,7 @@ quantapdf_status quantapdf_load_page(
     }
 
     if (caught_code != FZ_ERROR_NONE)
-        return quantapdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_backend(caught_code);
     if (page_index >= page_count)
         return QUANTAPDF_ERROR_ARGUMENT;
 
@@ -55,7 +55,7 @@ quantapdf_status quantapdf_load_page(
 
     if (caught_code != FZ_ERROR_NONE) {
         free(page);
-        return quantapdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_backend(caught_code);
     }
 
     *out_page = page;
@@ -86,7 +86,7 @@ quantapdf_status quantapdf_page_bounds(
     }
 
     if (caught_code != FZ_ERROR_NONE)
-        return quantapdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_backend(caught_code);
 
     out_bounds->x0 = bounds.x0;
     out_bounds->y0 = bounds.y0;
@@ -132,7 +132,7 @@ quantapdf_status quantapdf_page_box_bounds(
     }
 
     if (caught_code != FZ_ERROR_NONE)
-        return quantapdf_status_from_mupdf(caught_code);
+        return quantapdf_status_from_backend(caught_code);
 
     out_bounds->x0 = bounds.x0;
     out_bounds->y0 = bounds.y0;

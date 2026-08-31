@@ -381,7 +381,7 @@ static void test_widget_prepare_is_byte_preserving(void)
     make_text_update(&value, &update, "new-text", 8);
     copy_editor_output(edit, &before, &before_size);
     quantapdf_test_pdf_edit_set_fault(edit, QUANTAPDF_TEST_PDF_EDIT_FAULT_FORM_AFTER_WIDGET_PREPARE);
-    CHECK(quantapdf_pdf_edit_form_set_values(edit, &ref, &update) == QUANTAPDF_ERROR_MUPDF);
+    CHECK(quantapdf_pdf_edit_form_set_values(edit, &ref, &update) == QUANTAPDF_ERROR_BACKEND);
     copy_editor_output(edit, &after, &after_size);
     CHECK(before_size == after_size && memcmp(before, after, before_size) == 0);
     free(before); free(after);
