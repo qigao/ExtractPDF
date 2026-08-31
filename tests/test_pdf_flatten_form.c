@@ -368,7 +368,6 @@ static int check_widget_co_cow(void)
         document,
         EXTRACTPDF_FLATTEN_WIDGETS,
         &output);
-    fprintf(stderr, "CO widget flatten status=%d\n", (int)status);
     CHECK(status == EXTRACTPDF_OK);
     CHECK(output != NULL);
     check_form_co_cow_output(output);
