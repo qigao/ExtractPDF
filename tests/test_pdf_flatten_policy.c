@@ -59,5 +59,8 @@ int extractpdf_test_pdf_flatten_policy(void)
     CHECK(expect_flatten_status(
         FLATTEN_POLICY_LINK_BS_MALFORMED_PDF,
         EXTRACTPDF_ERROR_FORMAT) == 0);
+    CHECK(expect_flatten_status(
+        FLATTEN_POLICY_ANNOTATION_WITH_WIDGET_PDF,
+        EXTRACTPDF_ERROR_UNSUPPORTED) == 0);
     return 0;
 }
