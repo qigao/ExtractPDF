@@ -10,7 +10,7 @@ typedef enum quantapdf_test_pdf_poster_fault {
     QUANTAPDF_TEST_PDF_POSTER_FAULT_NAVIGATION_PREFLIGHT = 3
 } quantapdf_test_pdf_poster_fault;
 
-QUANTAPDF_API void quantapdf_test_pdf_poster_set_fault(
+void quantapdf_test_pdf_poster_set_fault(
     quantapdf_document *document,
     quantapdf_test_pdf_poster_fault fault);
 

@@ -2,7 +2,7 @@
 
 **QuantaPDF — PDF made easy.**
 
-QuantaPDF is a compact native PDF kernel with a stable C11 ABI suitable for
+QuantaPDF is a compact native PDF kernel with a versioned C11 ABI suitable for
 native callers and .NET P/Invoke.
 
 > **Backends:** QuantaPDF uses pinned PDFium `154.0.8021.0` for document
@@ -84,8 +84,9 @@ The current supported surface includes:
 - `quantapdf_close(NULL)`, `quantapdf_drop_page(NULL)`, and `quantapdf_drop_bitmap(NULL)` are safe.
 - qpdf and standard C++ exceptions are caught inside the private bridge and
   translated to `quantapdf_status`.
-- The current public runtime contract remains deliberately single-threaded
-  while feature modules are migrated and cross-engine ownership is proven.
+- ABI v2 requires external serialization: applications must not execute
+  `quantapdf_*` calls concurrently, including calls that use different
+  documents or otherwise unrelated handles.
 
 Snapshot/output ownership is explicit:
 
@@ -100,6 +101,16 @@ Snapshot/output ownership is explicit:
   `quantapdf_document`.
 
 ## ABI-sized structures
+
+The installed header publishes `QUANTAPDF_VERSION_MAJOR`,
+`QUANTAPDF_VERSION_MINOR`, `QUANTAPDF_VERSION_PATCH`, and
+`QUANTAPDF_ABI_VERSION`. ABI version 2 follows these compatibility rules:
+
+- existing exported functions, enum numeric values, structure fields, and
+  ownership rules are not removed, reordered, or reinterpreted;
+- new functions and enum values may be appended;
+- incompatible changes require a new ABI version and shared-library major
+  version.
 
 `struct_size` has two distinct contracts:
 

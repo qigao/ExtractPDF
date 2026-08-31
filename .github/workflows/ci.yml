@@ -120,8 +120,7 @@ jobs:
       github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' &&
-       github.event.action == 'labeled' &&
-       github.event.label.name == 'full-ci')
+       contains(github.event.pull_request.labels.*.name, 'full-ci'))
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -218,8 +217,7 @@ jobs:
       github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'pull_request' &&
-       github.event.action == 'labeled' &&
-       github.event.label.name == 'full-ci')
+       contains(github.event.pull_request.labels.*.name, 'full-ci'))
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

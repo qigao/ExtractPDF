@@ -72,7 +72,10 @@ target_include_directories(quantapdf PUBLIC
   $<INSTALL_INTERFACE:include>)
 target_link_libraries(quantapdf PRIVATE
   quantapdf_backend)
-set_target_properties(quantapdf PROPERTIES LINKER_LANGUAGE CXX)
+set_target_properties(quantapdf PROPERTIES
+  LINKER_LANGUAGE CXX
+  VERSION "${PROJECT_VERSION}"
+  SOVERSION "${PROJECT_VERSION_MAJOR}")
 
 if(BUILD_SHARED_LIBS)
   target_compile_definitions(quantapdf
@@ -116,9 +119,6 @@ install(FILES
   DESTINATION "${CMAKE_INSTALL_DATADIR}/quantapdf")
 
 if(QUANTAPDF_BUILD_TESTS)
-  target_sources(quantapdf PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/tests/pdf_edit_fault_hook.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/tests/pdf_poster_fault_hook.c")
   target_compile_definitions(quantapdf PRIVATE QUANTAPDF_TESTING=1)
   include(CTest)
   add_subdirectory(tests)

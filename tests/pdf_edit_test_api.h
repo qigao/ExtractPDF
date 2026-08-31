@@ -14,7 +14,7 @@ typedef enum quantapdf_test_pdf_edit_fault {
     QUANTAPDF_TEST_PDF_EDIT_FAULT_FORM_AFTER_FIRST_AP_REFRESH = 7
 } quantapdf_test_pdf_edit_fault;
 
-QUANTAPDF_API void quantapdf_test_pdf_edit_set_fault(
+void quantapdf_test_pdf_edit_set_fault(
     quantapdf_pdf_edit *edit,
     quantapdf_test_pdf_edit_fault fault);
 
