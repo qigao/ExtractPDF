@@ -153,6 +153,7 @@ if(EXTRACTPDF_BUILD_TESTS)
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_flatten_widget_as.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_flatten_policy.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_flatten_determinism.c"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_flatten_flag_sets.c"
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_pdf_flatten_main.c")
   target_link_libraries(extractpdf_test_pdf_flatten PRIVATE
     unofficial::libmupdf::libmupdf)
