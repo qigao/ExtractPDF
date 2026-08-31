@@ -14,6 +14,8 @@ struct quantapdf_pdfium_document {
 };
 
 struct quantapdf_pdfium_page {
+    FPDF_DOCUMENT document;
+    int page_index;
     FPDF_PAGE handle;
 };
 
@@ -132,6 +134,8 @@ extern "C" quantapdf_status quantapdf_pdfium_load_page(
 
     try {
         auto page = std::make_unique<quantapdf_pdfium_page>();
+        page->document = nullptr;
+        page->page_index = -1;
         page->handle = nullptr;
         status = quantapdf_pdfium_enter();
         if (status != QUANTAPDF_OK)
@@ -139,9 +143,8 @@ extern "C" quantapdf_status quantapdf_pdfium_load_page(
         pdfium_scope const scope(status);
         if (page_index >= FPDF_GetPageCount(document->handle))
             return QUANTAPDF_ERROR_ARGUMENT;
-        page->handle = FPDF_LoadPage(document->handle, page_index);
-        if (page->handle == nullptr)
-            return status_from_pdfium(FPDF_GetLastError());
+        page->document = document->handle;
+        page->page_index = page_index;
         *out_page = page.release();
         return QUANTAPDF_OK;
     } catch (std::bad_alloc const&) {
@@ -158,8 +161,7 @@ extern "C" quantapdf_status quantapdf_pdfium_page_bounds(
     quantapdf_rect *out_bounds)
 {
     quantapdf_status status;
-    float width;
-    float height;
+    FS_SIZEF size = {};
 
     if (page == nullptr || out_bounds == nullptr)
         return QUANTAPDF_ERROR_ARGUMENT;
@@ -168,15 +170,16 @@ extern "C" quantapdf_status quantapdf_pdfium_page_bounds(
     if (status != QUANTAPDF_OK)
         return status;
     pdfium_scope const scope(status);
-    width = FPDF_GetPageWidthF(page->handle);
-    height = FPDF_GetPageHeightF(page->handle);
-    if (!std::isfinite(width) || !std::isfinite(height) ||
-        width <= 0.0f || height <= 0.0f)
+    if (!FPDF_GetPageSizeByIndexF(
+            page->document, page->page_index, &size))
+        return status_from_pdfium(FPDF_GetLastError());
+    if (!std::isfinite(size.width) || !std::isfinite(size.height) ||
+        size.width <= 0.0f || size.height <= 0.0f)
         return QUANTAPDF_ERROR_FORMAT;
     out_bounds->x0 = 0.0f;
     out_bounds->y0 = 0.0f;
-    out_bounds->x1 = width;
-    out_bounds->y1 = height;
+    out_bounds->x1 = size.width;
+    out_bounds->y1 = size.height;
     return QUANTAPDF_OK;
 }
 
