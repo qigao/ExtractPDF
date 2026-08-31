@@ -7,6 +7,7 @@ int extractpdf_test_pdf_flatten_form_ancestor_survives(void);
 int extractpdf_test_pdf_flatten_widget_as(void);
 int extractpdf_test_pdf_flatten_policy(void);
 int extractpdf_test_pdf_flatten_determinism(void);
+int extractpdf_test_pdf_flatten_flag_sets(void);
 
 int main(void)
 {
@@ -27,6 +28,8 @@ int main(void)
     if (extractpdf_test_pdf_flatten_policy() != 0)
         return 1;
     if (extractpdf_test_pdf_flatten_determinism() != 0)
+        return 1;
+    if (extractpdf_test_pdf_flatten_flag_sets() != 0)
         return 1;
     return extractpdf_pdf_flatten_base_main();
 }
