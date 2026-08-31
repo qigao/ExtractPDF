@@ -792,10 +792,10 @@ static quantapdf_status quantapdf_qpdf_audit_push(
     std::set<QPDFObjGen> *seen,
     quantapdf_qpdf_audit_budget *budget)
 {
-    if (object.isIndirect() && !seen->insert(object.getObjGen()).second)
-        return QUANTAPDF_OK;
     if (!budget->take())
         return QUANTAPDF_ERROR_UNSUPPORTED;
+    if (object.isIndirect() && !seen->insert(object.getObjGen()).second)
+        return QUANTAPDF_OK;
     work->push_back(object);
     return QUANTAPDF_OK;
 }
@@ -942,6 +942,33 @@ static quantapdf_status quantapdf_qpdf_audit_signature_fields(
     return QUANTAPDF_OK;
 }
 
+static quantapdf_status quantapdf_qpdf_audit_catalog_signatures(
+    QPDFObjectHandle root,
+    quantapdf_qpdf_audit_budget *budget,
+    uint32_t *findings)
+{
+    if (!root.hasKey("/Perms"))
+        return QUANTAPDF_OK;
+    QPDFObjectHandle permissions = root.getKey("/Perms");
+    if (!permissions.isDictionary())
+        return QUANTAPDF_ERROR_FORMAT;
+    for (char const *key : {"/DocMDP", "/UR", "/UR3"}) {
+        if (!permissions.hasKey(key))
+            continue;
+        if (!budget->take())
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        QPDFObjectHandle signature = permissions.getKey(key);
+        if (!signature.isDictionary())
+            return QUANTAPDF_ERROR_FORMAT;
+        QPDFObjectHandle type = signature.getKey("/Type");
+        if (!type.isNull() &&
+            (!type.isName() || type.getName() != "/Sig"))
+            return QUANTAPDF_ERROR_FORMAT;
+        *findings |= QUANTAPDF_AUDIT_SIGNATURE;
+    }
+    return QUANTAPDF_OK;
+}
+
 static bool quantapdf_qpdf_audit_rich_media(std::string const& subtype)
 {
     return subtype == "/RichMedia" || subtype == "/3D" ||
@@ -1024,6 +1051,8 @@ static quantapdf_status quantapdf_qpdf_audit_graph(
                 return QUANTAPDF_ERROR_FORMAT;
             int const count = annots.getArrayNItems();
             for (int index = 0; index < count; ++index) {
+                if (!budget->take())
+                    return QUANTAPDF_ERROR_UNSUPPORTED;
                 QPDFObjectHandle annotation = annots.getArrayItem(index);
                 if (!annotation.isDictionary())
                     return QUANTAPDF_ERROR_FORMAT;
@@ -1064,6 +1093,11 @@ static quantapdf_status quantapdf_qpdf_audit_document(
     if (pdf.isEncrypted())
         *findings |= QUANTAPDF_AUDIT_ENCRYPTION;
 
+    quantapdf_status status = quantapdf_qpdf_audit_catalog_signatures(
+        root, &budget, findings);
+    if (status != QUANTAPDF_OK)
+        return status;
+
     if (root.hasKey("/Names")) {
         QPDFObjectHandle names = root.getKey("/Names");
         if (!names.isDictionary())
@@ -1080,9 +1114,8 @@ static quantapdf_status quantapdf_qpdf_audit_document(
             return QUANTAPDF_ERROR_FORMAT;
         if (acroform.hasKey("/XFA"))
             *findings |= QUANTAPDF_AUDIT_XFA;
-        quantapdf_status const status =
-            quantapdf_qpdf_audit_signature_fields(
-                acroform, &budget, findings);
+        status = quantapdf_qpdf_audit_signature_fields(
+            acroform, &budget, findings);
         if (status != QUANTAPDF_OK)
             return status;
     }

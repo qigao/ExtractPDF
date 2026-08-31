@@ -6,75 +6,102 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum pdf_security_fixture_kind {
-    PDF_SECURITY_FIXTURE_INTERNAL_GOTO = 1,
-    PDF_SECURITY_FIXTURE_JAVASCRIPT = 2,
-    PDF_SECURITY_FIXTURE_LAUNCH = 3,
-    PDF_SECURITY_FIXTURE_EXTERNAL = 4,
-    PDF_SECURITY_FIXTURE_OTHER = 5,
-    PDF_SECURITY_FIXTURE_EMBEDDED = 6,
-    PDF_SECURITY_FIXTURE_XFA = 7,
-    PDF_SECURITY_FIXTURE_RICH_MEDIA = 8,
-    PDF_SECURITY_FIXTURE_UNREACHABLE = 9,
-    PDF_SECURITY_FIXTURE_MALFORMED_A = 10,
-    PDF_SECURITY_FIXTURE_MALFORMED_AA = 11,
-    PDF_SECURITY_FIXTURE_MALFORMED_NAMES = 12,
-    PDF_SECURITY_FIXTURE_MALFORMED_ANNOTS = 13,
-    PDF_SECURITY_FIXTURE_MALFORMED_ANNOT_ENTRY = 14
-};
-
 int pdf_security_create_fixture(
     const char *source_path,
     const char *output_path,
-    int kind);
+    const char *scenario);
+
+static int failures;
+static const char *current_case = "startup";
+
+static void begin_case(const char *name)
+{
+    current_case = name;
+    printf("CASE %s\n", name);
+}
 
 static void check_impl(int condition, const char *expression, int line)
 {
     if (!condition) {
-        fprintf(stderr, "%s:%d: check failed: %s\n", __FILE__, line, expression);
-        exit(EXIT_FAILURE);
+        fprintf(
+            stderr, "%s:%d: [%s] check failed: %s\n",
+            __FILE__, line, current_case, expression);
+        ++failures;
     }
 }
 
 #define CHECK(expression) check_impl((expression), #expression, __LINE__)
 
-static void fixture_path(int kind, char *path, size_t size)
+static int fixture_path(
+    const char *scenario,
+    char *path,
+    size_t size)
 {
     int written = snprintf(
-        path, size, "%s/pdf-security-%d.pdf", SECURITY_FIXTURE_DIR, kind);
+        path, size, "%s/pdf-security-%s.pdf",
+        SECURITY_FIXTURE_DIR, scenario);
     CHECK(written > 0 && (size_t)written < size);
+    return written > 0 && (size_t)written < size;
 }
 
-static void create_fixture(int kind, char *path, size_t size)
+static int create_fixture(
+    const char *scenario,
+    char *path,
+    size_t size)
 {
-    fixture_path(kind, path, size);
-    CHECK(pdf_security_create_fixture(SECURITY_PDF, path, kind));
+    int created;
+    if (!fixture_path(scenario, path, size))
+        return 0;
+    created = pdf_security_create_fixture(SECURITY_PDF, path, scenario);
+    CHECK(created);
+    return created;
 }
 
-static uint32_t audit_path(const char *path, const char *password)
+static void expect_document_audit(
+    const char *path,
+    const char *password,
+    quantapdf_status expected_status,
+    uint32_t expected_findings)
 {
     quantapdf_audit_result audit = {0};
     quantapdf_document *document = NULL;
+    quantapdf_status open_status = quantapdf_open(path, password, &document);
+    quantapdf_status status;
 
-    CHECK(quantapdf_open(path, password, &document) == QUANTAPDF_OK);
+    CHECK(open_status == QUANTAPDF_OK);
+    if (open_status != QUANTAPDF_OK)
+        return;
     audit.struct_size = QUANTAPDF_AUDIT_RESULT_V1_SIZE;
     audit.findings = UINT32_MAX;
-    CHECK(quantapdf_document_audit(document, &audit) == QUANTAPDF_OK);
+    status = quantapdf_document_audit(document, &audit);
+    if (status != expected_status) {
+        fprintf(
+            stderr,
+            "[%s] audit status: expected %d, got %d\n",
+            current_case, (int)expected_status, (int)status);
+    }
+    if (audit.findings != expected_findings) {
+        fprintf(
+            stderr,
+            "[%s] audit findings: expected 0x%08x, got 0x%08x\n",
+            current_case, expected_findings, audit.findings);
+    }
+    CHECK(status == expected_status);
+    CHECK(audit.findings == expected_findings);
     quantapdf_close(document);
-    return audit.findings;
 }
 
-static void expect_audit_error(const char *path, quantapdf_status expected)
+static void expect_fixture(
+    const char *scenario,
+    quantapdf_status expected_status,
+    uint32_t expected_findings)
 {
-    quantapdf_audit_result audit = {0};
-    quantapdf_document *document = NULL;
-
-    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
-    audit.struct_size = QUANTAPDF_AUDIT_RESULT_V1_SIZE;
-    audit.findings = UINT32_MAX;
-    CHECK(quantapdf_document_audit(document, &audit) == expected);
-    CHECK(audit.findings == 0);
-    quantapdf_close(document);
+    char path[512];
+    begin_case(scenario);
+    if (!create_fixture(scenario, path, sizeof(path)))
+        return;
+    expect_document_audit(
+        path, NULL, expected_status, expected_findings);
 }
 
 static void test_public_contract(void)
@@ -82,6 +109,7 @@ static void test_public_contract(void)
     quantapdf_audit_result audit = {0};
     quantapdf_output *output = (quantapdf_output *)(uintptr_t)1;
 
+    begin_case("public_contract");
     CHECK(QUANTAPDF_AUDIT_JAVASCRIPT_ACTION == (1u << 0));
     CHECK(QUANTAPDF_AUDIT_LAUNCH_ACTION == (1u << 1));
     CHECK(QUANTAPDF_AUDIT_EXTERNAL_ACTION == (1u << 2));
@@ -108,7 +136,6 @@ static void test_public_contract(void)
     CHECK(quantapdf_document_audit(NULL, &audit) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(audit.findings == 0);
     CHECK(quantapdf_document_audit(NULL, NULL) == QUANTAPDF_ERROR_ARGUMENT);
-
     audit.struct_size = QUANTAPDF_AUDIT_RESULT_V1_MIN_SIZE - 1u;
     audit.findings = UINT32_MAX;
     CHECK(quantapdf_document_audit(NULL, &audit) == QUANTAPDF_ERROR_ARGUMENT);
@@ -121,64 +148,137 @@ static void test_public_contract(void)
           QUANTAPDF_ERROR_ARGUMENT);
 }
 
-static void test_clean_internal_and_extended_result(void)
+static void test_valid_audit_matrix(void)
+{
+    static const struct audit_case {
+        const char *scenario;
+        uint32_t findings;
+    } cases[] = {
+        {"internal_goto", 0},
+        {"open_destination_array", 0},
+        {"open_destination_name", 0},
+        {"open_destination_string", 0},
+        {"action_javascript", QUANTAPDF_AUDIT_JAVASCRIPT_ACTION},
+        {"names_javascript", QUANTAPDF_AUDIT_JAVASCRIPT_ACTION},
+        {"action_launch", QUANTAPDF_AUDIT_LAUNCH_ACTION},
+        {"external_uri", QUANTAPDF_AUDIT_EXTERNAL_ACTION},
+        {"external_gotor", QUANTAPDF_AUDIT_EXTERNAL_ACTION},
+        {"external_gotoe", QUANTAPDF_AUDIT_EXTERNAL_ACTION},
+        {"external_submitform", QUANTAPDF_AUDIT_EXTERNAL_ACTION},
+        {"external_importdata", QUANTAPDF_AUDIT_EXTERNAL_ACTION},
+        {"other_unknown", QUANTAPDF_AUDIT_OTHER_ACTION},
+        {"goto_next_other", QUANTAPDF_AUDIT_OTHER_ACTION},
+        {"names_embedded", QUANTAPDF_AUDIT_EMBEDDED_FILE},
+        {"af_embedded", QUANTAPDF_AUDIT_EMBEDDED_FILE},
+        {"ef_embedded", QUANTAPDF_AUDIT_EMBEDDED_FILE},
+        {"embedded_stream", QUANTAPDF_AUDIT_EMBEDDED_FILE},
+        {"file_attachment", QUANTAPDF_AUDIT_EMBEDDED_FILE},
+        {"xfa", QUANTAPDF_AUDIT_XFA},
+        {"rich_richmedia", QUANTAPDF_AUDIT_RICH_MEDIA},
+        {"rich_3d", QUANTAPDF_AUDIT_RICH_MEDIA},
+        {"rich_movie", QUANTAPDF_AUDIT_RICH_MEDIA},
+        {"rich_sound", QUANTAPDF_AUDIT_RICH_MEDIA},
+        {"rich_screen", QUANTAPDF_AUDIT_RICH_MEDIA},
+        {"inherited_signature", QUANTAPDF_AUDIT_SIGNATURE},
+        {"perms_docmdp", QUANTAPDF_AUDIT_SIGNATURE},
+        {"perms_ur", QUANTAPDF_AUDIT_SIGNATURE},
+        {"perms_ur3", QUANTAPDF_AUDIT_SIGNATURE},
+        {"unreachable_javascript", 0},
+        {"nonroot_names", 0},
+        {"nonroot_acroform", 0},
+        {"action_cycle", 0}
+    };
+    size_t index;
+
+    begin_case("clean");
+    expect_document_audit(SECURITY_PDF, NULL, QUANTAPDF_OK, 0);
+    for (index = 0; index < sizeof(cases) / sizeof(cases[0]); ++index)
+        expect_fixture(cases[index].scenario, QUANTAPDF_OK,
+                       cases[index].findings);
+
+    begin_case("signed_fixture");
+    expect_document_audit(
+        SECURITY_SIGNED_PDF, NULL, QUANTAPDF_OK,
+        QUANTAPDF_AUDIT_SIGNATURE);
+    begin_case("encrypted_fixture");
+    expect_document_audit(
+        SECURITY_ENCRYPTED_PDF, "user-pass", QUANTAPDF_OK,
+        QUANTAPDF_AUDIT_ENCRYPTION);
+}
+
+static void test_malformed_and_budget_matrix(void)
+{
+    static const char *malformed[] = {
+        "malformed_open_action",
+        "malformed_a",
+        "malformed_aa_container",
+        "malformed_aa_entry",
+        "malformed_next",
+        "malformed_names",
+        "malformed_annots",
+        "malformed_annot_entry",
+        "malformed_acroform",
+        "malformed_fields",
+        "malformed_field",
+        "malformed_signature_value",
+        "malformed_signature_type",
+        "parent_mismatch",
+        "malformed_perms",
+        "malformed_perms_signature",
+        "malformed_perms_type"
+    };
+    static const char *budget[] = {
+        "budget_shared_next",
+        "budget_shared_aa",
+        "budget_shared_annots"
+    };
+    size_t index;
+
+    for (index = 0; index < sizeof(malformed) / sizeof(malformed[0]); ++index)
+        expect_fixture(malformed[index], QUANTAPDF_ERROR_FORMAT, 0);
+    for (index = 0; index < sizeof(budget) / sizeof(budget[0]); ++index)
+        expect_fixture(budget[index], QUANTAPDF_ERROR_UNSUPPORTED, 0);
+}
+
+static void test_extended_result_and_repeatability(void)
 {
     struct extended_audit_result {
         quantapdf_audit_result v1;
         unsigned char suffix[16];
-    } audit;
-    unsigned char expected_suffix[sizeof(audit.suffix)];
-    quantapdf_document *document = NULL;
-    char path[512];
-
-    CHECK(audit_path(SECURITY_PDF, NULL) == 0);
-    create_fixture(PDF_SECURITY_FIXTURE_INTERNAL_GOTO, path, sizeof(path));
-    CHECK(audit_path(path, NULL) == 0);
-
-    memset(&audit, 0xa5, sizeof(audit));
-    memcpy(expected_suffix, audit.suffix, sizeof(expected_suffix));
-    audit.v1.struct_size = sizeof(audit);
-    audit.v1.findings = UINT32_MAX;
-    CHECK(quantapdf_open(SECURITY_PDF, NULL, &document) == QUANTAPDF_OK);
-    CHECK(quantapdf_document_audit(document, &audit.v1) == QUANTAPDF_OK);
-    CHECK(audit.v1.struct_size == sizeof(audit));
-    CHECK(audit.v1.findings == 0);
-    CHECK(memcmp(audit.suffix, expected_suffix, sizeof(audit.suffix)) == 0);
-    quantapdf_close(document);
-}
-
-static void test_isolated_findings_and_repeatability(void)
-{
-    static const struct {
-        int kind;
-        uint32_t finding;
-    } cases[] = {
-        {PDF_SECURITY_FIXTURE_JAVASCRIPT,
-         QUANTAPDF_AUDIT_JAVASCRIPT_ACTION},
-        {PDF_SECURITY_FIXTURE_LAUNCH, QUANTAPDF_AUDIT_LAUNCH_ACTION},
-        {PDF_SECURITY_FIXTURE_EXTERNAL, QUANTAPDF_AUDIT_EXTERNAL_ACTION},
-        {PDF_SECURITY_FIXTURE_OTHER, QUANTAPDF_AUDIT_OTHER_ACTION},
-        {PDF_SECURITY_FIXTURE_EMBEDDED, QUANTAPDF_AUDIT_EMBEDDED_FILE},
-        {PDF_SECURITY_FIXTURE_XFA, QUANTAPDF_AUDIT_XFA},
-        {PDF_SECURITY_FIXTURE_RICH_MEDIA, QUANTAPDF_AUDIT_RICH_MEDIA}
-    };
+    } extended;
+    unsigned char expected_suffix[sizeof(extended.suffix)];
     quantapdf_audit_result first = {0};
     quantapdf_audit_result second = {0};
     quantapdf_document *document = NULL;
-    size_t index;
+    quantapdf_status status;
     char path[512];
 
-    for (index = 0; index < sizeof(cases) / sizeof(cases[0]); ++index) {
-        create_fixture(cases[index].kind, path, sizeof(path));
-        CHECK(audit_path(path, NULL) == cases[index].finding);
+    begin_case("extended_result");
+    memset(&extended, 0xa5, sizeof(extended));
+    memcpy(expected_suffix, extended.suffix, sizeof(expected_suffix));
+    extended.v1.struct_size = sizeof(extended);
+    extended.v1.findings = UINT32_MAX;
+    status = quantapdf_open(SECURITY_PDF, NULL, &document);
+    CHECK(status == QUANTAPDF_OK);
+    if (status == QUANTAPDF_OK) {
+        CHECK(quantapdf_document_audit(document, &extended.v1) ==
+              QUANTAPDF_OK);
+        CHECK(extended.v1.struct_size == sizeof(extended));
+        CHECK(extended.v1.findings == 0);
+        CHECK(memcmp(
+                  extended.suffix, expected_suffix,
+                  sizeof(extended.suffix)) == 0);
+        quantapdf_close(document);
     }
-    CHECK(audit_path(SECURITY_SIGNED_PDF, NULL) ==
-          QUANTAPDF_AUDIT_SIGNATURE);
-    CHECK(audit_path(SECURITY_ENCRYPTED_PDF, "user-pass") ==
-          QUANTAPDF_AUDIT_ENCRYPTION);
 
-    create_fixture(PDF_SECURITY_FIXTURE_JAVASCRIPT, path, sizeof(path));
-    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    begin_case("repeatability");
+    document = NULL;
+    if (!create_fixture("action_javascript", path, sizeof(path)))
+        return;
+    status = quantapdf_open(path, NULL, &document);
+    CHECK(status == QUANTAPDF_OK);
+    if (status != QUANTAPDF_OK)
+        return;
     first.struct_size = sizeof(first);
     second.struct_size = sizeof(second);
     CHECK(quantapdf_document_audit(document, &first) == QUANTAPDF_OK);
@@ -188,33 +288,18 @@ static void test_isolated_findings_and_repeatability(void)
     quantapdf_close(document);
 }
 
-static void test_reachability_and_malformed_inputs(void)
-{
-    static const int malformed[] = {
-        PDF_SECURITY_FIXTURE_MALFORMED_A,
-        PDF_SECURITY_FIXTURE_MALFORMED_AA,
-        PDF_SECURITY_FIXTURE_MALFORMED_NAMES,
-        PDF_SECURITY_FIXTURE_MALFORMED_ANNOTS,
-        PDF_SECURITY_FIXTURE_MALFORMED_ANNOT_ENTRY
-    };
-    size_t index;
-    char path[512];
-
-    create_fixture(PDF_SECURITY_FIXTURE_UNREACHABLE, path, sizeof(path));
-    CHECK(audit_path(path, NULL) == 0);
-    for (index = 0; index < sizeof(malformed) / sizeof(malformed[0]); ++index) {
-        create_fixture(malformed[index], path, sizeof(path));
-        expect_audit_error(path, QUANTAPDF_ERROR_FORMAT);
-    }
-}
-
 static void test_sanitize_stays_unsupported(void)
 {
     quantapdf_audit_result audit = {0};
     quantapdf_document *document = NULL;
     quantapdf_output *output = (quantapdf_output *)(uintptr_t)1;
+    quantapdf_status status;
 
-    CHECK(quantapdf_open(SECURITY_PDF, NULL, &document) == QUANTAPDF_OK);
+    begin_case("sanitize_placeholder");
+    status = quantapdf_open(SECURITY_PDF, NULL, &document);
+    CHECK(status == QUANTAPDF_OK);
+    if (status != QUANTAPDF_OK)
+        return;
     audit.struct_size = QUANTAPDF_AUDIT_RESULT_V1_MIN_SIZE - 1u;
     audit.findings = UINT32_MAX;
     CHECK(quantapdf_document_audit(document, &audit) ==
@@ -237,9 +322,11 @@ static void test_sanitize_stays_unsupported(void)
 int main(void)
 {
     test_public_contract();
-    test_clean_internal_and_extended_result();
-    test_isolated_findings_and_repeatability();
-    test_reachability_and_malformed_inputs();
+    test_valid_audit_matrix();
+    test_malformed_and_budget_matrix();
+    test_extended_result_and_repeatability();
     test_sanitize_stays_unsupported();
-    return EXIT_SUCCESS;
+    if (failures != 0)
+        fprintf(stderr, "pdf_security: %d checks failed\n", failures);
+    return failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
