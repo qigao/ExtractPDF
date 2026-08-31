@@ -105,16 +105,6 @@ quantapdf_status quantapdf_open(
         quantapdf_dispose_document(document);
         return status;
     }
-    status = quantapdf_pdfium_open_memory(
-        document->source_data,
-        document->source_size,
-        password,
-        &document->pdfium_document);
-    if (status != QUANTAPDF_OK) {
-        quantapdf_dispose_document(document);
-        return status;
-    }
-
     document->ctx = fz_new_context(NULL, NULL, FZ_STORE_DEFAULT);
     if (document->ctx == NULL) {
         quantapdf_dispose_document(document);
@@ -153,6 +143,16 @@ quantapdf_status quantapdf_open(
     if (!password_ok) {
         quantapdf_dispose_document(document);
         return QUANTAPDF_ERROR_PASSWORD;
+    }
+
+    status = quantapdf_pdfium_open_memory(
+        document->source_data,
+        document->source_size,
+        password,
+        &document->pdfium_document);
+    if (status != QUANTAPDF_OK) {
+        quantapdf_dispose_document(document);
+        return status;
     }
 
     *out_document = document;
