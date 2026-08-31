@@ -2,10 +2,14 @@
 
 **QuantaPDF — PDF made easy.**
 
-QuantaPDF is a compact C11 PDF engine that keeps MuPDF behind a stable C ABI
-suitable for native callers and .NET P/Invoke.
+QuantaPDF is a compact native PDF kernel with a stable C11 ABI suitable for
+native callers and .NET P/Invoke.
 
-The v2 implementation targets **MuPDF 1.28.2**. It replaces the original 2015 MuPDF 1.3 proof of concept with explicit ownership, stable status handling, deterministic tests, CMake/CTest, and exact-head Windows/Linux/macOS CI.
+> **Backend migration:** the current migration branch has a pinned PDFium
+> `154.0.8021.0` + qpdf `12.4.0` foundation. Existing feature modules are being
+> replaced in phases and still compile MuPDF temporarily. This branch is not a
+> completed permissive binary distribution until the final MuPDF zero-residue
+> gate passes.
 
 ## Current v2 ABI
 
@@ -67,18 +71,21 @@ The current supported surface includes:
 
 ## API contract
 
-- The public header contains no MuPDF types.
-- Each `quantapdf_document` owns one MuPDF context and document.
+- The public header contains no PDFium, qpdf, or transitional MuPDF types.
+- Backend handles and C++ exceptions remain private to the library.
 - `quantapdf_page` and `quantapdf_bitmap` borrow their parent document. The document must outlive all derived page and bitmap handles.
 - A bitmap does not borrow its source page after rendering, so the page may be dropped before the bitmap, provided the document remains alive.
-- QuantaPDF keeps no mutable process-global or thread-local document state.
+- PDFium process state is private, initialized once, and serialized by the
+  backend runtime because PDFium's public API is not thread-safe.
 - Input paths are UTF-8.
 - `password == NULL` means no password was supplied.
 - Missing or incorrect passwords return `QUANTAPDF_ERROR_PASSWORD`.
 - `quantapdf_open` leaves the output handle NULL on failure.
 - `quantapdf_close(NULL)`, `quantapdf_drop_page(NULL)`, and `quantapdf_drop_bitmap(NULL)` are safe.
-- MuPDF exceptions are caught inside the library and translated to `quantapdf_status`.
-- The current runtime contract is deliberately single-threaded. Separate handles may coexist and be used sequentially/interleaved on one thread; concurrent MuPDF calls are not yet part of the contract.
+- qpdf and standard C++ exceptions are caught inside the private bridge and
+  translated to `quantapdf_status`.
+- The current public runtime contract remains deliberately single-threaded
+  while feature modules are migrated and cross-engine ownership is proven.
 
 Snapshot/output ownership is explicit:
 
@@ -168,25 +175,25 @@ renders opaque RGB while preserving the page aspect ratio. The result fits insid
 
 ## Dependency model
 
-The canonical dependency path on **all supported desktop platforms is vcpkg manifest mode**.
+The backend foundation has two pinned dependency paths:
 
-- `vcpkg.json` pins the vcpkg registry baseline used by CI.
-- `vcpkg-ports/libmupdf` is an overlay port that pins MuPDF **1.28.2** and the MuJS gitlink required by that release.
-- MuPDF itself is not copied into this repository; the overlay fetches the pinned upstream sources during the vcpkg build.
-- Project CMake consumes only `unofficial::libmupdf::libmupdf`.
-- There is no `MUPDF_ROOT`, MuPDF DLL-client, or `mupdfcpp64` build path in v2.
+- `cmake/QuantaPDFPdfium.cmake` downloads the exact platform PDFium artifact,
+  verifies its SHA-256, version, disabled V8/XFA settings, and license payload,
+  and rejects unsupported platforms.
+- `vcpkg.json` resolves qpdf `12.4.0` from the pinned registry baseline with
+  optional OpenSSL, GnuTLS, and Zopfli features disabled.
+- PDFium and qpdf remain private implementation dependencies; only the
+  `quantapdf_*` C ABI is public.
+- MuPDF `1.28.2` remains only as a migration-branch dependency for feature
+  modules not yet ported. It and `vcpkg-ports/libmupdf` are deleted at the
+  final removal gate.
 
-On Windows, MuPDF and its third-party dependencies are static libraries built with the dynamic CRT triplet `x64-windows-static-md`. They are linked **privately** into the shared QuantaPDF wrapper:
+The target architecture is:
 
 ```text
-MuPDF 1.28.2 static libraries
-          |
-          | PRIVATE
-          v
-      quantapdf.dll
-          |
-          v
-   C / C++ / .NET callers
+PDFium public C API ----+
+                       +--> QuantaPDF private adapters --> quantapdf_* C ABI
+qpdf C++ object graph --+
 ```
 
 Only the `quantapdf_*` ABI is exported by the wrapper.
@@ -244,12 +251,19 @@ Linux additionally runs AddressSanitizer and UndefinedBehaviorSanitizer.
 
 Normal pull-request updates use Linux as the fast development loop. Windows and macOS are reserved for explicit `full-ci` checkpoints, manual workflow dispatch, and pushes to `master`.
 
-The workflow persists vcpkg binary packages through GitHub Actions cache, keyed by OS/architecture, pinned vcpkg commit, manifest, and overlay content. This avoids rebuilding the MuPDF/HarfBuzz/FreeType dependency graph on each RED/GREEN iteration while leaving vcpkg's package ABI checks authoritative.
+The workflow persists vcpkg binary packages and the exact hash-verified PDFium
+archive. Cache identities include OS/architecture, the pinned vcpkg commit,
+manifest/overlay content, and literal PDFium release `chromium-8021`.
 
 A feature is not considered cross-platform complete until Linux, macOS, and Windows pass on the same exact head SHA. Older green runs do not satisfy acceptance for a newer head.
 
 ## License
 
-QuantaPDF is distributed under **AGPL-3.0-or-later**. See `LICENSE`.
+QuantaPDF source is distributed under the **Apache License 2.0**. See
+`LICENSE` and `THIRD_PARTY.md`.
 
-MuPDF is an upstream dependency with its own AGPL/commercial licensing options. Downstream users should review the applicable licenses for their distribution model.
+The in-progress migration branch still links MuPDF for unported features, so
+its current binaries remain subject to MuPDF's AGPL/commercial terms and must
+not be presented as the final permissive distribution. The final release gate
+removes MuPDF completely and audits both repository text and binary
+dependencies before that restriction is lifted.

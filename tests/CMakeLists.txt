@@ -327,4 +327,3 @@ target_compile_definitions(quantapdf_test_pdf_poster_split PRIVATE
   POSTER_BASIC_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/poster-basic.pdf")
 add_test(NAME quantapdf.pdf_poster_split COMMAND quantapdf_test_pdf_poster_split)
 set_tests_properties(quantapdf.pdf_poster_split PROPERTIES TIMEOUT 60)
-

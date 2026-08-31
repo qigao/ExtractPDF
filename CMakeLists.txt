@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
 project(QuantaPDF VERSION 2.0.0 LANGUAGES C CXX)
 
+include(GNUInstallDirs)
+
 option(QUANTAPDF_BUILD_TESTS "Build QuantaPDF tests" ON)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
@@ -21,6 +23,11 @@ find_package(JPEG REQUIRED)
 # them to package targets so consumers do not depend on ambient linker paths.
 set_property(TARGET qpdf::libqpdf PROPERTY INTERFACE_LINK_LIBRARIES
   "ZLIB::ZLIB;JPEG::JPEG")
+set(QUANTAPDF_QPDF_COPYRIGHT "${qpdf_DIR}/copyright")
+if(NOT EXISTS "${QUANTAPDF_QPDF_COPYRIGHT}")
+  message(FATAL_ERROR
+    "qpdf package copyright notice is missing: ${QUANTAPDF_QPDF_COPYRIGHT}")
+endif()
 
 add_library(quantapdf_backend STATIC
   src/backend/qpdf_document.cpp
@@ -109,6 +116,32 @@ else()
   target_compile_options(quantapdf_backend PRIVATE
     -Wall -Wextra -Wpedantic -Werror)
 endif()
+
+install(TARGETS quantapdf
+  RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+  LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+  ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include/quantapdf"
+  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+
+if(WIN32)
+  set(_quantapdf_pdfium_destination "${CMAKE_INSTALL_BINDIR}")
+else()
+  set(_quantapdf_pdfium_destination "${CMAKE_INSTALL_LIBDIR}")
+endif()
+install(FILES "$<TARGET_FILE:quantapdf_pdfium>"
+  DESTINATION "${_quantapdf_pdfium_destination}")
+install(FILES
+  "${QUANTAPDF_PDFIUM_ROOT}/LICENSE"
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/quantapdf/licenses/pdfium")
+install(DIRECTORY "${QUANTAPDF_PDFIUM_LICENSE_DIR}/"
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/quantapdf/licenses/pdfium/licenses")
+install(FILES "${QUANTAPDF_QPDF_COPYRIGHT}"
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/quantapdf/licenses/qpdf")
+install(FILES
+  "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE"
+  "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY.md"
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/quantapdf")
 
 if(QUANTAPDF_BUILD_TESTS)
   target_sources(quantapdf PRIVATE
