@@ -77,6 +77,11 @@ extractpdf_status extractpdf_pdf_flatten_build_plan(
     uint32_t flags,
     extractpdf_pdf_flatten_plan **out_plan);
 
+extractpdf_status extractpdf_pdf_flatten_validate_relationships(
+    fz_context *ctx,
+    pdf_document *document,
+    const extractpdf_pdf_flatten_plan *plan);
+
 int extractpdf_pdf_flatten_plan_equivalent(
     const extractpdf_pdf_flatten_plan *left,
     const extractpdf_pdf_flatten_plan *right);
