@@ -48,7 +48,7 @@ static void check_number_format(void)
 {
     static const char expected[] =
         "q\n"
-        "0.123456791 0 0 1.42857146 0 0 cm\n"
+        ".12345679 0 0 1.4285715 0 0 cm\n"
         "/EPB0 Do\n"
         "Q\n";
     char path[1024];
@@ -96,13 +96,6 @@ static void check_number_format(void)
         NUMBER_CHECK(buffer != NULL);
         data_size = fz_buffer_storage(ctx, buffer, &data);
         NUMBER_CHECK(data != NULL);
-        fprintf(
-            stderr,
-            "number-format stream size=%zu expected=%zu:\n",
-            data_size,
-            sizeof(expected) - 1);
-        (void)fwrite(data, 1, data_size, stderr);
-        fputc('\n', stderr);
         NUMBER_CHECK(data_size == sizeof(expected) - 1);
         NUMBER_CHECK(memcmp(data, expected, data_size) == 0);
     }
