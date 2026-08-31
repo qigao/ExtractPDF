@@ -183,5 +183,9 @@ if(EXTRACTPDF_BUILD_TESTS)
     FLATTEN_POLICY_POPUP_DIRECT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-policy-popup-direct.pdf"
     FLATTEN_POLICY_IRT_REVERSE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-policy-irt-reverse.pdf"
     FLATTEN_TAGGED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-tagged.pdf"
-    FLATTEN_TAGGED_NOOP_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-tagged-noop.pdf")
+    FLATTEN_TAGGED_NOOP_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-tagged-noop.pdf"
+    FLATTEN_POLICY_XFA_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-policy-xfa.pdf"
+    FLATTEN_POLICY_NEEDAPPEARANCES_TRUE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-policy-needappearances-true.pdf"
+    FLATTEN_POLICY_NEEDAPPEARANCES_MALFORMED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-policy-needappearances-malformed.pdf"
+    FLATTEN_POLICY_NEEDAPPEARANCES_FALSE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-policy-needappearances-false.pdf")
 endif()
