@@ -130,6 +130,7 @@
       ],
       "cacheVariables": {
         "BUILD_SHARED_LIBS": "OFF",
+        "CMAKE_OSX_ARCHITECTURES": "x86_64",
         "VCPKG_TARGET_TRIPLET": "x64-osx",
         "CMAKE_PREFIX_PATH": "$env{VCPKG_INSTALLED_DIR}/x64-osx",
         "CMAKE_INSTALL_PREFIX": "$env{PKG_ROOT}/quantapdf/release"
@@ -147,6 +148,7 @@
       ],
       "cacheVariables": {
         "BUILD_SHARED_LIBS": "OFF",
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
         "VCPKG_TARGET_TRIPLET": "arm64-osx",
         "CMAKE_PREFIX_PATH": "$env{VCPKG_INSTALLED_DIR}/arm64-osx",
         "CMAKE_INSTALL_PREFIX": "$env{PKG_ROOT}/quantapdf/release"

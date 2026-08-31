@@ -97,6 +97,7 @@ git commit -m "fix: restore warning-clean migration baseline"
 **Files:**
 - Create: `cmake/QuantaPDFPdfium.cmake`
 - Modify: `CMakeLists.txt`
+- Modify: `CMakeUserPresets.json`
 - Create: `THIRD_PARTY.md`
 
 **Interfaces:**
@@ -206,6 +207,8 @@ quantapdf_import_pdfium()
 
 Do not expose the artifact root through `CMakeUserPresets.json` and do not use an unverified system PDFium fallback.
 
+Set `CMAKE_OSX_ARCHITECTURES` to `x86_64` in `macos-x64-release-user` and to `arm64` in `macos-arm64-release-user`, so artifact selection follows the requested target rather than the CI host CPU.
+
 - [ ] **Step 4: Document the exact third-party boundary**
 
 Create `THIRD_PARTY.md` listing PDFium `154.0.8021.0`/`chromium/8021`, its binary distributor repository, the four hashes, qpdf `12.4.0`, their license families, and the rule that installed notices come from the pinned artifacts/packages.
@@ -224,7 +227,7 @@ git diff --check
 Expected: the same public preset names as before and no diff errors.
 
 ```powershell
-git add CMakeLists.txt cmake/QuantaPDFPdfium.cmake THIRD_PARTY.md
+git add CMakeLists.txt CMakeUserPresets.json cmake/QuantaPDFPdfium.cmake THIRD_PARTY.md docs/superpowers/plans/2026-08-31-quantapdf-pdfium-qpdf-foundation.md
 git commit -m "build: pin PDFium backend artifact"
 ```
 

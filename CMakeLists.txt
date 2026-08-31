@@ -1,7 +1,11 @@
 cmake_minimum_required(VERSION 3.20)
-project(QuantaPDF VERSION 2.0.0 LANGUAGES C)
+project(QuantaPDF VERSION 2.0.0 LANGUAGES C CXX)
 
 option(QUANTAPDF_BUILD_TESTS "Build QuantaPDF tests" ON)
+
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+include(QuantaPDFPdfium)
+quantapdf_import_pdfium()
 
 find_package(unofficial-libmupdf CONFIG REQUIRED)
 if(NOT TARGET unofficial::libmupdf::libmupdf)
