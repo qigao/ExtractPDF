@@ -323,7 +323,7 @@ ctest --preset win-release-user --output-on-failure
 cmake --build --preset install-win-release-user
 ```
 
-Expected: configure/build/install succeed and all 27 CTests pass.
+Expected: configure/build/install succeed and all 28 CTests pass.
 
 - [ ] **Step 3: Inspect the installed DLL export table**
 

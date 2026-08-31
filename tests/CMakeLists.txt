@@ -29,6 +29,17 @@ if(WIN32 AND BUILD_SHARED_LIBS)
       "-DQUANTAPDF_EXPORT_BASELINE=${CMAKE_CURRENT_SOURCE_DIR}/../abi/quantapdf-v2.exports"
       -P "${CMAKE_CURRENT_SOURCE_DIR}/../cmake/CheckQuantaPDFExports.cmake")
   set_tests_properties(quantapdf.abi_exports PROPERTIES TIMEOUT 10)
+
+  add_executable(quantapdf_test_fake_dumpbin fake_dumpbin.c)
+  add_test(NAME quantapdf.abi_checker_rejects_extra_export
+    COMMAND "${CMAKE_COMMAND}"
+      "-DQUANTAPDF_DUMPBIN=$<TARGET_FILE:quantapdf_test_fake_dumpbin>"
+      "-DQUANTAPDF_LIBRARY=${CMAKE_CURRENT_SOURCE_DIR}/../abi/quantapdf-v2.exports"
+      "-DQUANTAPDF_EXPORT_BASELINE=${CMAKE_CURRENT_SOURCE_DIR}/../abi/quantapdf-v2.exports"
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/../cmake/CheckQuantaPDFExports.cmake")
+  set_tests_properties(quantapdf.abi_checker_rejects_extra_export PROPERTIES
+    TIMEOUT 10
+    WILL_FAIL TRUE)
 endif()
 set_tests_properties(quantapdf.status PROPERTIES TIMEOUT 10)
 
