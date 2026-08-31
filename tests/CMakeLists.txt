@@ -20,6 +20,14 @@ add_executable(quantapdf_test_version test_version.c)
 target_link_libraries(quantapdf_test_version PRIVATE QuantaPDF::QuantaPDF)
 add_test(NAME quantapdf.version COMMAND quantapdf_test_version)
 
+add_executable(quantapdf_test_pdf_rewrite_lossless
+  test_pdf_rewrite_lossless.c)
+target_link_libraries(quantapdf_test_pdf_rewrite_lossless PRIVATE
+  QuantaPDF::QuantaPDF)
+add_test(NAME quantapdf.pdf_rewrite_lossless
+  COMMAND quantapdf_test_pdf_rewrite_lossless)
+set_tests_properties(quantapdf.pdf_rewrite_lossless PROPERTIES TIMEOUT 30)
+
 if(WIN32 AND BUILD_SHARED_LIBS)
   find_program(QUANTAPDF_DUMPBIN_EXECUTABLE NAMES dumpbin REQUIRED)
   add_test(NAME quantapdf.abi_exports

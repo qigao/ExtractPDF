@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(QuantaPDF VERSION 2.0.0 LANGUAGES C CXX)
+project(QuantaPDF VERSION 2.1.0 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 
@@ -54,6 +54,7 @@ add_library(quantapdf
   src/pdf_crop.c
   src/pdf_trim.c
   src/pdf_poster.c
+  src/pdf_rewrite.c
   src/pdf_export.c
   src/pdf_range.c
   src/pdf_merge.c

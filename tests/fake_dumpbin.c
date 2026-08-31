@@ -13,8 +13,8 @@ int main(int argc, char **argv)
     if (baseline == NULL)
         return 3;
 
-    puts("  85 number of functions");
-    puts("  84 number of names");
+    puts("  86 number of functions");
+    puts("  85 number of names");
     puts("    ordinal hint RVA      name");
     while (fgets(symbol, sizeof(symbol), baseline) != NULL) {
         size_t length = strcspn(symbol, "\r\n");
