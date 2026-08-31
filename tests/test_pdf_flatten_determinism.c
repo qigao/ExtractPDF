@@ -181,8 +181,10 @@ int extractpdf_test_pdf_flatten_determinism(void)
     extractpdf_output *repeated = NULL;
     const unsigned char *first_bytes = NULL;
     const unsigned char *second_bytes = NULL;
+    const unsigned char *lifetime_bytes = NULL;
     size_t first_size = 0;
     size_t second_size = 0;
+    size_t lifetime_size = 0;
     const uint32_t flags =
         EXTRACTPDF_FLATTEN_ANNOTATIONS | EXTRACTPDF_FLATTEN_WIDGETS;
 
@@ -210,8 +212,17 @@ int extractpdf_test_pdf_flatten_determinism(void)
     CHECK(memcmp(first_bytes, second_bytes, first_size) == 0);
     CHECK(check_source_form(document) == 0);
 
+    extractpdf_close(document);
+    document = NULL;
+
+    CHECK(extractpdf_output_data(output, &lifetime_bytes, &lifetime_size) ==
+        EXTRACTPDF_OK);
+    CHECK(lifetime_bytes != NULL);
+    CHECK(lifetime_size == first_size);
+    CHECK(memcmp(lifetime_bytes, first_bytes, first_size) == 0);
+    check_combined_output(output);
+
     extractpdf_drop_output(repeated);
     extractpdf_drop_output(output);
-    extractpdf_close(document);
     return 0;
 }
