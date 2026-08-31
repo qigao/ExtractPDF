@@ -766,7 +766,7 @@ static quantapdf_status quantapdf_qpdf_lossless_preflight(QPDF& pdf)
     return QUANTAPDF_OK;
 }
 
-struct quantapdf_qpdf_audit_budget {
+struct quantapdf_qpdf_work_budget {
     size_t limit = 0;
     size_t used = 0;
 
@@ -786,11 +786,47 @@ struct quantapdf_qpdf_audit_field_item {
     QPDFObjectHandle inherited_value = QPDFObjectHandle::newNull();
 };
 
-static quantapdf_status quantapdf_qpdf_audit_push(
+static quantapdf_status quantapdf_qpdf_init_work_budget(
+    size_t source_size,
+    quantapdf_qpdf_work_budget *budget)
+{
+    if (source_size > std::numeric_limits<size_t>::max() / 64u)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    budget->limit = std::max<size_t>(4096u, source_size * 64u);
+    budget->used = 0;
+    return QUANTAPDF_OK;
+}
+
+static quantapdf_status quantapdf_qpdf_classify_action(
+    QPDFObjectHandle action,
+    uint32_t *finding)
+{
+    *finding = 0;
+    if (!action.isDictionary())
+        return QUANTAPDF_ERROR_FORMAT;
+    QPDFObjectHandle type = action.getKey("/S");
+    if (!type.isName())
+        return QUANTAPDF_ERROR_FORMAT;
+    std::string const name = type.getName();
+    if (name == "/JavaScript") {
+        *finding = QUANTAPDF_AUDIT_JAVASCRIPT_ACTION;
+    } else if (name == "/Launch") {
+        *finding = QUANTAPDF_AUDIT_LAUNCH_ACTION;
+    } else if (name == "/URI" || name == "/GoToR" ||
+               name == "/GoToE" || name == "/SubmitForm" ||
+               name == "/ImportData") {
+        *finding = QUANTAPDF_AUDIT_EXTERNAL_ACTION;
+    } else if (name != "/GoTo") {
+        *finding = QUANTAPDF_AUDIT_OTHER_ACTION;
+    }
+    return QUANTAPDF_OK;
+}
+
+static quantapdf_status quantapdf_qpdf_work_push(
     QPDFObjectHandle object,
     std::vector<QPDFObjectHandle> *work,
     std::set<QPDFObjGen> *seen,
-    quantapdf_qpdf_audit_budget *budget)
+    quantapdf_qpdf_work_budget *budget)
 {
     if (!budget->take())
         return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -804,15 +840,15 @@ static quantapdf_status quantapdf_qpdf_audit_push_action(
     QPDFObjectHandle action,
     std::vector<QPDFObjectHandle> *work,
     std::set<QPDFObjGen> *seen,
-    quantapdf_qpdf_audit_budget *budget)
+    quantapdf_qpdf_work_budget *budget)
 {
-    return quantapdf_qpdf_audit_push(action, work, seen, budget);
+    return quantapdf_qpdf_work_push(action, work, seen, budget);
 }
 
 static quantapdf_status quantapdf_qpdf_audit_actions(
     std::vector<QPDFObjectHandle> *work,
     std::set<QPDFObjGen> *seen,
-    quantapdf_qpdf_audit_budget *budget,
+    quantapdf_qpdf_work_budget *budget,
     uint32_t *findings)
 {
     while (!work->empty()) {
@@ -820,21 +856,12 @@ static quantapdf_status quantapdf_qpdf_audit_actions(
         work->pop_back();
         if (!action.isDictionary())
             return QUANTAPDF_ERROR_FORMAT;
-        QPDFObjectHandle type = action.getKey("/S");
-        if (!type.isName())
-            return QUANTAPDF_ERROR_FORMAT;
-        std::string const name = type.getName();
-        if (name == "/JavaScript") {
-            *findings |= QUANTAPDF_AUDIT_JAVASCRIPT_ACTION;
-        } else if (name == "/Launch") {
-            *findings |= QUANTAPDF_AUDIT_LAUNCH_ACTION;
-        } else if (name == "/URI" || name == "/GoToR" ||
-                   name == "/GoToE" || name == "/SubmitForm" ||
-                   name == "/ImportData") {
-            *findings |= QUANTAPDF_AUDIT_EXTERNAL_ACTION;
-        } else if (name != "/GoTo") {
-            *findings |= QUANTAPDF_AUDIT_OTHER_ACTION;
-        }
+        uint32_t finding = 0;
+        quantapdf_status const classification =
+            quantapdf_qpdf_classify_action(action, &finding);
+        if (classification != QUANTAPDF_OK)
+            return classification;
+        *findings |= finding;
 
         if (!action.hasKey("/Next"))
             continue;
@@ -865,7 +892,7 @@ static quantapdf_status quantapdf_qpdf_audit_actions(
 
 static quantapdf_status quantapdf_qpdf_audit_signature_fields(
     QPDFObjectHandle acroform,
-    quantapdf_qpdf_audit_budget *budget,
+    quantapdf_qpdf_work_budget *budget,
     uint32_t *findings)
 {
     if (!acroform.hasKey("/Fields"))
@@ -944,7 +971,7 @@ static quantapdf_status quantapdf_qpdf_audit_signature_fields(
 
 static quantapdf_status quantapdf_qpdf_audit_catalog_signatures(
     QPDFObjectHandle root,
-    quantapdf_qpdf_audit_budget *budget,
+    quantapdf_qpdf_work_budget *budget,
     uint32_t *findings)
 {
     if (!root.hasKey("/Perms"))
@@ -978,14 +1005,14 @@ static bool quantapdf_qpdf_audit_rich_media(std::string const& subtype)
 
 static quantapdf_status quantapdf_qpdf_audit_graph(
     QPDFObjectHandle root,
-    quantapdf_qpdf_audit_budget *budget,
+    quantapdf_qpdf_work_budget *budget,
     uint32_t *findings)
 {
     std::vector<QPDFObjectHandle> graph_work;
     std::vector<QPDFObjectHandle> action_work;
     std::set<QPDFObjGen> graph_seen;
     std::set<QPDFObjGen> action_seen;
-    quantapdf_status status = quantapdf_qpdf_audit_push(
+    quantapdf_status status = quantapdf_qpdf_work_push(
         root, &graph_work, &graph_seen, budget);
     if (status != QUANTAPDF_OK)
         return status;
@@ -1014,7 +1041,7 @@ static quantapdf_status quantapdf_qpdf_audit_graph(
         if (object.isArray()) {
             int const count = object.getArrayNItems();
             for (int index = 0; index < count; ++index) {
-                status = quantapdf_qpdf_audit_push(
+                status = quantapdf_qpdf_work_push(
                     object.getArrayItem(index), &graph_work,
                     &graph_seen, budget);
                 if (status != QUANTAPDF_OK)
@@ -1067,7 +1094,7 @@ static quantapdf_status quantapdf_qpdf_audit_graph(
             }
         }
         for (std::string const& key : object.getKeys()) {
-            status = quantapdf_qpdf_audit_push(
+            status = quantapdf_qpdf_work_push(
                 object.getKey(key), &graph_work, &graph_seen, budget);
             if (status != QUANTAPDF_OK)
                 return status;
@@ -1082,10 +1109,11 @@ static quantapdf_status quantapdf_qpdf_audit_document(
     size_t source_size,
     uint32_t *findings)
 {
-    if (source_size > std::numeric_limits<size_t>::max() / 64u)
-        return QUANTAPDF_ERROR_UNSUPPORTED;
-    quantapdf_qpdf_audit_budget budget;
-    budget.limit = std::max<size_t>(4096u, source_size * 64u);
+    quantapdf_qpdf_work_budget budget;
+    quantapdf_status status =
+        quantapdf_qpdf_init_work_budget(source_size, &budget);
+    if (status != QUANTAPDF_OK)
+        return status;
 
     QPDFObjectHandle root = pdf.getRoot();
     if (!root.isDictionary())
@@ -1093,7 +1121,7 @@ static quantapdf_status quantapdf_qpdf_audit_document(
     if (pdf.isEncrypted())
         *findings |= QUANTAPDF_AUDIT_ENCRYPTION;
 
-    quantapdf_status status = quantapdf_qpdf_audit_catalog_signatures(
+    status = quantapdf_qpdf_audit_catalog_signatures(
         root, &budget, findings);
     if (status != QUANTAPDF_OK)
         return status;
@@ -1120,6 +1148,228 @@ static quantapdf_status quantapdf_qpdf_audit_document(
             return status;
     }
     return quantapdf_qpdf_audit_graph(root, &budget, findings);
+}
+
+static quantapdf_status quantapdf_qpdf_sanitize_queue_action(
+    QPDFObjectHandle action,
+    uint32_t flags,
+    std::vector<QPDFObjectHandle> *work,
+    std::set<QPDFObjGen> *seen,
+    quantapdf_qpdf_work_budget *budget,
+    bool *selected)
+{
+    if (!budget->take())
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    uint32_t finding = 0;
+    quantapdf_status const status =
+        quantapdf_qpdf_classify_action(action, &finding);
+    if (status != QUANTAPDF_OK)
+        return status;
+    *selected = (finding & flags) != 0;
+    if (*selected)
+        return QUANTAPDF_OK;
+    if (action.isIndirect() && !seen->insert(action.getObjGen()).second)
+        return QUANTAPDF_OK;
+    work->push_back(action);
+    return QUANTAPDF_OK;
+}
+
+static quantapdf_status quantapdf_qpdf_sanitize_actions(
+    uint32_t flags,
+    std::vector<QPDFObjectHandle> *work,
+    std::set<QPDFObjGen> *seen,
+    quantapdf_qpdf_work_budget *budget)
+{
+    while (!work->empty()) {
+        QPDFObjectHandle action = work->back();
+        work->pop_back();
+        if (!action.hasKey("/Next"))
+            continue;
+
+        QPDFObjectHandle next = action.getKey("/Next");
+        if (next.isDictionary()) {
+            bool selected = false;
+            quantapdf_status const status =
+                quantapdf_qpdf_sanitize_queue_action(
+                    next, flags, work, seen, budget, &selected);
+            if (status != QUANTAPDF_OK)
+                return status;
+            if (selected)
+                action.removeKey("/Next");
+            continue;
+        }
+        if (!next.isArray())
+            return QUANTAPDF_ERROR_FORMAT;
+
+        std::vector<int> selected_indices;
+        int const count = next.getArrayNItems();
+        selected_indices.reserve(static_cast<size_t>(count));
+        for (int index = 0; index < count; ++index) {
+            bool selected = false;
+            quantapdf_status const status =
+                quantapdf_qpdf_sanitize_queue_action(
+                    next.getArrayItem(index), flags, work, seen,
+                    budget, &selected);
+            if (status != QUANTAPDF_OK)
+                return status;
+            if (selected)
+                selected_indices.push_back(index);
+        }
+        for (auto index = selected_indices.rbegin();
+             index != selected_indices.rend(); ++index) {
+            next.eraseItem(*index);
+        }
+        if (next.getArrayNItems() == 0)
+            action.removeKey("/Next");
+    }
+    return QUANTAPDF_OK;
+}
+
+static quantapdf_status quantapdf_qpdf_sanitize_graph(
+    QPDF& pdf,
+    size_t source_size,
+    uint32_t flags)
+{
+    quantapdf_qpdf_work_budget budget;
+    quantapdf_status status =
+        quantapdf_qpdf_init_work_budget(source_size, &budget);
+    if (status != QUANTAPDF_OK)
+        return status;
+
+    QPDFObjectHandle root = pdf.getRoot();
+    std::vector<QPDFObjectHandle> graph_work;
+    std::vector<QPDFObjectHandle> action_work;
+    std::set<QPDFObjGen> graph_seen;
+    std::set<QPDFObjGen> action_seen;
+
+    if (root.hasKey("/Names")) {
+        if (!budget.take())
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        QPDFObjectHandle names = root.getKey("/Names");
+        if ((flags & QUANTAPDF_SANITIZE_JAVASCRIPT_ACTIONS) != 0)
+            names.removeKey("/JavaScript");
+        if ((flags & QUANTAPDF_SANITIZE_EMBEDDED_FILES) != 0)
+            names.removeKey("/EmbeddedFiles");
+        if (names.getKeys().empty())
+            root.removeKey("/Names");
+    }
+
+    if (root.hasKey("/AcroForm") &&
+        (flags & QUANTAPDF_SANITIZE_XFA) != 0) {
+        if (!budget.take())
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        root.getKey("/AcroForm").removeKey("/XFA");
+    }
+
+    if (root.hasKey("/OpenAction")) {
+        QPDFObjectHandle open_action = root.getKey("/OpenAction");
+        if (!open_action.isArray() && !open_action.isName() &&
+            !open_action.isString()) {
+            bool selected = false;
+            status = quantapdf_qpdf_sanitize_queue_action(
+                open_action, flags, &action_work, &action_seen,
+                &budget, &selected);
+            if (status != QUANTAPDF_OK)
+                return status;
+            if (selected)
+                root.removeKey("/OpenAction");
+        }
+    }
+
+    status = quantapdf_qpdf_work_push(
+        root, &graph_work, &graph_seen, &budget);
+    if (status != QUANTAPDF_OK)
+        return status;
+    while (!graph_work.empty()) {
+        QPDFObjectHandle object = graph_work.back();
+        graph_work.pop_back();
+        if (object.isStream())
+            object = object.getDict();
+        if (object.isArray()) {
+            int const count = object.getArrayNItems();
+            for (int index = 0; index < count; ++index) {
+                status = quantapdf_qpdf_work_push(
+                    object.getArrayItem(index), &graph_work,
+                    &graph_seen, &budget);
+                if (status != QUANTAPDF_OK)
+                    return status;
+            }
+            continue;
+        }
+        if (!object.isDictionary())
+            continue;
+
+        if ((flags & QUANTAPDF_SANITIZE_EMBEDDED_FILES) != 0) {
+            object.removeKey("/AF");
+            object.removeKey("/EF");
+        }
+
+        if (object.hasKey("/A")) {
+            bool selected = false;
+            status = quantapdf_qpdf_sanitize_queue_action(
+                object.getKey("/A"), flags, &action_work,
+                &action_seen, &budget, &selected);
+            if (status != QUANTAPDF_OK)
+                return status;
+            if (selected)
+                object.removeKey("/A");
+        }
+
+        if (object.hasKey("/AA")) {
+            QPDFObjectHandle additional = object.getKey("/AA");
+            std::vector<std::string> selected_keys;
+            for (std::string const& key : additional.getKeys()) {
+                bool selected = false;
+                status = quantapdf_qpdf_sanitize_queue_action(
+                    additional.getKey(key), flags, &action_work,
+                    &action_seen, &budget, &selected);
+                if (status != QUANTAPDF_OK)
+                    return status;
+                if (selected)
+                    selected_keys.push_back(key);
+            }
+            for (std::string const& key : selected_keys)
+                additional.removeKey(key);
+            if (additional.getKeys().empty())
+                object.removeKey("/AA");
+        }
+
+        if (object.hasKey("/Annots")) {
+            QPDFObjectHandle annots = object.getKey("/Annots");
+            std::vector<int> selected_indices;
+            int const count = annots.getArrayNItems();
+            selected_indices.reserve(static_cast<size_t>(count));
+            for (int index = 0; index < count; ++index) {
+                if (!budget.take())
+                    return QUANTAPDF_ERROR_UNSUPPORTED;
+                QPDFObjectHandle annotation = annots.getArrayItem(index);
+                QPDFObjectHandle subtype = annotation.getKey("/Subtype");
+                if (!subtype.isName())
+                    continue;
+                std::string const name = subtype.getName();
+                if (((flags & QUANTAPDF_SANITIZE_EMBEDDED_FILES) != 0 &&
+                     name == "/FileAttachment") ||
+                    ((flags & QUANTAPDF_SANITIZE_RICH_MEDIA) != 0 &&
+                     quantapdf_qpdf_audit_rich_media(name))) {
+                    selected_indices.push_back(index);
+                }
+            }
+            for (auto index = selected_indices.rbegin();
+                 index != selected_indices.rend(); ++index) {
+                annots.eraseItem(*index);
+            }
+        }
+
+        for (std::string const& key : object.getKeys()) {
+            status = quantapdf_qpdf_work_push(
+                object.getKey(key), &graph_work, &graph_seen, &budget);
+            if (status != QUANTAPDF_OK)
+                return status;
+        }
+    }
+
+    return quantapdf_qpdf_sanitize_actions(
+        flags, &action_work, &action_seen, &budget);
 }
 
 static quantapdf_status quantapdf_qpdf_public_crop_to_pdf(
@@ -3331,6 +3581,82 @@ extern "C" quantapdf_status quantapdf_qpdf_document_audit(
         if (pdf->anyWarnings())
             return QUANTAPDF_ERROR_FORMAT;
         *out_findings = findings;
+        return QUANTAPDF_OK;
+    } catch (QPDFExc const& error) {
+        return quantapdf_status_from_qpdf(error);
+    } catch (std::bad_alloc const&) {
+        return QUANTAPDF_ERROR_NOMEM;
+    } catch (std::exception const&) {
+        return QUANTAPDF_ERROR_BACKEND;
+    } catch (...) {
+        return QUANTAPDF_ERROR_BACKEND;
+    }
+}
+
+extern "C" quantapdf_status quantapdf_qpdf_sanitize(
+    quantapdf_qpdf_document *document,
+    uint32_t flags,
+    unsigned char **out_data,
+    size_t *out_size)
+{
+    if (out_data == nullptr || out_size == nullptr)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    *out_data = nullptr;
+    *out_size = 0;
+    if (document == nullptr || document->pdf == nullptr ||
+        document->source_data == nullptr || document->source_size == 0 ||
+        flags == 0 || (flags & ~QUANTAPDF_SANITIZE_ALL) != 0)
+        return QUANTAPDF_ERROR_ARGUMENT;
+
+    try {
+        auto pdf = QPDF::create();
+        pdf->setSuppressWarnings(true);
+        pdf->setAttemptRecovery(false);
+        pdf->processMemoryFile(
+            "quantapdf-sanitize",
+            reinterpret_cast<char const *>(document->source_data),
+            document->source_size,
+            document->password.c_str());
+        if (pdf->anyWarnings())
+            return QUANTAPDF_ERROR_FORMAT;
+
+        uint32_t findings = 0;
+        quantapdf_status status = quantapdf_qpdf_audit_document(
+            *pdf, document->source_size, &findings);
+        if (status != QUANTAPDF_OK)
+            return status;
+        if (pdf->anyWarnings())
+            return QUANTAPDF_ERROR_FORMAT;
+        if ((findings & (QUANTAPDF_AUDIT_SIGNATURE |
+                         QUANTAPDF_AUDIT_ENCRYPTION)) != 0)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+
+        status = quantapdf_qpdf_sanitize_graph(
+            *pdf, document->source_size, flags);
+        if (status != QUANTAPDF_OK)
+            return status;
+        if (pdf->anyWarnings())
+            return QUANTAPDF_ERROR_FORMAT;
+
+        findings = 0;
+        status = quantapdf_qpdf_audit_document(
+            *pdf, document->source_size, &findings);
+        if (status != QUANTAPDF_OK)
+            return status;
+        if (pdf->anyWarnings())
+            return QUANTAPDF_ERROR_FORMAT;
+        if ((findings & flags) != 0)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+
+        status = quantapdf_qpdf_write_memory(*pdf, out_data, out_size);
+        if (status != QUANTAPDF_OK)
+            return status;
+        if (pdf->anyWarnings()) {
+            std::free(*out_data);
+            *out_data = nullptr;
+            *out_size = 0;
+            return QUANTAPDF_ERROR_FORMAT;
+        }
         return QUANTAPDF_OK;
     } catch (QPDFExc const& error) {
         return quantapdf_status_from_qpdf(error);

@@ -104,6 +104,12 @@ quantapdf_status quantapdf_qpdf_document_audit(
     quantapdf_qpdf_document *document,
     uint32_t *out_findings);
 
+quantapdf_status quantapdf_qpdf_sanitize(
+    quantapdf_qpdf_document *document,
+    uint32_t flags,
+    unsigned char **out_data,
+    size_t *out_size);
+
 quantapdf_status quantapdf_qpdf_flatten_interactive(
     quantapdf_qpdf_document *document,
     uint32_t flags,

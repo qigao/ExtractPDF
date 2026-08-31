@@ -1,6 +1,8 @@
 #include "internal.h"
 #include "backend/qpdf_document.h"
 
+#include <stdlib.h>
+
 quantapdf_status quantapdf_document_audit(
     quantapdf_document *document,
     quantapdf_audit_result *out_result)
@@ -21,11 +23,29 @@ quantapdf_status quantapdf_sanitize(
     uint32_t flags,
     quantapdf_output **out_output)
 {
+    quantapdf_output *output;
+    quantapdf_status status;
+
     if (out_output == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
     *out_output = NULL;
-    if (document == NULL || flags == 0 ||
+    if (document == NULL || document->qpdf_document == NULL || flags == 0 ||
         (flags & ~QUANTAPDF_SANITIZE_ALL) != 0)
         return QUANTAPDF_ERROR_ARGUMENT;
-    return QUANTAPDF_ERROR_UNSUPPORTED;
+
+    output = (quantapdf_output *)calloc(1, sizeof(*output));
+    if (output == NULL)
+        return QUANTAPDF_ERROR_NOMEM;
+    status = quantapdf_qpdf_sanitize(
+        document->qpdf_document,
+        flags,
+        &output->data,
+        &output->size);
+    if (status != QUANTAPDF_OK) {
+        free(output->data);
+        free(output);
+        return status;
+    }
+    *out_output = output;
+    return QUANTAPDF_OK;
 }
