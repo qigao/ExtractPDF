@@ -382,6 +382,88 @@ target_compile_definitions(quantapdf_test_pdf_poster_split PRIVATE
 add_test(NAME quantapdf.pdf_poster_split COMMAND quantapdf_test_pdf_poster_split)
 set_tests_properties(quantapdf.pdf_poster_split PROPERTIES TIMEOUT 60)
 
+add_executable(quantapdf_test_pdf_flatten
+  test_pdf_flatten.c
+  flatten_test_helpers.cpp)
+target_link_libraries(quantapdf_test_pdf_flatten PRIVATE
+  QuantaPDF::QuantaPDF
+  qpdf::libqpdf)
+target_compile_features(quantapdf_test_pdf_flatten PRIVATE cxx_std_20)
+target_compile_definitions(quantapdf_test_pdf_flatten PRIVATE
+  FLATTEN_BASIC_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-basic.pdf"
+  FLATTEN_NO_ANNOTATIONS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
+  FLATTEN_APPEARANCE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-appearance.pdf"
+  FLATTEN_APPEARANCE_MALFORMED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-appearance-malformed.pdf"
+  FLATTEN_CONTENTS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-contents.pdf"
+  FLATTEN_CONTENTS_MALFORMED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-contents-malformed.pdf"
+  FLATTEN_FLAG_ISOLATION_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-flag-isolation.pdf"
+  FLATTEN_NUMBER_FORMAT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-number-format.pdf"
+  FLATTEN_WIDGETS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-widgets.pdf"
+  FLATTEN_WIDGET_AS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-widget-as.pdf"
+  FLATTEN_WIDGET_RADIO_AS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-widget-radio-as.pdf"
+  FLATTEN_COMBINED_ORDER_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-combined-order.pdf"
+  FLATTEN_FORM_COW_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-form-cow.pdf"
+  FLATTEN_FORM_KIDS_COW_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-form-kids-cow.pdf"
+  FLATTEN_FORM_CO_COW_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-form-co-cow.pdf"
+  FLATTEN_FORM_CLOSURE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-form-closure.pdf"
+  FLATTEN_FORM_ANCESTOR_SURVIVES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-form-ancestor-survives.pdf"
+  FLATTEN_MULTI_WIDGET_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-multi-widget.pdf"
+  FLATTEN_FORM_MULTI_ROOT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-form-multi-root.pdf"
+  FLATTEN_FORM_DEEP_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-form-deep.pdf"
+  FLATTEN_FORM_DEEP_SURVIVOR_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-form-deep-survivor.pdf"
+  FLATTEN_REDACT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-subtype-redact.pdf"
+  FLATTEN_LINK_DEFAULT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-link-default.pdf"
+  FLATTEN_TAGGED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-tagged.pdf"
+  FLATTEN_TAGGED_NOOP_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-tagged-noop.pdf"
+  FLATTEN_NEED_APPEARANCES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-needappearances-true.pdf"
+  FLATTEN_XFA_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-xfa.pdf"
+  FLATTEN_ANNOTATION_WITH_WIDGET_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-annotation-with-widget.pdf"
+  FLATTEN_LINK_BS0_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-link-bs0.pdf"
+  FLATTEN_LINK_BORDER0_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-link-border0.pdf"
+  FLATTEN_LINK_BS0_BORDER4_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-link-bs0-border4.pdf"
+  FLATTEN_LINK_BS4_BORDER0_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-link-bs4-border0.pdf"
+  FLATTEN_LINK_BS_MISSING_W_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-link-bs-missing-w.pdf"
+  FLATTEN_LINK_APN_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-link-apn.pdf"
+  FLATTEN_LINK_BS_MALFORMED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-link-bs-malformed.pdf"
+  FLATTEN_LINK_BAD_W_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-link-bad-w.pdf"
+  FLATTEN_LINK_BAD_BORDER_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-link-bad-border.pdf"
+  FLATTEN_POPUP_PARENT_REVERSE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-popup-parent-reverse.pdf"
+  FLATTEN_POPUP_DIRECT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-popup-direct.pdf"
+  FLATTEN_IRT_FORWARD_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-irt-forward.pdf"
+  FLATTEN_IRT_REVERSE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-irt-reverse.pdf"
+  FLATTEN_FILE_ATTACHMENT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-subtype-file-attachment.pdf"
+  FLATTEN_RICH_MEDIA_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-subtype-rich-media.pdf"
+  FLATTEN_UNKNOWN_SUBTYPE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-subtype-unknown.pdf"
+  FLATTEN_NEED_APPEARANCES_MALFORMED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-needappearances-malformed.pdf"
+  FLATTEN_NEED_APPEARANCES_FALSE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-policy-needappearances-false.pdf"
+  FLATTEN_NOOP_NEUTRAL_LINK_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-noop-neutral-link.pdf"
+  FLATTEN_NOOP_ZERO_WIDGET_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-noop-zero-widget.pdf"
+  FLATTEN_NOOP_MALFORMED_ANNOTS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-noop-malformed-annots.pdf"
+  FLATTEN_NOOP_MALFORMED_ACROFORM_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/flatten-noop-malformed-acroform.pdf"
+  FLATTEN_WIDGET_P_MISMATCH_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-p-mismatch.pdf"
+  FLATTEN_ENCRYPTED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/encrypted-one-page.pdf"
+  FLATTEN_SIGNED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotation-mutation-signed.pdf"
+  FLATTEN_BAD_APPEARANCE_STREAM_PDF="${CMAKE_CURRENT_BINARY_DIR}/flatten-bad-appearance-stream.pdf"
+  FLATTEN_BAD_PAGE_CONTENT_STREAM_PDF="${CMAKE_CURRENT_BINARY_DIR}/flatten-bad-page-content-stream.pdf"
+  FLATTEN_TRUNCATED_APPEARANCE_STREAM_PDF="${CMAKE_CURRENT_BINARY_DIR}/flatten-truncated-appearance-stream.pdf"
+  FLATTEN_BAD_APPEARANCE_OPERATOR_PDF="${CMAKE_CURRENT_BINARY_DIR}/flatten-bad-appearance-operator.pdf"
+  FLATTEN_UNBALANCED_PAGE_Q_PDF="${CMAKE_CURRENT_BINARY_DIR}/flatten-unbalanced-page-q.pdf"
+  FLATTEN_UNBALANCED_PAGE_TEXT_PDF="${CMAKE_CURRENT_BINARY_DIR}/flatten-unbalanced-page-text.pdf"
+  FLATTEN_VALID_WIDGET_P_MISMATCH_PDF="${CMAKE_CURRENT_BINARY_DIR}/flatten-valid-widget-p-mismatch.pdf"
+  FLATTEN_BAD_APPEARANCE_ARITY_PDF="${CMAKE_CURRENT_BINARY_DIR}/flatten-bad-appearance-arity.pdf"
+  FLATTEN_BAD_PAGE_OPERAND_TYPE_PDF="${CMAKE_CURRENT_BINARY_DIR}/flatten-bad-page-operand-type.pdf"
+  FLATTEN_BAD_APPEARANCE_CONTEXT_PDF="${CMAKE_CURRENT_BINARY_DIR}/flatten-bad-appearance-context.pdf"
+  FLATTEN_BAD_PAGE_PATH_CONTEXT_PDF="${CMAKE_CURRENT_BINARY_DIR}/flatten-bad-page-path-context.pdf"
+  FLATTEN_BAD_PAGE_TEXT_PATH_PDF="${CMAKE_CURRENT_BINARY_DIR}/flatten-bad-page-text-path.pdf"
+  FLATTEN_VALID_INLINE_APPEARANCE_PDF="${CMAKE_CURRENT_BINARY_DIR}/flatten-valid-inline-appearance.pdf"
+  FLATTEN_VALID_TEXT_GSTATE_PDF="${CMAKE_CURRENT_BINARY_DIR}/flatten-valid-text-gstate.pdf"
+  FLATTEN_CROSSED_SCOPES_PDF="${CMAKE_CURRENT_BINARY_DIR}/flatten-crossed-scopes.pdf"
+  FLATTEN_CA_HALF_PDF="${CMAKE_CURRENT_BINARY_DIR}/flatten-ca-half.pdf"
+  FLATTEN_CA_MALFORMED_PDF="${CMAKE_CURRENT_BINARY_DIR}/flatten-ca-malformed.pdf"
+  FLATTEN_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/flatten-output.pdf")
+add_test(NAME quantapdf.pdf_flatten COMMAND quantapdf_test_pdf_flatten)
+set_tests_properties(quantapdf.pdf_flatten PROPERTIES TIMEOUT 60)
+
 get_property(_quantapdf_tests DIRECTORY PROPERTY TESTS)
 if(WIN32)
   set_property(TEST ${_quantapdf_tests} PROPERTY ENVIRONMENT_MODIFICATION

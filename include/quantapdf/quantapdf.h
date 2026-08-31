@@ -19,7 +19,7 @@ extern "C" {
 #endif
 
 #define QUANTAPDF_VERSION_MAJOR 2
-#define QUANTAPDF_VERSION_MINOR 1
+#define QUANTAPDF_VERSION_MINOR 2
 #define QUANTAPDF_VERSION_PATCH 0
 #define QUANTAPDF_ABI_VERSION 2
 
@@ -65,6 +65,11 @@ typedef struct quantapdf_page_poster_split {
     size_t columns;
     size_t rows;
 } quantapdf_page_poster_split;
+
+typedef enum quantapdf_flatten_flag {
+    QUANTAPDF_FLATTEN_ANNOTATIONS = 1u << 0,
+    QUANTAPDF_FLATTEN_WIDGETS = 1u << 1
+} quantapdf_flatten_flag;
 
 /*
  * These types are traversed as C arrays and therefore have fixed V1 layouts.
@@ -486,6 +491,11 @@ QUANTAPDF_API quantapdf_status quantapdf_poster_split_pages(
 
 QUANTAPDF_API quantapdf_status quantapdf_rewrite_lossless(
     quantapdf_document *document,
+    quantapdf_output **out_output);
+
+QUANTAPDF_API quantapdf_status quantapdf_flatten_interactive(
+    quantapdf_document *document,
+    uint32_t flags,
     quantapdf_output **out_output);
 
 QUANTAPDF_API quantapdf_status quantapdf_output_data(

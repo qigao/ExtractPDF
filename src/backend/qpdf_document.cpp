@@ -6,7 +6,9 @@
 
 #include <qpdf/Constants.h>
 #include <qpdf/QPDF.hh>
+#include <qpdf/QPDFAnnotationObjectHelper.hh>
 #include <qpdf/QPDFExc.hh>
+#include <qpdf/QPDFPageObjectHelper.hh>
 #include <qpdf/QPDFWriter.hh>
 #include <qpdf/QUtil.hh>
 
@@ -2920,6 +2922,1091 @@ extern "C" quantapdf_status quantapdf_qpdf_rewrite_lossless(
             quantapdf_qpdf_lossless_preflight(*pdf);
         if (preflight != QUANTAPDF_OK)
             return preflight;
+
+        quantapdf_status const status = quantapdf_qpdf_write_memory(
+            *pdf, out_data, out_size);
+        if (status != QUANTAPDF_OK)
+            return status;
+        if (pdf->anyWarnings()) {
+            std::free(*out_data);
+            *out_data = nullptr;
+            *out_size = 0;
+            return QUANTAPDF_ERROR_FORMAT;
+        }
+        return QUANTAPDF_OK;
+    } catch (QPDFExc const& error) {
+        return quantapdf_status_from_qpdf(error);
+    } catch (std::bad_alloc const&) {
+        return QUANTAPDF_ERROR_NOMEM;
+    } catch (std::exception const&) {
+        return QUANTAPDF_ERROR_BACKEND;
+    } catch (...) {
+        return QUANTAPDF_ERROR_BACKEND;
+    }
+}
+
+struct quantapdf_qpdf_flatten_item {
+    QPDFObjectHandle annotation = QPDFObjectHandle::newNull();
+    QPDFObjectHandle appearance = QPDFObjectHandle::newNull();
+};
+
+struct quantapdf_qpdf_flatten_page {
+    QPDFObjectHandle page = QPDFObjectHandle::newNull();
+    std::vector<QPDFObjectHandle> survivors;
+    std::vector<quantapdf_qpdf_flatten_item> selected;
+    int rotate = 0;
+};
+
+struct quantapdf_qpdf_flatten_field_change {
+    QPDFObjectHandle field = QPDFObjectHandle::newNull();
+    std::vector<QPDFObjectHandle> children;
+};
+
+struct quantapdf_qpdf_flatten_form_plan {
+    QPDFObjectHandle acroform = QPDFObjectHandle::newNull();
+    std::vector<QPDFObjectHandle> roots;
+    std::vector<quantapdf_qpdf_flatten_field_change> changes;
+    std::set<QPDFObjGen> all_fields;
+    std::set<QPDFObjGen> removed_fields;
+    std::set<QPDFObjGen> found_widgets;
+    std::vector<QPDFObjectHandle> calculation_order;
+    bool has_calculation_order = false;
+};
+
+static bool quantapdf_qpdf_flatten_supported_annotation(
+    std::string const& subtype) noexcept
+{
+    static std::set<std::string> const supported = {
+        "/Text", "/FreeText", "/Line", "/Square", "/Circle",
+        "/Polygon", "/PolyLine", "/Highlight", "/Underline",
+        "/Squiggly", "/StrikeOut", "/Stamp", "/Caret", "/Ink"};
+    return supported.count(subtype) != 0u;
+}
+
+static quantapdf_status quantapdf_qpdf_flatten_number_array(
+    QPDFObjectHandle const& object,
+    int count,
+    std::vector<double> *values)
+{
+    if (!object.isArray() || object.getArrayNItems() != count)
+        return QUANTAPDF_ERROR_FORMAT;
+    values->clear();
+    values->reserve(static_cast<size_t>(count));
+    for (int index = 0; index < count; ++index) {
+        QPDFObjectHandle value = object.getArrayItem(index);
+        if (!value.isNumber())
+            return QUANTAPDF_ERROR_FORMAT;
+        double const number = value.getNumericValue();
+        if (!std::isfinite(number))
+            return QUANTAPDF_ERROR_FORMAT;
+        values->push_back(number);
+    }
+    return QUANTAPDF_OK;
+}
+
+class quantapdf_qpdf_flatten_content_callbacks final :
+    public QPDFObjectHandle::ParserCallbacks
+{
+  public:
+    void handleObject(QPDFObjectHandle object) override
+    {
+        if (!object.isOperator()) {
+            if (object.isInlineImage()) {
+                if (inline_image_stage_ != 2)
+                    valid_ = false;
+                inline_image_stage_ = 0;
+                just_saw_inline_image_ = true;
+                return;
+            }
+            if (operands_.size() >= 1024u)
+                valid_ = false;
+            else
+                operands_.push_back(object);
+            return;
+        }
+        std::string const op = object.getOperatorValue();
+        static std::set<std::string> const known_operators = {
+            "b", "b*", "B", "B*", "BDC", "BI", "BMC", "BT", "BX",
+            "c", "cm", "CS", "cs", "d", "d0", "d1", "Do", "DP",
+            "EI", "EMC", "ET", "EX", "f", "f*", "F", "G", "g",
+            "gs", "h", "i", "ID", "j", "J", "K", "k", "l", "m",
+            "M", "MP", "n", "q", "Q", "re", "RG", "rg", "ri",
+            "s", "S", "SC", "SCN", "sc", "scn", "sh", "T*", "Tc",
+            "Td", "TD", "Tf", "Tj", "TJ", "TL", "Tm", "Tr", "Ts",
+            "Tw", "Tz", "v", "w", "W", "W*", "y", "'", "\""};
+        if (known_operators.count(op) == 0u) {
+            if (compatibility_depth_ == 0)
+                valid_ = false;
+            operands_.clear();
+            return;
+        }
+        if (!valid_context(op) || !valid_operands(op))
+            valid_ = false;
+        operands_.clear();
+
+        bool const inline_image_terminator = op == "EI";
+        if (!inline_image_terminator)
+            just_saw_inline_image_ = false;
+
+        if (op == "BI")
+            inline_image_stage_ = 1;
+        else if (op == "ID")
+            inline_image_stage_ = 2;
+        else if (op == "EI")
+            inline_image_stage_ = 0;
+        if (inline_image_terminator)
+            just_saw_inline_image_ = false;
+
+        if (op == "q") {
+            push_scope('q');
+            ++graphics_depth_;
+        } else if (op == "Q") {
+            pop_scope('q');
+            if (graphics_depth_ == 0)
+                valid_ = false;
+            else
+                --graphics_depth_;
+        } else if (op == "BT") {
+            push_scope('t');
+            if (text_depth_ != 0)
+                valid_ = false;
+            ++text_depth_;
+        } else if (op == "ET") {
+            pop_scope('t');
+            if (text_depth_ == 0)
+                valid_ = false;
+            else
+                --text_depth_;
+        } else if (op == "BMC" || op == "BDC") {
+            push_scope('m');
+            ++marked_content_depth_;
+        } else if (op == "EMC") {
+            pop_scope('m');
+            if (marked_content_depth_ == 0)
+                valid_ = false;
+            else
+                --marked_content_depth_;
+        } else if (op == "BX") {
+            push_scope('x');
+            ++compatibility_depth_;
+        } else if (op == "EX") {
+            pop_scope('x');
+            if (compatibility_depth_ == 0)
+                valid_ = false;
+            else
+                --compatibility_depth_;
+        }
+
+        if (op == "m" || op == "re") {
+            path_open_ = true;
+        } else if (op == "b" || op == "b*" || op == "B" ||
+                   op == "B*" || op == "f" || op == "f*" ||
+                   op == "F" || op == "n" || op == "s" || op == "S") {
+            path_open_ = false;
+        }
+    }
+
+    void handleEOF() override
+    {
+        if (graphics_depth_ != 0 || text_depth_ != 0 ||
+            marked_content_depth_ != 0 || compatibility_depth_ != 0 ||
+            inline_image_stage_ != 0 || path_open_ || !operands_.empty() ||
+            !scope_stack_.empty())
+            valid_ = false;
+    }
+
+    bool valid() const noexcept
+    {
+        return valid_;
+    }
+
+  private:
+    void push_scope(char kind)
+    {
+        if (scope_stack_.size() >= 1024u)
+            valid_ = false;
+        else
+            scope_stack_.push_back(kind);
+    }
+
+    void pop_scope(char kind)
+    {
+        if (scope_stack_.empty() || scope_stack_.back() != kind) {
+            valid_ = false;
+        } else {
+            scope_stack_.pop_back();
+        }
+    }
+
+    bool count(size_t expected) const noexcept
+    {
+        return operands_.size() == expected;
+    }
+
+    static bool finite_number(QPDFObjectHandle const& object)
+    {
+        return object.isNumber() &&
+            std::isfinite(object.getNumericValue());
+    }
+
+    bool all_numbers(size_t expected) const
+    {
+        if (!count(expected))
+            return false;
+        for (auto const& operand : operands_) {
+            if (!finite_number(operand))
+                return false;
+        }
+        return true;
+    }
+
+    bool valid_context(std::string const& op) const
+    {
+        if (inline_image_stage_ == 1 && op != "ID")
+            return false;
+        if (inline_image_stage_ == 2 && op != "EI")
+            return false;
+        if (inline_image_stage_ == 0 && op == "ID")
+            return false;
+        if (op == "EI" &&
+            (inline_image_stage_ != 0 || !just_saw_inline_image_))
+            return false;
+        if (inline_image_stage_ != 0 && op == "BI")
+            return false;
+
+        static std::set<std::string> const text_operators = {
+            "'", "\"", "T*", "Tc", "Td", "TD", "Tf", "Tj", "TJ",
+            "TL", "Tm", "Tr", "Ts", "Tw", "Tz"};
+        if (text_operators.count(op) != 0u && text_depth_ == 0)
+            return false;
+        static std::set<std::string> const forbidden_in_text = {
+            "b", "b*", "B", "B*", "BI", "c", "cm", "d0", "d1",
+            "Do", "f", "f*", "F", "h", "l", "m", "n", "q", "Q",
+            "re", "s", "S", "sh", "v", "W", "W*", "y"};
+        if (text_depth_ != 0 && forbidden_in_text.count(op) != 0u)
+            return false;
+        if (op == "BT" && (text_depth_ != 0 || path_open_))
+            return false;
+        if (op == "ET" && text_depth_ == 0)
+            return false;
+
+        if ((op == "l" || op == "c" || op == "v" || op == "y" ||
+             op == "h" || op == "W" || op == "W*") && !path_open_)
+            return false;
+        return true;
+    }
+
+    bool valid_operands(std::string const& op) const
+    {
+        static std::set<std::string> const zero = {
+            "b", "b*", "B", "B*", "BI", "BT", "BX", "EMC",
+            "ET", "EX", "f", "f*", "F", "h", "n", "q", "Q", "s",
+            "S", "T*", "W", "W*"};
+        if (zero.count(op) != 0u)
+            return count(0u);
+
+        static std::set<std::string> const one_name = {
+            "BMC", "CS", "cs", "Do", "gs", "MP", "ri", "sh"};
+        if (one_name.count(op) != 0u)
+            return count(1u) && operands_[0].isName();
+
+        static std::set<std::string> const one_number = {
+            "G", "g", "i", "M", "Tc", "TL", "Ts", "Tw", "Tz", "w"};
+        if (one_number.count(op) != 0u)
+            return all_numbers(1u);
+
+        if (op == "J" || op == "j" || op == "Tr")
+            return count(1u) && operands_[0].isInteger();
+        if (op == "Tj" || op == "'")
+            return count(1u) && operands_[0].isString();
+        if (op == "TJ") {
+            if (!count(1u) || !operands_[0].isArray())
+                return false;
+            int const items = operands_[0].getArrayNItems();
+            for (int index = 0; index < items; ++index) {
+                QPDFObjectHandle item = operands_[0].getArrayItem(index);
+                if (!item.isString() && !finite_number(item))
+                    return false;
+            }
+            return true;
+        }
+
+        static std::set<std::string> const two_numbers = {
+            "d0", "l", "m", "Td", "TD"};
+        if (two_numbers.count(op) != 0u)
+            return all_numbers(2u);
+        static std::set<std::string> const three_numbers = {"RG", "rg"};
+        if (three_numbers.count(op) != 0u)
+            return all_numbers(3u);
+        static std::set<std::string> const four_numbers = {
+            "K", "k", "re", "v", "y"};
+        if (four_numbers.count(op) != 0u)
+            return all_numbers(4u);
+        static std::set<std::string> const six_numbers = {
+            "c", "cm", "d1", "Tm"};
+        if (six_numbers.count(op) != 0u)
+            return all_numbers(6u);
+
+        if (op == "d") {
+            if (!count(2u) || !operands_[0].isArray() ||
+                !finite_number(operands_[1]))
+                return false;
+            int const items = operands_[0].getArrayNItems();
+            for (int index = 0; index < items; ++index) {
+                if (!finite_number(operands_[0].getArrayItem(index)))
+                    return false;
+            }
+            return true;
+        }
+        if (op == "Tf")
+            return count(2u) && operands_[0].isName() &&
+                finite_number(operands_[1]);
+        if (op == "\"")
+            return count(3u) && finite_number(operands_[0]) &&
+                finite_number(operands_[1]) && operands_[2].isString();
+        if (op == "DP" || op == "BDC")
+            return count(2u) && operands_[0].isName() &&
+                (operands_[1].isName() || operands_[1].isDictionary());
+        if (op == "SC" || op == "sc") {
+            if (operands_.empty())
+                return false;
+            for (auto const& operand : operands_) {
+                if (!finite_number(operand))
+                    return false;
+            }
+            return true;
+        }
+        if (op == "SCN" || op == "scn") {
+            if (operands_.empty())
+                return false;
+            size_t numbers = operands_.size();
+            if (operands_.back().isName())
+                --numbers;
+            for (size_t index = 0; index < numbers; ++index) {
+                if (!finite_number(operands_[index]))
+                    return false;
+            }
+            return numbers == operands_.size() ||
+                numbers + 1u == operands_.size();
+        }
+        if (op == "ID") {
+            if (inline_image_stage_ != 1 || operands_.size() % 2u != 0u)
+                return false;
+            for (size_t index = 0; index < operands_.size(); index += 2u) {
+                if (!operands_[index].isName())
+                    return false;
+            }
+            return true;
+        }
+        if (op == "EI")
+            return inline_image_stage_ == 0 && just_saw_inline_image_ &&
+                count(0u);
+        return false;
+    }
+
+    std::vector<QPDFObjectHandle> operands_;
+    std::vector<char> scope_stack_;
+    int graphics_depth_ = 0;
+    int text_depth_ = 0;
+    int marked_content_depth_ = 0;
+    int compatibility_depth_ = 0;
+    int inline_image_stage_ = 0;
+    bool just_saw_inline_image_ = false;
+    bool path_open_ = false;
+    bool valid_ = true;
+};
+
+static quantapdf_status quantapdf_qpdf_flatten_parse_contents(
+    QPDF& pdf,
+    QPDFObjectHandle object,
+    bool page_contents)
+{
+    quantapdf_qpdf_flatten_content_callbacks callbacks;
+    if (page_contents)
+        object.parsePageContents(&callbacks);
+    else
+        object.parseAsContents(&callbacks);
+    if (pdf.anyWarnings() || !callbacks.valid())
+        return QUANTAPDF_ERROR_FORMAT;
+    return QUANTAPDF_OK;
+}
+
+static quantapdf_status quantapdf_qpdf_flatten_appearance(
+    QPDF& pdf,
+    QPDFObjectHandle const& annotation,
+    QPDFObjectHandle *out_appearance)
+{
+    QPDFObjectHandle flags = annotation.getKey("/F");
+    unsigned long long flag_bits = 0;
+    if (!flags.isNull()) {
+        if (!flags.isInteger() || !flags.getValueAsUInt(flag_bits) ||
+            flag_bits > UINT32_MAX)
+            return QUANTAPDF_ERROR_FORMAT;
+    }
+    unsigned int const unsupported_flags =
+        an_invisible | an_hidden | an_no_zoom | an_no_rotate |
+        an_no_view | an_toggle_no_view;
+    if ((static_cast<unsigned int>(flag_bits) & unsupported_flags) != 0u)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    if (!annotation.getKey("/OC").isNull())
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    QPDFObjectHandle opacity = annotation.getKey("/CA");
+    if (!opacity.isNull()) {
+        if (!opacity.isNumber())
+            return QUANTAPDF_ERROR_FORMAT;
+        double const value = opacity.getNumericValue();
+        if (!std::isfinite(value) || value < 0.0 || value > 1.0)
+            return QUANTAPDF_ERROR_FORMAT;
+        if (value != 1.0)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+
+    std::vector<double> rect;
+    quantapdf_status status = quantapdf_qpdf_flatten_number_array(
+        annotation.getKey("/Rect"), 4, &rect);
+    if (status != QUANTAPDF_OK)
+        return status;
+    if (rect[0] == rect[2] || rect[1] == rect[3])
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
+    QPDFObjectHandle appearance_dictionary = annotation.getKey("/AP");
+    if (appearance_dictionary.isNull())
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    if (!appearance_dictionary.isDictionary())
+        return QUANTAPDF_ERROR_FORMAT;
+    QPDFObjectHandle normal = appearance_dictionary.getKey("/N");
+    if (normal.isNull())
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    if (normal.isDictionary()) {
+        QPDFObjectHandle state = annotation.getKey("/AS");
+        if (state.isNull())
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        if (!state.isName())
+            return QUANTAPDF_ERROR_FORMAT;
+        normal = normal.getKey(state.getName());
+        if (normal.isNull() || !normal.isStream())
+            return QUANTAPDF_ERROR_FORMAT;
+    } else if (!normal.isStream()) {
+        return QUANTAPDF_ERROR_FORMAT;
+    }
+    if (!normal.isIndirect())
+        return QUANTAPDF_ERROR_FORMAT;
+
+    QPDFObjectHandle dictionary = normal.getDict();
+    QPDFObjectHandle subtype = dictionary.getKey("/Subtype");
+    if (!subtype.isName() || subtype.getName() != "/Form")
+        return QUANTAPDF_ERROR_FORMAT;
+    std::vector<double> box;
+    status = quantapdf_qpdf_flatten_number_array(
+        dictionary.getKey("/BBox"), 4, &box);
+    if (status != QUANTAPDF_OK)
+        return status;
+    if (box[0] >= box[2] || box[1] >= box[3])
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    QPDFObjectHandle matrix = dictionary.getKey("/Matrix");
+    if (!matrix.isNull()) {
+        std::vector<double> values;
+        status = quantapdf_qpdf_flatten_number_array(matrix, 6, &values);
+        if (status != QUANTAPDF_OK)
+            return status;
+        double const determinant = values[0] * values[3] -
+            values[1] * values[2];
+        if (determinant == 0.0)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+    QPDFObjectHandle resources = dictionary.getKey("/Resources");
+    if (!resources.isNull() && !resources.isDictionary())
+        return QUANTAPDF_ERROR_FORMAT;
+    if (!dictionary.getKey("/OC").isNull())
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
+    status = quantapdf_qpdf_flatten_parse_contents(pdf, normal, false);
+    if (status != QUANTAPDF_OK)
+        return status;
+
+    *out_appearance = normal;
+    return QUANTAPDF_OK;
+}
+
+static quantapdf_status quantapdf_qpdf_flatten_neutral_link(
+    QPDFObjectHandle const& annotation)
+{
+    QPDFObjectHandle appearance = annotation.getKey("/AP");
+    if (!appearance.isNull()) {
+        if (!appearance.isDictionary())
+            return QUANTAPDF_ERROR_FORMAT;
+        if (!appearance.getKey("/N").isNull())
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+
+    QPDFObjectHandle border_style = annotation.getKey("/BS");
+    QPDFObjectHandle width;
+    if (!border_style.isNull()) {
+        if (!border_style.isDictionary())
+            return QUANTAPDF_ERROR_FORMAT;
+        width = border_style.getKey("/W");
+        if (width.isNull())
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+    } else {
+        QPDFObjectHandle border = annotation.getKey("/Border");
+        if (border.isNull())
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        if (!border.isArray() || border.getArrayNItems() < 3 ||
+            border.getArrayNItems() > 4)
+            return QUANTAPDF_ERROR_FORMAT;
+        for (int index = 0; index < 3; ++index) {
+            QPDFObjectHandle value = border.getArrayItem(index);
+            if (!value.isNumber() || !std::isfinite(value.getNumericValue()))
+                return QUANTAPDF_ERROR_FORMAT;
+        }
+        if (border.getArrayNItems() == 4) {
+            QPDFObjectHandle dash = border.getArrayItem(3);
+            if (!dash.isArray())
+                return QUANTAPDF_ERROR_FORMAT;
+            int const dash_count = dash.getArrayNItems();
+            for (int index = 0; index < dash_count; ++index) {
+                QPDFObjectHandle value = dash.getArrayItem(index);
+                if (!value.isNumber() ||
+                    !std::isfinite(value.getNumericValue()))
+                    return QUANTAPDF_ERROR_FORMAT;
+            }
+        }
+        width = border.getArrayItem(2);
+    }
+    if (!width.isNumber() || !std::isfinite(width.getNumericValue()))
+        return QUANTAPDF_ERROR_FORMAT;
+    return width.getNumericValue() == 0.0 ?
+        QUANTAPDF_OK : QUANTAPDF_ERROR_UNSUPPORTED;
+}
+
+static bool quantapdf_qpdf_flatten_points_to_selected(
+    QPDFObjectHandle const& object,
+    std::set<QPDFObjGen> const& selected)
+{
+    return object.isIndirect() && selected.count(object.getObjGen()) != 0u;
+}
+
+static quantapdf_status quantapdf_qpdf_flatten_field(
+    QPDFObjectHandle field,
+    QPDFObjectHandle expected_parent,
+    std::set<QPDFObjGen> const& selected_widgets,
+    quantapdf_qpdf_flatten_form_plan *plan,
+    bool *out_remove,
+    size_t depth)
+{
+    if (depth > 256u || !field.isDictionary() || !field.isIndirect())
+        return QUANTAPDF_ERROR_FORMAT;
+    QPDFObjGen const identity = field.getObjGen();
+    if (!plan->all_fields.insert(identity).second)
+        return QUANTAPDF_ERROR_FORMAT;
+    QPDFObjectHandle parent = field.getKey("/Parent");
+    if ((expected_parent.isNull() && !parent.isNull()) ||
+        (!expected_parent.isNull() &&
+         !quantapdf_qpdf_same_object(parent, expected_parent)))
+        return QUANTAPDF_ERROR_FORMAT;
+
+    QPDFObjectHandle subtype = field.getKey("/Subtype");
+    if (!subtype.isNull() && !subtype.isName())
+        return QUANTAPDF_ERROR_FORMAT;
+    bool const merged_widget =
+        subtype.isName() && subtype.getName() == "/Widget";
+    if (merged_widget) {
+        if (selected_widgets.count(identity) == 0u)
+            return QUANTAPDF_ERROR_FORMAT;
+        if (!plan->found_widgets.insert(identity).second)
+            return QUANTAPDF_ERROR_FORMAT;
+    }
+
+    QPDFObjectHandle kids = field.getKey("/Kids");
+    if (!kids.isNull() && !kids.isArray())
+        return QUANTAPDF_ERROR_FORMAT;
+    bool changed = false;
+    std::vector<QPDFObjectHandle> survivors;
+    if (kids.isArray()) {
+        int const count = kids.getArrayNItems();
+        survivors.reserve(static_cast<size_t>(count));
+        for (int index = 0; index < count; ++index) {
+            QPDFObjectHandle child = kids.getArrayItem(index);
+            bool remove_child = false;
+            quantapdf_status const status = quantapdf_qpdf_flatten_field(
+                child, field, selected_widgets, plan, &remove_child,
+                depth + 1u);
+            if (status != QUANTAPDF_OK)
+                return status;
+            if (remove_child) {
+                changed = true;
+            } else {
+                survivors.push_back(child);
+            }
+        }
+    }
+
+    bool const remove = merged_widget ||
+        (changed && survivors.empty());
+    if (remove)
+        plan->removed_fields.insert(identity);
+    if (changed)
+        plan->changes.push_back({field, survivors});
+    *out_remove = remove;
+    return QUANTAPDF_OK;
+}
+
+static quantapdf_status quantapdf_qpdf_flatten_plan_form(
+    QPDF& pdf,
+    std::set<QPDFObjGen> const& selected_widgets,
+    quantapdf_qpdf_flatten_form_plan *plan)
+{
+    QPDFObjectHandle root = pdf.getRoot();
+    plan->acroform = root.getKey("/AcroForm");
+    if (plan->acroform.isNull())
+        return selected_widgets.empty() ?
+            QUANTAPDF_OK : QUANTAPDF_ERROR_FORMAT;
+    if (!plan->acroform.isDictionary())
+        return QUANTAPDF_ERROR_FORMAT;
+    if (!selected_widgets.empty() &&
+        !plan->acroform.getKey("/XFA").isNull())
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    QPDFObjectHandle need_appearances =
+        plan->acroform.getKey("/NeedAppearances");
+    if (!need_appearances.isNull()) {
+        if (!need_appearances.isBool())
+            return QUANTAPDF_ERROR_FORMAT;
+        if (!selected_widgets.empty() && need_appearances.getBoolValue())
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+    QPDFObjectHandle fields = plan->acroform.getKey("/Fields");
+    if (fields.isNull())
+        return selected_widgets.empty() ?
+            QUANTAPDF_OK : QUANTAPDF_ERROR_FORMAT;
+    if (!fields.isArray())
+        return QUANTAPDF_ERROR_FORMAT;
+    int const count = fields.getArrayNItems();
+    plan->roots.reserve(static_cast<size_t>(count));
+    for (int index = 0; index < count; ++index) {
+        QPDFObjectHandle field = fields.getArrayItem(index);
+        bool remove = false;
+        quantapdf_status const status = quantapdf_qpdf_flatten_field(
+            field, QPDFObjectHandle::newNull(), selected_widgets,
+            plan, &remove, 1u);
+        if (status != QUANTAPDF_OK)
+            return status;
+        if (!remove)
+            plan->roots.push_back(field);
+    }
+    if (plan->found_widgets != selected_widgets)
+        return QUANTAPDF_ERROR_FORMAT;
+
+    QPDFObjectHandle order = plan->acroform.getKey("/CO");
+    if (!order.isNull()) {
+        if (!order.isArray())
+            return QUANTAPDF_ERROR_FORMAT;
+        plan->has_calculation_order = true;
+        int const order_count = order.getArrayNItems();
+        for (int index = 0; index < order_count; ++index) {
+            QPDFObjectHandle field = order.getArrayItem(index);
+            if (!field.isIndirect() ||
+                plan->all_fields.count(field.getObjGen()) == 0u)
+                return QUANTAPDF_ERROR_FORMAT;
+            if (plan->removed_fields.count(field.getObjGen()) == 0u)
+                plan->calculation_order.push_back(field);
+        }
+    }
+    return QUANTAPDF_OK;
+}
+
+static quantapdf_status quantapdf_qpdf_flatten_validate_page_contents(
+    QPDF& pdf,
+    QPDFObjectHandle const& page)
+{
+    QPDFObjectHandle contents = page.getKey("/Contents");
+    if (!contents.isNull()) {
+        if (!contents.isStream() && !contents.isArray())
+            return QUANTAPDF_ERROR_FORMAT;
+        if (contents.isArray()) {
+            int const count = contents.getArrayNItems();
+            for (int index = 0; index < count; ++index) {
+                if (!contents.getArrayItem(index).isStream())
+                    return QUANTAPDF_ERROR_FORMAT;
+            }
+        }
+    }
+    return quantapdf_qpdf_flatten_parse_contents(pdf, page, true);
+}
+
+static quantapdf_status quantapdf_qpdf_flatten_validate_raw_page_tree(
+    QPDFObjectHandle node,
+    std::set<QPDFObjGen> *seen,
+    size_t depth)
+{
+    if (depth > 256u || !node.isDictionary() || !node.isIndirect() ||
+        !seen->insert(node.getObjGen()).second)
+        return QUANTAPDF_ERROR_FORMAT;
+    QPDFObjectHandle type = node.getKey("/Type");
+    if (!type.isName())
+        return QUANTAPDF_ERROR_FORMAT;
+    QPDFObjectHandle resources = node.getKey("/Resources");
+    if (!resources.isNull() && !resources.isDictionary())
+        return QUANTAPDF_ERROR_FORMAT;
+    if (type.getName() == "/Page") {
+        QPDFObjectHandle annotations = node.getKey("/Annots");
+        return annotations.isNull() || annotations.isArray() ?
+            QUANTAPDF_OK : QUANTAPDF_ERROR_FORMAT;
+    }
+    if (type.getName() != "/Pages")
+        return QUANTAPDF_ERROR_FORMAT;
+    QPDFObjectHandle kids = node.getKey("/Kids");
+    if (!kids.isArray())
+        return QUANTAPDF_ERROR_FORMAT;
+    int const count = kids.getArrayNItems();
+    for (int index = 0; index < count; ++index) {
+        quantapdf_status const status =
+            quantapdf_qpdf_flatten_validate_raw_page_tree(
+                kids.getArrayItem(index), seen, depth + 1u);
+        if (status != QUANTAPDF_OK)
+            return status;
+    }
+    return QUANTAPDF_OK;
+}
+
+static bool quantapdf_qpdf_flatten_has_signed_field(
+    QPDFObjectHandle field,
+    std::string inherited_type,
+    QPDFObjectHandle inherited_value,
+    std::set<QPDFObjGen> *seen,
+    size_t depth)
+{
+    if (depth > 256u || !field.isDictionary())
+        return false;
+    if (field.isIndirect() && !seen->insert(field.getObjGen()).second)
+        return false;
+    QPDFObjectHandle type = field.getKey("/FT");
+    if (type.isName())
+        inherited_type = type.getName();
+    QPDFObjectHandle value = field.getKey("/V");
+    if (!value.isNull())
+        inherited_value = value;
+    if (inherited_type == "/Sig" && !inherited_value.isNull())
+        return true;
+    QPDFObjectHandle kids = field.getKey("/Kids");
+    if (!kids.isArray())
+        return false;
+    int const count = kids.getArrayNItems();
+    for (int index = 0; index < count; ++index) {
+        if (quantapdf_qpdf_flatten_has_signed_field(
+                kids.getArrayItem(index), inherited_type, inherited_value,
+                seen, depth + 1u))
+            return true;
+    }
+    return false;
+}
+
+static bool quantapdf_qpdf_flatten_is_signed(QPDF& pdf)
+{
+    QPDFObjectHandle root = pdf.getRoot();
+    QPDFObjectHandle acroform = root.getKey("/AcroForm");
+    if (!acroform.isDictionary())
+        return false;
+    QPDFObjectHandle fields = acroform.getKey("/Fields");
+    if (!fields.isArray())
+        return false;
+    std::set<QPDFObjGen> seen;
+    int const count = fields.getArrayNItems();
+    for (int index = 0; index < count; ++index) {
+        if (quantapdf_qpdf_flatten_has_signed_field(
+                fields.getArrayItem(index), std::string(),
+                QPDFObjectHandle::newNull(), &seen, 1u))
+            return true;
+    }
+    return false;
+}
+
+static quantapdf_status quantapdf_qpdf_flatten_security(QPDF& pdf)
+{
+    if (pdf.isEncrypted())
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    QPDFObjectHandle root = pdf.getRoot();
+    if (!root.isDictionary())
+        return QUANTAPDF_ERROR_FORMAT;
+    QPDFObjectHandle permissions = root.getKey("/Perms");
+    if (!permissions.isNull()) {
+        if (!permissions.isDictionary())
+            return QUANTAPDF_ERROR_FORMAT;
+        for (char const *key : {"/DocMDP", "/UR", "/UR3"}) {
+            QPDFObjectHandle signature = permissions.getKey(key);
+            if (signature.isNull())
+                continue;
+            if (!signature.isDictionary())
+                return QUANTAPDF_ERROR_FORMAT;
+            QPDFObjectHandle type = signature.getKey("/Type");
+            if (!type.isNull() &&
+                (!type.isName() || type.getName() != "/Sig"))
+                return QUANTAPDF_ERROR_FORMAT;
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        }
+    }
+    return quantapdf_qpdf_flatten_is_signed(pdf) ?
+        QUANTAPDF_ERROR_UNSUPPORTED : QUANTAPDF_OK;
+}
+
+static bool quantapdf_qpdf_flatten_initial_warnings_are_safe(QPDF& pdf)
+{
+    auto const warnings = pdf.getWarnings();
+    for (QPDFExc const& warning : warnings) {
+        std::string const message = warning.what();
+        if (message.find("Resources is missing or invalid; repairing") ==
+            std::string::npos)
+            return false;
+    }
+    return true;
+}
+
+extern "C" quantapdf_status quantapdf_qpdf_flatten_interactive(
+    quantapdf_qpdf_document *document,
+    uint32_t flags,
+    unsigned char **out_data,
+    size_t *out_size)
+{
+    uint32_t const known =
+        QUANTAPDF_FLATTEN_ANNOTATIONS | QUANTAPDF_FLATTEN_WIDGETS;
+    if (out_data == nullptr || out_size == nullptr)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    *out_data = nullptr;
+    *out_size = 0;
+    if (document == nullptr || document->pdf == nullptr ||
+        document->source_data == nullptr || document->source_size == 0 ||
+        flags == 0 || (flags & ~known) != 0)
+        return QUANTAPDF_ERROR_ARGUMENT;
+
+    try {
+        auto pdf = QPDF::create();
+        pdf->setSuppressWarnings(true);
+        pdf->setAttemptRecovery(false);
+        pdf->processMemoryFile(
+            "quantapdf-flatten",
+            reinterpret_cast<char const *>(document->source_data),
+            document->source_size,
+            document->password.c_str());
+        quantapdf_status const security_status =
+            quantapdf_qpdf_flatten_security(*pdf);
+        if (security_status != QUANTAPDF_OK)
+            return security_status;
+        std::set<QPDFObjGen> raw_page_nodes;
+        quantapdf_status const raw_page_status =
+            quantapdf_qpdf_flatten_validate_raw_page_tree(
+                pdf->getRoot().getKey("/Pages"),
+                &raw_page_nodes,
+                1u);
+        if (raw_page_status != QUANTAPDF_OK)
+            return raw_page_status;
+        auto const& pages = pdf->getAllPages();
+        (void)pdf->getAllObjects();
+        if (!quantapdf_qpdf_flatten_initial_warnings_are_safe(*pdf))
+            return QUANTAPDF_ERROR_FORMAT;
+
+        std::vector<quantapdf_qpdf_flatten_page> plans;
+        std::vector<QPDFObjectHandle> all_annotations;
+        std::set<QPDFObjGen> annotation_identities;
+        std::set<QPDFObjGen> selected_identities;
+        std::set<QPDFObjGen> selected_widgets;
+        bool const want_annotations =
+            (flags & QUANTAPDF_FLATTEN_ANNOTATIONS) != 0u;
+        bool const want_widgets =
+            (flags & QUANTAPDF_FLATTEN_WIDGETS) != 0u;
+
+        for (QPDFObjectHandle const& page : pages) {
+            quantapdf_qpdf_flatten_page plan;
+            plan.page = page;
+            QPDFObjectHandle annotations = page.getKey("/Annots");
+            if (annotations.isNull())
+                continue;
+            if (!annotations.isArray())
+                return QUANTAPDF_ERROR_FORMAT;
+            int const count = annotations.getArrayNItems();
+            for (int index = 0; index < count; ++index) {
+                QPDFObjectHandle annotation = annotations.getArrayItem(index);
+                if (!annotation.isDictionary() || !annotation.isIndirect())
+                    return QUANTAPDF_ERROR_FORMAT;
+                if (!annotation_identities.insert(
+                        annotation.getObjGen()).second)
+                    return QUANTAPDF_ERROR_FORMAT;
+                all_annotations.push_back(annotation);
+                QPDFObjectHandle subtype_object = annotation.getKey("/Subtype");
+                if (!subtype_object.isName())
+                    return QUANTAPDF_ERROR_FORMAT;
+                std::string const subtype = subtype_object.getName();
+                bool const widget = subtype == "/Widget";
+                bool const structural =
+                    subtype == "/Link" || subtype == "/Popup";
+                bool selected = widget ? want_widgets :
+                    (want_annotations && !structural);
+                if (want_annotations && !widget && !structural &&
+                    !quantapdf_qpdf_flatten_supported_annotation(subtype))
+                    return QUANTAPDF_ERROR_UNSUPPORTED;
+                if (selected) {
+                    if (widget) {
+                        QPDFObjectHandle owner = annotation.getKey("/P");
+                        if (!owner.isNull() &&
+                            !quantapdf_qpdf_same_object(owner, page))
+                            return QUANTAPDF_ERROR_FORMAT;
+                    }
+                    QPDFObjectHandle appearance;
+                    quantapdf_status const status =
+                        quantapdf_qpdf_flatten_appearance(
+                            *pdf, annotation, &appearance);
+                    if (status != QUANTAPDF_OK)
+                        return status;
+                    selected_identities.insert(annotation.getObjGen());
+                    if (widget)
+                        selected_widgets.insert(annotation.getObjGen());
+                    plan.selected.push_back({annotation, appearance});
+                } else {
+                    plan.survivors.push_back(annotation);
+                }
+            }
+            if (plan.selected.empty())
+                continue;
+
+            for (int index = 0; index < count; ++index) {
+                QPDFObjectHandle annotation = annotations.getArrayItem(index);
+                QPDFObjectHandle subtype_object = annotation.getKey("/Subtype");
+                if (!subtype_object.isName())
+                    return QUANTAPDF_ERROR_FORMAT;
+                std::string const subtype = subtype_object.getName();
+                if (subtype == "/Link") {
+                    quantapdf_status const status =
+                        quantapdf_qpdf_flatten_neutral_link(annotation);
+                    if (status != QUANTAPDF_OK)
+                        return status;
+                } else if ((subtype == "/Widget" && !want_widgets) ||
+                           (subtype != "/Widget" && subtype != "/Popup" &&
+                            !want_annotations)) {
+                    return QUANTAPDF_ERROR_UNSUPPORTED;
+                }
+            }
+            quantapdf_status const contents_status =
+                quantapdf_qpdf_flatten_validate_page_contents(*pdf, page);
+            if (contents_status != QUANTAPDF_OK)
+                return contents_status;
+            QPDFPageObjectHelper page_helper(page);
+            QPDFObjectHandle resources =
+                page_helper.getAttribute("/Resources", false);
+            if (!resources.isNull() && !resources.isDictionary())
+                return QUANTAPDF_ERROR_FORMAT;
+            QPDFObjectHandle rotate = page_helper.getAttribute("/Rotate", false);
+            if (!rotate.isNull()) {
+                if (!rotate.isInteger())
+                    return QUANTAPDF_ERROR_FORMAT;
+                long long const value = rotate.getIntValue();
+                if (value < INT_MIN || value > INT_MAX || value % 90 != 0)
+                    return QUANTAPDF_ERROR_FORMAT;
+                plan.rotate = static_cast<int>(value);
+            }
+            plans.push_back(std::move(plan));
+        }
+
+        if (!plans.empty()) {
+            if (!pdf->getRoot().getKey("/StructTreeRoot").isNull())
+                return QUANTAPDF_ERROR_UNSUPPORTED;
+        }
+
+        for (QPDFObjectHandle const& annotation : all_annotations) {
+            for (char const *key : {"/Popup", "/IRT"}) {
+                QPDFObjectHandle target = annotation.getKey(key);
+                if ((selected_identities.count(annotation.getObjGen()) != 0u &&
+                     !target.isNull()) ||
+                    quantapdf_qpdf_flatten_points_to_selected(
+                        target, selected_identities))
+                    return QUANTAPDF_ERROR_UNSUPPORTED;
+            }
+            QPDFObjectHandle subtype = annotation.getKey("/Subtype");
+            if (subtype.isName() && subtype.getName() == "/Popup" &&
+                quantapdf_qpdf_flatten_points_to_selected(
+                    annotation.getKey("/Parent"), selected_identities))
+                return QUANTAPDF_ERROR_UNSUPPORTED;
+        }
+
+        quantapdf_qpdf_flatten_form_plan form_plan;
+        if (want_widgets) {
+            quantapdf_status const form_status =
+                quantapdf_qpdf_flatten_plan_form(
+                    *pdf, selected_widgets, &form_plan);
+            if (form_status != QUANTAPDF_OK)
+                return form_status;
+        }
+
+        for (auto& plan : plans) {
+            QPDFPageObjectHelper page_helper(plan.page);
+            QPDFObjectHandle resources =
+                page_helper.getAttribute("/Resources", true);
+            if (resources.isNull()) {
+                resources = QPDFObjectHandle::newDictionary();
+                plan.page.replaceKey("/Resources", resources);
+            }
+            QPDFObjectHandle xobjects = resources.getKey("/XObject");
+            if (xobjects.isNull()) {
+                xobjects = QPDFObjectHandle::newDictionary();
+                resources.replaceKey("/XObject", xobjects);
+            } else {
+                if (!xobjects.isDictionary())
+                    return QUANTAPDF_ERROR_FORMAT;
+                xobjects = xobjects.shallowCopy();
+                resources.replaceKey("/XObject", xobjects);
+            }
+
+            std::map<QPDFObjGen, std::string> aliases;
+            int next_alias = 0;
+            std::string content;
+            for (auto const& item : plan.selected) {
+                QPDFObjGen const identity = item.appearance.getObjGen();
+                auto alias = aliases.find(identity);
+                if (alias == aliases.end()) {
+                    std::string const name =
+                        resources.getUniqueResourceName("/EPB", next_alias);
+                    xobjects.replaceKey(name, item.appearance);
+                    alias = aliases.emplace(identity, name).first;
+                    ++next_alias;
+                }
+                QPDFAnnotationObjectHelper annotation(item.annotation);
+                std::string const placement =
+                    annotation.getPageContentForAppearance(
+                        alias->second, plan.rotate, 0, 0);
+                if (placement.empty())
+                    return QUANTAPDF_ERROR_UNSUPPORTED;
+                content += placement;
+            }
+            if (plan.survivors.empty()) {
+                plan.page.removeKey("/Annots");
+            } else {
+                plan.page.replaceKey(
+                    "/Annots", QPDFObjectHandle::newArray(plan.survivors));
+            }
+            page_helper.addPageContents(pdf->newStream("q\n"), true);
+            page_helper.addPageContents(
+                pdf->newStream("\nQ\n" + content), false);
+        }
+
+        for (auto& change : form_plan.changes) {
+            if (change.children.empty()) {
+                change.field.removeKey("/Kids");
+            } else {
+                change.field.replaceKey(
+                    "/Kids", QPDFObjectHandle::newArray(change.children));
+            }
+        }
+        if (!selected_widgets.empty()) {
+            if (form_plan.roots.empty()) {
+                pdf->getRoot().removeKey("/AcroForm");
+            } else {
+                form_plan.acroform.replaceKey(
+                    "/Fields", QPDFObjectHandle::newArray(form_plan.roots));
+                if (form_plan.has_calculation_order) {
+                    form_plan.acroform.replaceKey(
+                        "/CO",
+                        QPDFObjectHandle::newArray(
+                            form_plan.calculation_order));
+                }
+            }
+        }
 
         quantapdf_status const status = quantapdf_qpdf_write_memory(
             *pdf, out_data, out_size);

@@ -100,6 +100,12 @@ quantapdf_status quantapdf_qpdf_rewrite_lossless(
     unsigned char **out_data,
     size_t *out_size);
 
+quantapdf_status quantapdf_qpdf_flatten_interactive(
+    quantapdf_qpdf_document *document,
+    uint32_t flags,
+    unsigned char **out_data,
+    size_t *out_size);
+
 void quantapdf_qpdf_close(quantapdf_qpdf_document *document);
 
 #ifdef __cplusplus

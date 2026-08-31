@@ -64,8 +64,8 @@ The current supported surface includes:
 - URI/internal links, annotations, document metadata, and outlines
 - immutable AcroForm snapshots and isolated PDF edit sessions
 - page export/range export, output merging, and file saving
-- immutable CropBox crop, MediaBox trim, poster-split, and lossless rewrite/GC
-  transforms
+- immutable CropBox crop, MediaBox trim, poster-split, interactive-content
+  flattening, and lossless rewrite/GC transforms
 - stable status strings and one allocator-matched `quantapdf_free()` entry point
 
 ## API contract
@@ -209,6 +209,33 @@ Inputs requiring structural recovery return `QUANTAPDF_ERROR_FORMAT`, and
 already signed inputs return `QUANTAPDF_ERROR_UNSUPPORTED`. The returned
 output owns its bytes independently of the source document.
 
+## Flatten interactive content
+
+```c
+quantapdf_output *flattened = NULL;
+
+if (quantapdf_flatten_interactive(
+        doc,
+        QUANTAPDF_FLATTEN_ANNOTATIONS | QUANTAPDF_FLATTEN_WIDGETS,
+        &flattened) == QUANTAPDF_OK) {
+    quantapdf_output_save_file(flattened, "flattened.pdf");
+    quantapdf_drop_output(flattened);
+}
+```
+
+`quantapdf_flatten_interactive()` bakes existing normal appearance streams
+into page content. Annotation and Widget selection are independent flags, and
+the source document remains immutable. Widget flattening also prunes the
+affected AcroForm field tree and calculation order.
+
+The transform never synthesizes appearances, applies redactions, executes
+form actions, or flattens Links. It fails closed for missing or malformed
+appearances, malformed or unbalanced changed-page content, non-unit annotation
+opacity, contradictory Widget page ownership, unsupported interactive
+semantics, visible Links on changed pages, tagged PDFs that require structure
+updates, encryption, and signatures.
+Output is deterministic and idempotent.
+
 ## Dependency model
 
 The backend foundation has two pinned dependency paths:
@@ -276,7 +303,7 @@ The test build stages `quantapdf.dll` beside every Windows test executable. Cons
 
 ## Tests
 
-CTest covers the document lifecycle plus Page + Render contracts, including invalid arguments, page geometry, MediaBox/CropBox coordinates, RGB/RGBA output, versioned render options, DPI, rotation, clipping, thumbnails, encrypted PDFs, malformed input, repeated lifecycle stress, interleaved handles, UTF-8 paths, and deterministic lossless rewrite/GC semantics.
+CTest covers the document lifecycle plus Page + Render contracts, including invalid arguments, page geometry, MediaBox/CropBox coordinates, RGB/RGBA output, versioned render options, DPI, rotation, clipping, thumbnails, encrypted PDFs, malformed input, repeated lifecycle stress, interleaved handles, UTF-8 paths, deterministic lossless rewrite/GC, and strict interactive-content flattening.
 
 Linux additionally runs AddressSanitizer and UndefinedBehaviorSanitizer.
 
