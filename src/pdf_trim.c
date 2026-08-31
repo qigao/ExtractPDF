@@ -118,6 +118,8 @@ static quantapdf_status quantapdf_pdf_trim_transform_changed(
     fz_set_warning_callback(
         private_ctx, quantapdf_pdf_trim_discard_log, NULL);
 
+    fz_var(private_plans);
+    fz_var(private_views);
     fz_var(stream);
     fz_var(private_document);
     fz_var(caught_code);

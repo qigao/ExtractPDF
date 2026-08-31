@@ -46,7 +46,11 @@ static quantapdf_rect page_bounds(quantapdf_document *document, int page_index)
 {
     quantapdf_page *page = NULL;
     quantapdf_rect bounds = {0};
-    CHECK(quantapdf_load_page(document, page_index, &page) == QUANTAPDF_OK);
+    quantapdf_status status = quantapdf_load_page(document, page_index, &page);
+    if (status != QUANTAPDF_OK)
+        fprintf(stderr, "poster batch: page %d load failed with status %d\n",
+                page_index, (int)status);
+    CHECK(status == QUANTAPDF_OK);
     CHECK(quantapdf_page_bounds(page, &bounds) == QUANTAPDF_OK);
     quantapdf_drop_page(page);
     return bounds;
