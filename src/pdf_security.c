@@ -1,4 +1,5 @@
 #include "internal.h"
+#include "backend/qpdf_document.h"
 
 quantapdf_status quantapdf_document_audit(
     quantapdf_document *document,
@@ -11,7 +12,8 @@ quantapdf_status quantapdf_document_audit(
     if (document == NULL ||
         out_result->struct_size < QUANTAPDF_AUDIT_RESULT_V1_MIN_SIZE)
         return QUANTAPDF_ERROR_ARGUMENT;
-    return QUANTAPDF_ERROR_UNSUPPORTED;
+    return quantapdf_qpdf_document_audit(
+        document->qpdf_document, &out_result->findings);
 }
 
 quantapdf_status quantapdf_sanitize(
