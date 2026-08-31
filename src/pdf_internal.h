@@ -9,5 +9,9 @@ quantapdf_status quantapdf_serialize_pdf(
     fz_context *ctx,
     pdf_document *document,
     quantapdf_output **out_output);
+quantapdf_status quantapdf_serialize_pdf_clean(
+    fz_context *ctx,
+    pdf_document *document,
+    quantapdf_output **out_output);
 
 #endif

@@ -13,6 +13,8 @@ quantapdf_status quantapdf_pdf_edit_form_restore_widget_editing(
 
     if (edit == NULL || edit->ctx == NULL || handles == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
+    fz_var(status);
+    fz_var(i);
     for (i = 0; i < handles->count; ++i) {
         int caught_code = FZ_ERROR_NONE;
         if (!handles->items[i].editing_active)
@@ -91,6 +93,7 @@ quantapdf_status quantapdf_pdf_edit_form_prepare_widget_handles(
     }
     out_handles->count = live->widget_count;
 
+    fz_var(target);
     fz_var(status);
     fz_var(caught_code);
     fz_try(edit->ctx)
@@ -157,6 +160,7 @@ quantapdf_status quantapdf_pdf_edit_form_begin_widget_editing(
 
     if (edit == NULL || edit->ctx == NULL || handles == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
+    fz_var(i);
     fz_var(caught_code);
     fz_try(edit->ctx)
     {

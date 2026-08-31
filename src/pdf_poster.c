@@ -248,8 +248,7 @@ static quantapdf_status poster_splice_private_tiles(
             /*
              * MuPDF synthesizes PageLabels while inserting pages. Poster
              * preflight rejects source label trees, so retaining this
-             * backend-created tree changes the document and has triggered
-             * platform-dependent page loading in PDFium.
+             * backend-created tree changes the document unexpectedly.
              */
             pdf_dict_dels(ctx, root, "PageLabels");
         }
@@ -363,7 +362,7 @@ static quantapdf_status poster_transform_changed(
     if (status != QUANTAPDF_OK)
         goto cleanup;
 
-    status = quantapdf_serialize_pdf(
+    status = quantapdf_serialize_pdf_clean(
         private_ctx, private_document, out_output);
 
 cleanup:

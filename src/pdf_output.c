@@ -14,10 +14,11 @@ static void quantapdf_drop_pdf_serialization_state(
         fz_drop_buffer(ctx, buffer);
 }
 
-quantapdf_status quantapdf_serialize_pdf(
+static quantapdf_status quantapdf_serialize_pdf_impl(
     fz_context *ctx,
     pdf_document *document,
-    quantapdf_output **out_output)
+    quantapdf_output **out_output,
+    int do_garbage)
 {
     pdf_write_options options = pdf_default_write_options;
     fz_buffer *buffer = NULL;
@@ -36,6 +37,7 @@ quantapdf_status quantapdf_serialize_pdf(
 
     options.reproducible = 1;
     options.dont_regenerate_id = 1;
+    options.do_garbage = do_garbage ? 1 : 0;
 
     fz_var(buffer);
     fz_var(memory_output);
@@ -87,4 +89,20 @@ quantapdf_status quantapdf_serialize_pdf(
 
     *out_output = result;
     return QUANTAPDF_OK;
+}
+
+quantapdf_status quantapdf_serialize_pdf(
+    fz_context *ctx,
+    pdf_document *document,
+    quantapdf_output **out_output)
+{
+    return quantapdf_serialize_pdf_impl(ctx, document, out_output, 0);
+}
+
+quantapdf_status quantapdf_serialize_pdf_clean(
+    fz_context *ctx,
+    pdf_document *document,
+    quantapdf_output **out_output)
+{
+    return quantapdf_serialize_pdf_impl(ctx, document, out_output, 1);
 }
