@@ -17,6 +17,10 @@ int pdf_security_inspect_output(
     uint32_t *out_markers,
     int *out_has_object_stream);
 
+int pdf_security_inspect_empty_containers(
+    const unsigned char *data,
+    size_t size);
+
 enum {
     PDF_SECURITY_SAFE_GOTO_MARKER = 1u << 7
 };
@@ -130,6 +134,22 @@ static uint32_t inspect_sanitized_output(
     CHECK(pdf_security_inspect_output(
         data, size, &markers, out_has_object_stream));
     return markers;
+}
+
+static int inspect_sanitized_empty_containers(quantapdf_output *output)
+{
+    const unsigned char *data = NULL;
+    size_t size = 0;
+    int mask;
+
+    CHECK(quantapdf_output_data(output, &data, &size) == QUANTAPDF_OK);
+    CHECK(data != NULL);
+    CHECK(size != 0);
+    if (data == NULL || size == 0)
+        return -1;
+    mask = pdf_security_inspect_empty_containers(data, size);
+    CHECK(mask >= 0);
+    return mask;
 }
 
 static int save_sanitized_output(
@@ -578,6 +598,76 @@ cleanup:
     quantapdf_close(source);
 }
 
+static void test_sanitize_empty_container_policy_isolation(void)
+{
+    quantapdf_audit_result audit = {0};
+    quantapdf_document *document = NULL;
+    quantapdf_output *output = NULL;
+    char path[512];
+
+    begin_case("sanitize_preserves_empty_unselected_containers");
+    if (!create_fixture(
+            "sanitize_empty_unselected", path, sizeof(path)))
+        return;
+    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    if (document == NULL)
+        return;
+    audit.struct_size = sizeof(audit);
+    CHECK(quantapdf_document_audit(document, &audit) == QUANTAPDF_OK);
+    CHECK(audit.findings == 0);
+    CHECK(quantapdf_sanitize(document, QUANTAPDF_SANITIZE_XFA, &output) ==
+          QUANTAPDF_OK);
+    CHECK(output != NULL);
+    if (output != NULL)
+        CHECK(inspect_sanitized_empty_containers(output) == 7);
+    quantapdf_drop_output(output);
+    quantapdf_close(document);
+
+    begin_case("sanitize_removes_containers_emptied_by_selected_content");
+    document = NULL;
+    output = NULL;
+    if (!create_fixture(
+            "sanitize_selected_to_empty", path, sizeof(path)))
+        return;
+    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    if (document == NULL)
+        return;
+    audit.findings = 0;
+    CHECK(quantapdf_document_audit(document, &audit) == QUANTAPDF_OK);
+    CHECK(audit.findings == QUANTAPDF_AUDIT_JAVASCRIPT_ACTION);
+    CHECK(quantapdf_sanitize(
+              document, QUANTAPDF_SANITIZE_JAVASCRIPT_ACTIONS, &output) ==
+          QUANTAPDF_OK);
+    CHECK(output != NULL);
+    if (output != NULL)
+        CHECK(inspect_sanitized_empty_containers(output) == 0);
+    quantapdf_drop_output(output);
+    quantapdf_close(document);
+}
+
+static void test_sanitize_mutation_budget_exhaustion(void)
+{
+    quantapdf_audit_result audit = {0};
+    quantapdf_document *document = NULL;
+    quantapdf_output *output = (quantapdf_output *)(uintptr_t)1;
+    char path[512];
+
+    begin_case("sanitize_mutation_budget_exhaustion");
+    if (!create_fixture(
+            "mutation_budget_shared_next", path, sizeof(path)))
+        return;
+    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    if (document == NULL)
+        return;
+    audit.struct_size = sizeof(audit);
+    CHECK(quantapdf_document_audit(document, &audit) == QUANTAPDF_OK);
+    CHECK(audit.findings == 0);
+    CHECK(quantapdf_sanitize(document, QUANTAPDF_SANITIZE_XFA, &output) ==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(output == NULL);
+    quantapdf_close(document);
+}
+
 static void expect_sanitize_failure(
     const char *path,
     const char *password,
@@ -696,6 +786,8 @@ int main(void)
     test_extended_result_and_repeatability();
     test_sanitize_policy_isolation_and_all();
     test_sanitize_ownership_and_canonical_output();
+    test_sanitize_empty_container_policy_isolation();
+    test_sanitize_mutation_budget_exhaustion();
     test_sanitize_strict_failures_and_arguments();
     if (failures != 0)
         fprintf(stderr, "pdf_security: %d checks failed\n", failures);

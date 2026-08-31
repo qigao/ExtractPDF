@@ -3,6 +3,7 @@
 #include <qpdf/QPDFWriter.hh>
 
 #include <cstdint>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -292,6 +293,47 @@ static void pdf_security_stress_shared_annots(
         "/QuantaPDFStressOwners", pdf.makeIndirectObject(owners));
 }
 
+static void pdf_security_empty_container_fixture(
+    QPDF& pdf,
+    QPDFObjectHandle root,
+    bool selected_children)
+{
+    QPDFObjectHandle names = QPDFObjectHandle::newDictionary();
+    QPDFObjectHandle additional = QPDFObjectHandle::newDictionary();
+    QPDFObjectHandle safe = pdf_security_action(pdf, "/GoTo");
+    QPDFObjectHandle next = QPDFObjectHandle::newArray();
+    if (selected_children) {
+        names.replaceKey(
+            "/JavaScript", pdf.makeIndirectObject(
+                QPDFObjectHandle::newDictionary()));
+        additional.replaceKey(
+            "/E", pdf_security_action(pdf, "/JavaScript"));
+        next.appendItem(pdf_security_action(pdf, "/JavaScript"));
+    }
+    safe.replaceKey("/Next", next);
+    root.replaceKey("/Names", names);
+    root.replaceKey(
+        "/QuantaPDFEmptyAAOwner",
+        QPDFObjectHandle::newDictionary({{"/AA", additional}}));
+    root.replaceKey(
+        "/QuantaPDFEmptyNextOwner",
+        QPDFObjectHandle::newDictionary({{"/A", safe}}));
+}
+
+static void pdf_security_budget_tuner(
+    QPDF& pdf,
+    QPDFObjectHandle root,
+    int count)
+{
+    QPDFObjectHandle shared = pdf.makeIndirectObject(
+        QPDFObjectHandle::newDictionary());
+    QPDFObjectHandle references = QPDFObjectHandle::newArray();
+    for (int index = 0; index < count; ++index)
+        references.appendItem(shared);
+    root.replaceKey(
+        "/QuantaPDFBudgetTuner", pdf.makeIndirectObject(references));
+}
+
 extern "C" int pdf_security_create_fixture(
     const char *source_path,
     const char *output_path,
@@ -310,6 +352,10 @@ extern "C" int pdf_security_create_fixture(
 
         if (scenario == "sanitize_combined") {
             pdf_security_make_combined_fixture(*pdf, root, pages[0]);
+        } else if (scenario == "sanitize_empty_unselected") {
+            pdf_security_empty_container_fixture(*pdf, root, false);
+        } else if (scenario == "sanitize_selected_to_empty") {
+            pdf_security_empty_container_fixture(*pdf, root, true);
         } else if (scenario == "internal_goto") {
             pdf_security_set_open_action(*pdf, root, "/GoTo");
         } else if (scenario == "open_destination_array") {
@@ -509,15 +555,71 @@ extern "C" int pdf_security_create_fixture(
         } else if (scenario == "budget_shared_annots") {
             pdf_security_stress_shared_annots(*pdf, root, 2048);
             compressed_objects = true;
+        } else if (scenario == "mutation_budget_shared_next") {
+            pdf_security_stress_shared_next(*pdf, root, 590);
+            pdf_security_budget_tuner(*pdf, root, 212);
+            root.replaceKey("/Names", QPDFObjectHandle::newDictionary());
+            root.replaceKey("/AcroForm", QPDFObjectHandle::newDictionary());
+            compressed_objects = true;
         } else {
             return 0;
         }
 
         pdf_security_write(
             *pdf, output_path, preserve_unreferenced, compressed_objects);
+        if (scenario == "mutation_budget_shared_next") {
+            std::ifstream written(
+                output_path, std::ios::binary | std::ios::ate);
+            std::streamoff const written_size = written.tellg();
+            written.close();
+            constexpr std::streamoff target_size = 5498;
+            if (written_size < 0 || written_size > target_size)
+                return 0;
+            std::ofstream padding(
+                output_path, std::ios::binary | std::ios::app);
+            padding << std::string(
+                static_cast<size_t>(target_size - written_size), ' ');
+            if (!padding)
+                return 0;
+        }
         return 1;
     } catch (...) {
         return 0;
+    }
+}
+
+extern "C" int pdf_security_inspect_empty_containers(
+    unsigned char const *data,
+    size_t size)
+{
+    if (data == nullptr || size == 0)
+        return -1;
+    try {
+        auto pdf = QPDF::create();
+        pdf->setSuppressWarnings(true);
+        pdf->setAttemptRecovery(false);
+        pdf->processMemoryFile(
+            "pdf-security-empty-container-output",
+            reinterpret_cast<char const *>(data),
+            size);
+        QPDFObjectHandle root = pdf->getRoot();
+        int mask = 0;
+        QPDFObjectHandle names = root.getKey("/Names");
+        if (names.isDictionary() && names.getKeys().empty())
+            mask |= 1;
+        QPDFObjectHandle aa_owner = root.getKey("/QuantaPDFEmptyAAOwner");
+        QPDFObjectHandle additional = aa_owner.getKey("/AA");
+        if (additional.isDictionary() && additional.getKeys().empty())
+            mask |= 2;
+        QPDFObjectHandle next_owner =
+            root.getKey("/QuantaPDFEmptyNextOwner");
+        QPDFObjectHandle action = next_owner.getKey("/A");
+        QPDFObjectHandle next = action.getKey("/Next");
+        if (next.isArray() && next.getArrayNItems() == 0)
+            mask |= 4;
+        return pdf->anyWarnings() ? -1 : mask;
+    } catch (...) {
+        return -1;
     }
 }
 

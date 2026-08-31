@@ -1219,7 +1219,7 @@ static quantapdf_status quantapdf_qpdf_sanitize_actions(
              index != selected_indices.rend(); ++index) {
             next.eraseItem(*index);
         }
-        if (next.getArrayNItems() == 0)
+        if (!selected_indices.empty() && next.getArrayNItems() == 0)
             action.removeKey("/Next");
     }
     return QUANTAPDF_OK;
@@ -1246,11 +1246,18 @@ static quantapdf_status quantapdf_qpdf_sanitize_graph(
         if (!budget.take())
             return QUANTAPDF_ERROR_UNSUPPORTED;
         QPDFObjectHandle names = root.getKey("/Names");
-        if ((flags & QUANTAPDF_SANITIZE_JAVASCRIPT_ACTIONS) != 0)
+        bool selected_removed = false;
+        if ((flags & QUANTAPDF_SANITIZE_JAVASCRIPT_ACTIONS) != 0 &&
+            names.hasKey("/JavaScript")) {
             names.removeKey("/JavaScript");
-        if ((flags & QUANTAPDF_SANITIZE_EMBEDDED_FILES) != 0)
+            selected_removed = true;
+        }
+        if ((flags & QUANTAPDF_SANITIZE_EMBEDDED_FILES) != 0 &&
+            names.hasKey("/EmbeddedFiles")) {
             names.removeKey("/EmbeddedFiles");
-        if (names.getKeys().empty())
+            selected_removed = true;
+        }
+        if (selected_removed && names.getKeys().empty())
             root.removeKey("/Names");
     }
 
@@ -1330,7 +1337,7 @@ static quantapdf_status quantapdf_qpdf_sanitize_graph(
             }
             for (std::string const& key : selected_keys)
                 additional.removeKey(key);
-            if (additional.getKeys().empty())
+            if (!selected_keys.empty() && additional.getKeys().empty())
                 object.removeKey("/AA");
         }
 
