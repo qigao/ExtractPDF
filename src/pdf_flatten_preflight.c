@@ -428,6 +428,7 @@ static extractpdf_status flatten_discover_annotations(
         size_t appearance_slots = 0;
         int annot_count = 0;
         int annot_index;
+        int page_has_widget = 0;
         extractpdf_status status = EXTRACTPDF_OK;
 
         if (!pdf_is_dict(ctx, page))
@@ -474,9 +475,12 @@ static extractpdf_status flatten_discover_annotations(
                 status = EXTRACTPDF_ERROR_FORMAT;
                 goto page_cleanup;
             }
+            if (strcmp(subtype_name, "Widget") == 0) {
+                page_has_widget = 1;
+                continue;
+            }
             if (strcmp(subtype_name, "Link") == 0 ||
-                strcmp(subtype_name, "Popup") == 0 ||
-                strcmp(subtype_name, "Widget") == 0)
+                strcmp(subtype_name, "Popup") == 0)
                 continue;
             if (!extractpdf_pdf_annotation_classify(ctx, annotation, &type) ||
                 type == EXTRACTPDF_ANNOTATION_UNKNOWN ||
@@ -520,6 +524,10 @@ static extractpdf_status flatten_discover_annotations(
         }
 
         if (page_selected != 0) {
+            if (page_has_widget) {
+                status = EXTRACTPDF_ERROR_UNSUPPORTED;
+                goto page_cleanup;
+            }
             status = flatten_validate_changed_page_links(ctx, page);
             if (status == EXTRACTPDF_OK)
                 status = flatten_validate_changed_page(
