@@ -211,13 +211,13 @@ static quantapdf_status quantapdf_count_search_results(
     return QUANTAPDF_OK;
 }
 
-static float quantapdf_project_point(fz_point point, float x, float y)
+static float quantapdf_project_point(quantapdf_point point, float x, float y)
 {
     return point.x * x + point.y * y;
 }
 
 static void quantapdf_include_quad_projection(
-    fz_quad quad,
+    quantapdf_quad quad,
     float dx,
     float dy,
     float nx,
@@ -227,7 +227,7 @@ static void quantapdf_include_quad_projection(
     float *min_v,
     float *max_v)
 {
-    fz_point points[4];
+    quantapdf_point points[4];
     size_t i;
 
     points[0] = quad.ul;

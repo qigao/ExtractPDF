@@ -10,6 +10,7 @@ extern "C" {
 #endif
 
 typedef struct quantapdf_qpdf_document quantapdf_qpdf_document;
+typedef struct quantapdf_annotation_page quantapdf_annotation_page;
 
 quantapdf_status quantapdf_qpdf_open_memory(
     const unsigned char *data,
@@ -25,6 +26,17 @@ quantapdf_status quantapdf_qpdf_page_user_unit(
     quantapdf_qpdf_document *document,
     int page_index,
     double *out_user_unit);
+
+quantapdf_status quantapdf_qpdf_page_box_bounds(
+    quantapdf_qpdf_document *document,
+    int page_index,
+    quantapdf_page_box box,
+    quantapdf_rect *out_bounds);
+
+quantapdf_status quantapdf_qpdf_extract_annotations(
+    quantapdf_qpdf_document *document,
+    int page_index,
+    quantapdf_annotation_page **out_annotations);
 
 quantapdf_status quantapdf_qpdf_rewrite_memory(
     const unsigned char *data,
