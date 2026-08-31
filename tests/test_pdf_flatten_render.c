@@ -58,16 +58,19 @@ static int compare_rendered_page(
     return 0;
 }
 
-int extractpdf_test_pdf_flatten_render(void)
+static int check_fixture(
+    const char *path,
+    uint32_t flags,
+    int first_page,
+    int page_count)
 {
     extractpdf_document *source = NULL;
     extractpdf_document *result = NULL;
     extractpdf_output *output = NULL;
-    const uint32_t flags =
-        EXTRACTPDF_FLATTEN_ANNOTATIONS | EXTRACTPDF_FLATTEN_WIDGETS;
+    int index;
 
     (void)remove(FLATTEN_RENDER_OUTPUT_PDF);
-    CHECK(extractpdf_open(FLATTEN_COMBINED_ORDER_PDF, NULL, &source) == EXTRACTPDF_OK);
+    CHECK(extractpdf_open(path, NULL, &source) == EXTRACTPDF_OK);
     CHECK(source != NULL);
     CHECK(extractpdf_flatten_interactive(source, flags, &output) == EXTRACTPDF_OK);
     CHECK(output != NULL);
@@ -75,11 +78,46 @@ int extractpdf_test_pdf_flatten_render(void)
         EXTRACTPDF_OK);
     CHECK(extractpdf_open(FLATTEN_RENDER_OUTPUT_PDF, NULL, &result) == EXTRACTPDF_OK);
     CHECK(result != NULL);
-    CHECK(compare_rendered_page(source, result, 0) == 0);
+
+    for (index = 0; index < page_count; ++index)
+        CHECK(compare_rendered_page(source, result, first_page + index) == 0);
 
     extractpdf_close(result);
     extractpdf_drop_output(output);
     extractpdf_close(source);
     (void)remove(FLATTEN_RENDER_OUTPUT_PDF);
     return 0;
+}
+
+int extractpdf_test_pdf_flatten_render(void)
+{
+    if (check_fixture(
+            FLATTEN_APPEARANCE_PDF,
+            EXTRACTPDF_FLATTEN_ANNOTATIONS,
+            0,
+            6) != 0)
+        return 1;
+    if (check_fixture(
+            FLATTEN_WIDGETS_PDF,
+            EXTRACTPDF_FLATTEN_WIDGETS,
+            0,
+            1) != 0)
+        return 1;
+    if (check_fixture(
+            FLATTEN_WIDGET_AS_PDF,
+            EXTRACTPDF_FLATTEN_WIDGETS,
+            0,
+            1) != 0)
+        return 1;
+    if (check_fixture(
+            FLATTEN_WIDGET_RADIO_AS_PDF,
+            EXTRACTPDF_FLATTEN_WIDGETS,
+            0,
+            1) != 0)
+        return 1;
+    return check_fixture(
+        FLATTEN_COMBINED_ORDER_PDF,
+        EXTRACTPDF_FLATTEN_ANNOTATIONS | EXTRACTPDF_FLATTEN_WIDGETS,
+        0,
+        1);
 }
