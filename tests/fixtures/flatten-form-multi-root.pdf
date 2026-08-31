@@ -1,25 +1,32 @@
 %PDF-1.7
-%âãÏÓ
+%ÂµÂ¶
+
 1 0 obj
-<< /Type /Catalog /Pages 2 0 R /AcroForm 10 0 R >>
+<</Type/Catalog/Pages 2 0 R/AcroForm 10 0 R>>
 endobj
+
 2 0 obj
-<< /Type /Pages /Kids [4 0 R] /Count 1 >>
+<</Type/Pages/Kids[4 0 R]/Count 1>>
 endobj
+
 3 0 obj
-<< >>
+<<>>
 endobj
+
 4 0 obj
-<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Resources 3 0 R /Annots [6 0 R 9 0 R] >>
+<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 300]/Resources 3 0 R/Annots[6 0 R 9 0 R]>>
 endobj
+
 5 0 obj
-<< /FT /Tx /T (A) /Kids [6 0 R] >>
+<</FT/Tx/T(A)/Kids[6 0 R]>>
 endobj
+
 6 0 obj
-<< /Type /Annot /Subtype /Widget /Parent 5 0 R /P 4 0 R /Rect [20 200 100 230] /F 4 /AP << /N 7 0 R >> >>
+<</Type/Annot/Subtype/Widget/Parent 5 0 R/P 4 0 R/Rect[20 200 100 230]/F 4/AP<</N 7 0 R>>>>
 endobj
+
 7 0 obj
-<< /Type /XObject /Subtype /Form /BBox [0 0 80 30] /Matrix [1 0 0 1 0 0] /Resources << >> /StateMarker /A /Length 28 >>
+<</Type/XObject/Subtype/Form/BBox[0 0 80 30]/Matrix[1 0 0 1 0 0]/Resources<<>>/StateMarker/A/Length 29>>
 stream
 q
 1 0 0 rg
@@ -27,19 +34,24 @@ q
 f
 Q
 
+
 endstream
 endobj
+
 8 0 obj
-<< /FT /Tx /T (B) /Kids [9 0 R] >>
+<</FT/Tx/T(B)/Kids[9 0 R]>>
 endobj
+
 9 0 obj
-<< /Type /Annot /Subtype /Widget /Parent 8 0 R /P 4 0 R /Rect [120 200 200 230] /F 4 /AP << /N 11 0 R >> >>
+<</Type/Annot/Subtype/Widget/Parent 8 0 R/P 4 0 R/Rect[120 200 200 230]/F 4/AP<</N 11 0 R>>>>
 endobj
+
 10 0 obj
-<< /Fields [5 0 R 8 0 R] >>
+<</Fields[5 0 R 8 0 R]>>
 endobj
+
 11 0 obj
-<< /Type /XObject /Subtype /Form /BBox [0 0 80 30] /Matrix [1 0 0 1 0 0] /Resources << >> /StateMarker /B /Length 28 >>
+<</Type/XObject/Subtype/Form/BBox[0 0 80 30]/Matrix[1 0 0 1 0 0]/Resources<<>>/StateMarker/B/Length 29>>
 stream
 q
 0 0 1 rg
@@ -47,24 +59,27 @@ q
 f
 Q
 
+
 endstream
 endobj
+
 xref
 0 12
 0000000000 65535 f 
-0000000015 00000 n 
-0000000081 00000 n 
-0000000138 00000 n 
-0000000159 00000 n 
-0000000269 00000 n 
-0000000319 00000 n 
-0000000440 00000 n 
-0000000621 00000 n 
-0000000671 00000 n 
-0000000794 00000 n 
-0000000838 00000 n 
+0000000016 00000 n 
+0000000078 00000 n 
+0000000130 00000 n 
+0000000151 00000 n 
+0000000253 00000 n 
+0000000297 00000 n 
+0000000405 00000 n 
+0000000573 00000 n 
+0000000617 00000 n 
+0000000727 00000 n 
+0000000769 00000 n 
+
 trailer
-<< /Size 12 /Root 1 0 R >>
+<</Size 12/Root 1 0 R>>
 startxref
-1020
+938
 %%EOF
