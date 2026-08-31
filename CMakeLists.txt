@@ -79,11 +79,6 @@ add_library(quantapdf
   src/pdf_form.c
   src/pdf_edit.c
   src/pdf_edit_forms.c
-  src/pdf_edit_form_preflight.c
-  src/pdf_edit_form_values.c
-  src/pdf_edit_form_buttons.c
-  src/pdf_edit_form_choices.c
-  src/pdf_edit_form_widgets.c
   src/pdf_edit_annotations.c)
 add_library(QuantaPDF::QuantaPDF ALIAS quantapdf)
 target_compile_features(quantapdf PUBLIC c_std_11)
