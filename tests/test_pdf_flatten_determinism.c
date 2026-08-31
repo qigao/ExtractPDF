@@ -23,6 +23,45 @@ static void raw_check_impl(int ok, const char *expr, int line)
 }
 #define RAW_CHECK(x) raw_check_impl((x), #x, __LINE__)
 
+static void sibling_fixture_path(
+    const char *name,
+    char *out_path,
+    size_t capacity)
+{
+    const char *slash = strrchr(FLATTEN_COMBINED_ORDER_PDF, '/');
+    const char *backslash = strrchr(FLATTEN_COMBINED_ORDER_PDF, '\\');
+    const char *separator = slash;
+    size_t prefix;
+    size_t name_size = strlen(name);
+
+    if (backslash != NULL && (separator == NULL || backslash > separator))
+        separator = backslash;
+    CHECK(separator != NULL);
+    prefix = (size_t)(separator - FLATTEN_COMBINED_ORDER_PDF) + 1;
+    CHECK(prefix + name_size + 1 <= capacity);
+    memcpy(out_path, FLATTEN_COMBINED_ORDER_PDF, prefix);
+    memcpy(out_path + prefix, name, name_size + 1);
+}
+
+static extractpdf_document *open_document(const char *path, const char *password)
+{
+    extractpdf_document *document = NULL;
+    CHECK(extractpdf_open(path, password, &document) == EXTRACTPDF_OK);
+    CHECK(document != NULL);
+    return document;
+}
+
+static void expect_flatten_unsupported(extractpdf_document *document)
+{
+    extractpdf_output *output = (extractpdf_output *)(uintptr_t)1;
+
+    CHECK(extractpdf_flatten_interactive(
+        document,
+        EXTRACTPDF_FLATTEN_ANNOTATIONS,
+        &output) == EXTRACTPDF_ERROR_UNSUPPORTED);
+    CHECK(output == NULL);
+}
+
 static int check_source_form(extractpdf_document *document)
 {
     extractpdf_form *form = NULL;
@@ -174,6 +213,32 @@ static void check_combined_output(const extractpdf_output *output)
     RAW_CHECK(caught_code == FZ_ERROR_NONE);
 }
 
+static void check_security_fail_closed(void)
+{
+    extractpdf_document *document = NULL;
+    char non_pdf[1024];
+    char encrypted_pdf[1024];
+    char signed_pdf[1024];
+
+    sibling_fixture_path("composition-non-pdf.txt", non_pdf, sizeof(non_pdf));
+    sibling_fixture_path(
+        "encrypted-one-page.pdf", encrypted_pdf, sizeof(encrypted_pdf));
+    sibling_fixture_path(
+        "annotation-mutation-signed.pdf", signed_pdf, sizeof(signed_pdf));
+
+    document = open_document(non_pdf, NULL);
+    expect_flatten_unsupported(document);
+    extractpdf_close(document);
+
+    document = open_document(encrypted_pdf, "user-pass");
+    expect_flatten_unsupported(document);
+    extractpdf_close(document);
+
+    document = open_document(signed_pdf, NULL);
+    expect_flatten_unsupported(document);
+    extractpdf_close(document);
+}
+
 int extractpdf_test_pdf_flatten_determinism(void)
 {
     extractpdf_document *document = NULL;
@@ -187,6 +252,8 @@ int extractpdf_test_pdf_flatten_determinism(void)
     size_t lifetime_size = 0;
     const uint32_t flags =
         EXTRACTPDF_FLATTEN_ANNOTATIONS | EXTRACTPDF_FLATTEN_WIDGETS;
+
+    check_security_fail_closed();
 
     CHECK(extractpdf_open(FLATTEN_COMBINED_ORDER_PDF, NULL, &document) ==
         EXTRACTPDF_OK);
