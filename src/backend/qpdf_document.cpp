@@ -125,9 +125,9 @@ extern "C" quantapdf_status quantapdf_qpdf_page_user_unit(
             return QUANTAPDF_ERROR_ARGUMENT;
         QPDFObjectHandle value =
             pages[static_cast<size_t>(page_index)].getKey("/UserUnit");
-        if (!value.null() && !value.isNumber())
+        if (!value.isNull() && !value.isNumber())
             return QUANTAPDF_ERROR_FORMAT;
-        double const user_unit = value.null() ? 1.0 : value.getNumericValue();
+        double const user_unit = value.isNull() ? 1.0 : value.getNumericValue();
         if (!std::isfinite(user_unit) || user_unit <= 0.0 ||
             user_unit > 75000.0)
             return QUANTAPDF_ERROR_FORMAT;
