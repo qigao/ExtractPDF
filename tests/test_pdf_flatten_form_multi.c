@@ -116,11 +116,16 @@ static pdf_obj *find_field_by_name(
     int count = pdf_xref_len(ctx, document);
 
     for (number = 1; number < count; ++number) {
-        pdf_obj *candidate = pdf_load_object(ctx, document, number);
+        pdf_xref_entry *entry = pdf_get_xref_entry_no_change(
+            ctx, document, number);
+        pdf_obj *candidate;
         pdf_obj *name;
         const char *text;
         pdf_obj *result = NULL;
 
+        if (entry == NULL || entry->type == 0 || entry->type == 'f')
+            continue;
+        candidate = pdf_load_object(ctx, document, number);
         if (candidate == NULL)
             continue;
         if (pdf_is_dict(ctx, candidate)) {
