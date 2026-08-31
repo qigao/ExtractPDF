@@ -209,9 +209,11 @@ set(MUTATION_OUTPUT_B "${CMAKE_CURRENT_BINARY_DIR}/annotation-mutation-b.pdf")
 set(MUTATION_OUTPUT_JS "${CMAKE_CURRENT_BINARY_DIR}/annotation-mutation-js-output.pdf")
 
 add_executable(quantapdf_test_pdf_annotation_mutation
-  test_pdf_annotation_mutation.c)
+  test_pdf_annotation_mutation.c
+  pdf_edit_fault_hook.c)
 target_link_libraries(quantapdf_test_pdf_annotation_mutation PRIVATE QuantaPDF::QuantaPDF)
 target_compile_definitions(quantapdf_test_pdf_annotation_mutation PRIVATE
+  QUANTAPDF_TESTING=1
   MUTATION_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotation-mutation.pdf"
   SIGNED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotation-mutation-signed.pdf"
   UNSIGNED_SIGNATURE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotation-mutation-unsigned-signature.pdf"
@@ -274,11 +276,13 @@ set_tests_properties(quantapdf.pdf_form PROPERTIES TIMEOUT 60)
 add_executable(quantapdf_test_pdf_form_mutation
   test_pdf_form_mutation.c
   test_pdf_form_appearance.c
-  test_pdf_form_mutation_main.c)
+  test_pdf_form_mutation_main.c
+  pdf_edit_fault_hook.c)
 set_source_files_properties(test_pdf_form_mutation.c PROPERTIES
   COMPILE_DEFINITIONS "main=quantapdf_pdf_form_mutation_base_main")
 target_link_libraries(quantapdf_test_pdf_form_mutation PRIVATE QuantaPDF::QuantaPDF)
 target_compile_definitions(quantapdf_test_pdf_form_mutation PRIVATE
+  QUANTAPDF_TESTING=1
   FORM_MUTATION_BASIC_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-basic.pdf"
   FORM_MUTATION_CHOICE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-choice.pdf"
   FORM_MUTATION_GROUPS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-groups-pdfium.pdf"
@@ -325,9 +329,12 @@ target_compile_definitions(quantapdf_test_pdf_trim PRIVATE
 add_test(NAME quantapdf.pdf_trim COMMAND quantapdf_test_pdf_trim)
 set_tests_properties(quantapdf.pdf_trim PROPERTIES TIMEOUT 60)
 
-add_executable(quantapdf_test_pdf_poster_split test_pdf_poster_split.c)
+add_executable(quantapdf_test_pdf_poster_split
+  test_pdf_poster_split.c
+  pdf_poster_fault_hook.c)
 target_link_libraries(quantapdf_test_pdf_poster_split PRIVATE QuantaPDF::QuantaPDF)
 target_compile_definitions(quantapdf_test_pdf_poster_split PRIVATE
+  QUANTAPDF_TESTING=1
   POSTER_BASIC_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/poster-basic.pdf")
 add_test(NAME quantapdf.pdf_poster_split COMMAND quantapdf_test_pdf_poster_split)
 set_tests_properties(quantapdf.pdf_poster_split PROPERTIES TIMEOUT 60)
