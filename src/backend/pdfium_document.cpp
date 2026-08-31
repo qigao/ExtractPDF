@@ -13,6 +13,7 @@
 #include <fpdf_edit.h>
 #include <fpdf_doc.h>
 #include <fpdf_text.h>
+#include <fpdf_transformpage.h>
 
 #include <algorithm>
 #include <cmath>
@@ -139,6 +140,113 @@ struct extracted_character {
     bool break_before;
 };
 
+struct page_geometry {
+    float left;
+    float bottom;
+    float right;
+    float top;
+    float scale;
+    int rotation;
+};
+
+quantapdf_status load_page_geometry(
+    FPDF_DOCUMENT document,
+    int page_index,
+    FPDF_PAGE page,
+    page_geometry *out_geometry)
+{
+    float media_left = 0.0f;
+    float media_bottom = 0.0f;
+    float media_right = 0.0f;
+    float media_top = 0.0f;
+    float crop_left = 0.0f;
+    float crop_bottom = 0.0f;
+    float crop_right = 0.0f;
+    float crop_top = 0.0f;
+    FS_SIZEF size = {};
+
+    if (!FPDFPage_GetMediaBox(
+            page, &media_left, &media_bottom, &media_right, &media_top))
+        return QUANTAPDF_ERROR_FORMAT;
+    if (!FPDFPage_GetCropBox(
+            page, &crop_left, &crop_bottom, &crop_right, &crop_top)) {
+        crop_left = media_left;
+        crop_bottom = media_bottom;
+        crop_right = media_right;
+        crop_top = media_top;
+    }
+    out_geometry->left = std::max(media_left, crop_left);
+    out_geometry->bottom = std::max(media_bottom, crop_bottom);
+    out_geometry->right = std::min(media_right, crop_right);
+    out_geometry->top = std::min(media_top, crop_top);
+    if (!std::isfinite(out_geometry->left) ||
+        !std::isfinite(out_geometry->bottom) ||
+        !std::isfinite(out_geometry->right) ||
+        !std::isfinite(out_geometry->top) ||
+        out_geometry->right <= out_geometry->left ||
+        out_geometry->top <= out_geometry->bottom)
+        return QUANTAPDF_ERROR_FORMAT;
+    out_geometry->rotation = FPDFPage_GetRotation(page);
+    if (out_geometry->rotation < 0 || out_geometry->rotation > 3)
+        return QUANTAPDF_ERROR_FORMAT;
+    if (!FPDF_GetPageSizeByIndexF(document, page_index, &size))
+        return status_from_pdfium(FPDF_GetLastError());
+    float const raw_width = out_geometry->right - out_geometry->left;
+    float const raw_height = out_geometry->top - out_geometry->bottom;
+    out_geometry->scale =
+        (out_geometry->rotation == 1 || out_geometry->rotation == 3) ?
+        size.width / raw_height : size.width / raw_width;
+    if (!std::isfinite(out_geometry->scale) || out_geometry->scale <= 0.0f)
+        return QUANTAPDF_ERROR_FORMAT;
+    return QUANTAPDF_OK;
+}
+
+quantapdf_point page_point(
+    page_geometry const& geometry, float raw_x, float raw_y) noexcept
+{
+    quantapdf_point point = {};
+    switch (geometry.rotation) {
+    case 0:
+        point.x = (raw_x - geometry.left) * geometry.scale;
+        point.y = (geometry.top - raw_y) * geometry.scale;
+        break;
+    case 1:
+        point.x = (raw_y - geometry.bottom) * geometry.scale;
+        point.y = (raw_x - geometry.left) * geometry.scale;
+        break;
+    case 2:
+        point.x = (geometry.right - raw_x) * geometry.scale;
+        point.y = (raw_y - geometry.bottom) * geometry.scale;
+        break;
+    case 3:
+        point.x = (geometry.top - raw_y) * geometry.scale;
+        point.y = (geometry.right - raw_x) * geometry.scale;
+        break;
+    }
+    return point;
+}
+
+quantapdf_rect page_rectangle(
+    page_geometry const& geometry, FS_RECTF const& raw) noexcept
+{
+    quantapdf_point const points[4] = {
+        page_point(geometry, raw.left, raw.bottom),
+        page_point(geometry, raw.left, raw.top),
+        page_point(geometry, raw.right, raw.bottom),
+        page_point(geometry, raw.right, raw.top)
+    };
+    quantapdf_rect result = {
+        points[0].x, points[0].y, points[0].x, points[0].y
+    };
+    for (size_t index = 1; index < 4u; ++index) {
+        result.x0 = std::min(result.x0, points[index].x);
+        result.y0 = std::min(result.y0, points[index].y);
+        result.x1 = std::max(result.x1, points[index].x);
+        result.y1 = std::max(result.y1, points[index].y);
+    }
+    return result;
+}
+
 void union_rect(quantapdf_rect *target, quantapdf_rect const& source) noexcept
 {
     target->x0 = std::min(target->x0, source.x0);
@@ -161,7 +269,7 @@ void dispose_text_snapshot(quantapdf_text_page *text) noexcept
 
 quantapdf_status collect_characters(
     FPDF_TEXTPAGE text_page,
-    float page_height,
+    page_geometry const& geometry,
     std::vector<extracted_character> *out_characters)
 {
     int const count = FPDFText_CountChars(text_page);
@@ -200,10 +308,7 @@ quantapdf_status collect_characters(
                 (blue & 0xffu);
         }
         if (FPDFText_GetLooseCharBox(text_page, index, &box)) {
-            character.bounds.x0 = box.left;
-            character.bounds.y0 = page_height - box.top;
-            character.bounds.x1 = box.right;
-            character.bounds.y1 = page_height - box.bottom;
+            character.bounds = page_rectangle(geometry, box);
         }
         character.break_before = pending_break;
         pending_break = false;
@@ -244,12 +349,15 @@ FS_MATRIX multiply_matrix(FS_MATRIX const& parent, FS_MATRIX const& child) noexc
 }
 
 quantapdf_point image_point(
-    FS_MATRIX const& matrix, float x, float y, float page_height) noexcept
+    FS_MATRIX const& matrix,
+    float x,
+    float y,
+    page_geometry const& geometry) noexcept
 {
-    quantapdf_point point = {};
-    point.x = matrix.a * x + matrix.c * y + matrix.e;
-    point.y = page_height - (matrix.b * x + matrix.d * y + matrix.f);
-    return point;
+    return page_point(
+        geometry,
+        matrix.a * x + matrix.c * y + matrix.e,
+        matrix.b * x + matrix.d * y + matrix.f);
 }
 
 int image_source_components(int colorspace) noexcept
@@ -410,7 +518,7 @@ quantapdf_status collect_images_from_object(
     FPDF_PAGE page,
     FPDF_PAGEOBJECT object,
     FS_MATRIX const& parent_matrix,
-    float page_height,
+    page_geometry const& geometry,
     std::vector<captured_image> *images)
 {
     int const type = FPDFPageObj_GetType(object);
@@ -428,7 +536,7 @@ quantapdf_status collect_images_from_object(
             if (child == nullptr)
                 return QUANTAPDF_ERROR_BACKEND;
             quantapdf_status const status = collect_images_from_object(
-                document, page, child, matrix, page_height, images);
+                document, page, child, matrix, geometry, images);
             if (status != QUANTAPDF_OK)
                 return status;
         }
@@ -441,10 +549,10 @@ quantapdf_status collect_images_from_object(
     if (!FPDFImageObj_GetImageMetadata(object, page, &metadata))
         return QUANTAPDF_ERROR_BACKEND;
     captured_image image = {};
-    image.quad.ul = image_point(matrix, 0.0f, 1.0f, page_height);
-    image.quad.ur = image_point(matrix, 1.0f, 1.0f, page_height);
-    image.quad.ll = image_point(matrix, 0.0f, 0.0f, page_height);
-    image.quad.lr = image_point(matrix, 1.0f, 0.0f, page_height);
+    image.quad.ul = image_point(matrix, 0.0f, 1.0f, geometry);
+    image.quad.ur = image_point(matrix, 1.0f, 1.0f, geometry);
+    image.quad.ll = image_point(matrix, 0.0f, 0.0f, geometry);
+    image.quad.lr = image_point(matrix, 1.0f, 0.0f, geometry);
     quantapdf_status const status = decode_image(
         document, page, object, metadata, &image);
     if (status != QUANTAPDF_OK)
@@ -464,16 +572,13 @@ struct captured_link {
 quantapdf_status capture_link(
     FPDF_DOCUMENT document,
     FPDF_LINK link,
-    float page_height,
+    page_geometry const& geometry,
     captured_link *out_link)
 {
     FS_RECTF rect = {};
     if (!FPDFLink_GetAnnotRect(link, &rect))
         return QUANTAPDF_ERROR_BACKEND;
-    out_link->hotspot.x0 = rect.left;
-    out_link->hotspot.y0 = page_height - rect.top;
-    out_link->hotspot.x1 = rect.right;
-    out_link->hotspot.y1 = page_height - rect.bottom;
+    out_link->hotspot = page_rectangle(geometry, rect);
     out_link->target_page = -1;
 
     FPDF_DEST destination = FPDFLink_GetDest(document, link);
@@ -489,7 +594,7 @@ quantapdf_status capture_link(
         FS_FLOAT x = 0.0f;
         FS_FLOAT y = 0.0f;
         FS_FLOAT zoom = 0.0f;
-        FS_SIZEF target_size = {};
+        FPDF_PAGE target_page = nullptr;
 
         out_link->kind = QUANTAPDF_LINK_INTERNAL;
         out_link->target_page = FPDFDest_GetDestPageIndex(
@@ -499,14 +604,23 @@ quantapdf_status capture_link(
         if (FPDFDest_GetLocationInPage(
                 destination, &has_x, &has_y, &has_zoom,
                 &x, &y, &zoom)) {
+            page_geometry target_geometry = {};
+            target_page = FPDF_LoadPage(document, out_link->target_page);
+            if (target_page == nullptr)
+                return status_from_pdfium(FPDF_GetLastError());
+            quantapdf_status const geometry_status = load_page_geometry(
+                document, out_link->target_page, target_page,
+                &target_geometry);
+            FPDF_ClosePage(target_page);
+            if (geometry_status != QUANTAPDF_OK)
+                return geometry_status;
+            float raw_x = target_geometry.left;
+            float raw_y = target_geometry.top;
             if (has_x)
-                out_link->target.x = x;
-            if (has_y) {
-                if (!FPDF_GetPageSizeByIndexF(
-                        document, out_link->target_page, &target_size))
-                    return QUANTAPDF_ERROR_BACKEND;
-                out_link->target.y = target_size.height - y;
-            }
+                raw_x = x;
+            if (has_y)
+                raw_y = y;
+            out_link->target = page_point(target_geometry, raw_x, raw_y);
         }
         return QUANTAPDF_OK;
     }
@@ -898,7 +1012,7 @@ extern "C" quantapdf_status quantapdf_pdfium_extract_structured_text(
         return QUANTAPDF_ERROR_ARGUMENT;
 
     try {
-        FS_SIZEF page_size = {};
+        page_geometry geometry = {};
         std::vector<extracted_character> characters;
         size_t line_capacity = 0;
         size_t string_capacity;
@@ -915,13 +1029,14 @@ extern "C" quantapdf_status quantapdf_pdfium_extract_structured_text(
         status = ensure_page_handle(page);
         if (status != QUANTAPDF_OK)
             return status;
-        if (!FPDF_GetPageSizeByIndexF(
-                page->document, page->page_index, &page_size))
-            return status_from_pdfium(FPDF_GetLastError());
+        status = load_page_geometry(
+            page->document, page->page_index, page->handle, &geometry);
+        if (status != QUANTAPDF_OK)
+            return status;
         text_page = FPDFText_LoadPage(page->handle);
         if (text_page == nullptr)
             return QUANTAPDF_ERROR_BACKEND;
-        status = collect_characters(text_page, page_size.height, &characters);
+        status = collect_characters(text_page, geometry, &characters);
         FPDFText_ClosePage(text_page);
         text_page = nullptr;
         if (status != QUANTAPDF_OK)
@@ -1078,7 +1193,7 @@ extern "C" quantapdf_status quantapdf_pdfium_extract_images(
         return QUANTAPDF_ERROR_ARGUMENT;
 
     try {
-        FS_SIZEF page_size = {};
+        page_geometry geometry = {};
         FS_MATRIX const identity = {
             1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f
         };
@@ -1091,9 +1206,10 @@ extern "C" quantapdf_status quantapdf_pdfium_extract_images(
         status = ensure_page_handle(page);
         if (status != QUANTAPDF_OK)
             return status;
-        if (!FPDF_GetPageSizeByIndexF(
-                page->document, page->page_index, &page_size))
-            return status_from_pdfium(FPDF_GetLastError());
+        status = load_page_geometry(
+            page->document, page->page_index, page->handle, &geometry);
+        if (status != QUANTAPDF_OK)
+            return status;
 
         int const count = FPDFPage_CountObjects(page->handle);
         if (count < 0)
@@ -1104,7 +1220,7 @@ extern "C" quantapdf_status quantapdf_pdfium_extract_images(
                 return QUANTAPDF_ERROR_BACKEND;
             status = collect_images_from_object(
                 page->document, page->handle, object, identity,
-                page_size.height, &images);
+                geometry, &images);
             if (status != QUANTAPDF_OK)
                 return status;
         }
@@ -1168,7 +1284,7 @@ extern "C" quantapdf_status quantapdf_pdfium_extract_links(
         return QUANTAPDF_ERROR_ARGUMENT;
 
     try {
-        FS_SIZEF page_size = {};
+        page_geometry geometry = {};
         std::vector<captured_link> links;
         int position = 0;
         FPDF_LINK link = nullptr;
@@ -1180,14 +1296,15 @@ extern "C" quantapdf_status quantapdf_pdfium_extract_links(
         status = ensure_page_handle(page);
         if (status != QUANTAPDF_OK)
             return status;
-        if (!FPDF_GetPageSizeByIndexF(
-                page->document, page->page_index, &page_size))
-            return status_from_pdfium(FPDF_GetLastError());
+        status = load_page_geometry(
+            page->document, page->page_index, page->handle, &geometry);
+        if (status != QUANTAPDF_OK)
+            return status;
 
         while (FPDFLink_Enumerate(page->handle, &position, &link)) {
             captured_link captured = {};
             status = capture_link(
-                page->document, link, page_size.height, &captured);
+                page->document, link, geometry, &captured);
             if (status != QUANTAPDF_OK)
                 return status;
             links.push_back(std::move(captured));

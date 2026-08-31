@@ -63,6 +63,13 @@ quantapdf_status quantapdf_qpdf_merge_memory(
     unsigned char **out_data,
     size_t *out_size);
 
+quantapdf_status quantapdf_qpdf_crop_pages(
+    quantapdf_qpdf_document *document,
+    const quantapdf_page_crop *crops,
+    size_t crop_count,
+    unsigned char **out_data,
+    size_t *out_size);
+
 quantapdf_status quantapdf_qpdf_rewrite_memory(
     const unsigned char *data,
     size_t size,
