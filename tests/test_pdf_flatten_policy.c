@@ -96,5 +96,21 @@ int extractpdf_test_pdf_flatten_policy(void)
         FLATTEN_TAGGED_NOOP_PDF,
         EXTRACTPDF_FLATTEN_ANNOTATIONS,
         EXTRACTPDF_OK) == 0);
+    CHECK(expect_flatten_status(
+        FLATTEN_POLICY_XFA_PDF,
+        EXTRACTPDF_FLATTEN_WIDGETS,
+        EXTRACTPDF_ERROR_UNSUPPORTED) == 0);
+    CHECK(expect_flatten_status(
+        FLATTEN_POLICY_NEEDAPPEARANCES_TRUE_PDF,
+        EXTRACTPDF_FLATTEN_WIDGETS,
+        EXTRACTPDF_ERROR_UNSUPPORTED) == 0);
+    CHECK(expect_flatten_status(
+        FLATTEN_POLICY_NEEDAPPEARANCES_MALFORMED_PDF,
+        EXTRACTPDF_FLATTEN_WIDGETS,
+        EXTRACTPDF_ERROR_FORMAT) == 0);
+    CHECK(expect_flatten_status(
+        FLATTEN_POLICY_NEEDAPPEARANCES_FALSE_PDF,
+        EXTRACTPDF_FLATTEN_WIDGETS,
+        EXTRACTPDF_OK) == 0);
     return 0;
 }
