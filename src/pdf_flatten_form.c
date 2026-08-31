@@ -1157,6 +1157,36 @@ static extractpdf_status flatten_form_replace_node_kids(
     return EXTRACTPDF_OK;
 }
 
+static extractpdf_status flatten_form_remove_pruned_node_kids(
+    fz_context *ctx,
+    const extractpdf_pdf_flatten_form_node *node,
+    const extractpdf_pdf_flatten_form_runtime_node *runtime_node)
+{
+    int caught_code = FZ_ERROR_NONE;
+
+    if (!node->remove || !node->kids_present || node->survivor_kid_count != 0)
+        return EXTRACTPDF_OK;
+    if (!pdf_is_dict(ctx, runtime_node->field) ||
+        !pdf_is_array(ctx, runtime_node->kids) ||
+        (size_t)pdf_array_len(ctx, runtime_node->kids) !=
+            node->original_kid_count)
+        return EXTRACTPDF_ERROR_FORMAT;
+
+    fz_var(caught_code);
+    fz_try(ctx)
+    {
+        pdf_dict_del(ctx, runtime_node->field, PDF_NAME(Kids));
+    }
+    fz_catch(ctx)
+    {
+        caught_code = fz_caught(ctx);
+        fz_report_error(ctx);
+    }
+    if (caught_code != FZ_ERROR_NONE)
+        return extractpdf_status_from_mupdf(caught_code);
+    return EXTRACTPDF_OK;
+}
+
 extractpdf_status extractpdf_pdf_flatten_form_apply(
     fz_context *ctx,
     pdf_document *document,
@@ -1179,6 +1209,23 @@ extractpdf_status extractpdf_pdf_flatten_form_apply(
     if (resolved == NULL)
         return EXTRACTPDF_ERROR_FORMAT;
 
+    for (node_index = 0; node_index < form->node_count; ++node_index)
+        if (form->nodes[node_index].locator_count > max_depth)
+            max_depth = form->nodes[node_index].locator_count;
+
+    for (depth = max_depth; depth != 0; --depth) {
+        for (node_index = 0; node_index < form->node_count; ++node_index) {
+            if (form->nodes[node_index].locator_count != depth)
+                continue;
+            status = flatten_form_remove_pruned_node_kids(
+                ctx,
+                &form->nodes[node_index],
+                &resolved->nodes[node_index]);
+            if (status != EXTRACTPDF_OK)
+                return status;
+        }
+    }
+
     if (form->remove_acroform) {
         int caught_code = FZ_ERROR_NONE;
         fz_var(caught_code);
@@ -1195,10 +1242,6 @@ extractpdf_status extractpdf_pdf_flatten_form_apply(
             return extractpdf_status_from_mupdf(caught_code);
         return EXTRACTPDF_OK;
     }
-
-    for (node_index = 0; node_index < form->node_count; ++node_index)
-        if (form->nodes[node_index].locator_count > max_depth)
-            max_depth = form->nodes[node_index].locator_count;
 
     for (depth = max_depth; depth != 0; --depth) {
         for (node_index = 0; node_index < form->node_count; ++node_index) {
