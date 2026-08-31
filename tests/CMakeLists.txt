@@ -29,7 +29,21 @@ target_link_libraries(quantapdf_test_pdf_rewrite_lossless PRIVATE
 target_compile_features(quantapdf_test_pdf_rewrite_lossless PRIVATE cxx_std_20)
 target_compile_definitions(quantapdf_test_pdf_rewrite_lossless PRIVATE
   ONE_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
-  REWRITE_GC_PDF="${CMAKE_CURRENT_BINARY_DIR}/rewrite-gc-input.pdf")
+  TEXT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/text-one-page.pdf"
+  OUTLINE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/outline-tree.pdf"
+  LINKS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/page-links.pdf"
+  ANNOTATIONS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotations-mixed.pdf"
+  ACROFORM_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-choice.pdf"
+  ENCRYPTED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/encrypted-one-page.pdf"
+  SIGNED_FIELD_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotation-mutation-signed.pdf"
+  UNSIGNED_SIGNATURE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotation-mutation-unsigned-signature.pdf"
+  REPAIRABLE_BAD_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/outline-repairable-bad.pdf"
+  REWRITE_GC_PDF="${CMAKE_CURRENT_BINARY_DIR}/rewrite-gc-input.pdf"
+  REWRITE_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/rewrite-output.pdf"
+  REWRITE_SEMANTIC_PDF="${CMAKE_CURRENT_BINARY_DIR}/rewrite-semantic.pdf"
+  REWRITE_METADATA_PDF="${CMAKE_CURRENT_BINARY_DIR}/rewrite-metadata.pdf"
+  REWRITE_VALIDATED_PDF="${CMAKE_CURRENT_BINARY_DIR}/rewrite-validated.pdf"
+  REWRITE_SIGNED_PDF="${CMAKE_CURRENT_BINARY_DIR}/rewrite-signed.pdf")
 add_test(NAME quantapdf.pdf_rewrite_lossless
   COMMAND quantapdf_test_pdf_rewrite_lossless)
 set_tests_properties(quantapdf.pdf_rewrite_lossless PROPERTIES TIMEOUT 30)

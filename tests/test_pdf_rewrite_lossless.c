@@ -7,6 +7,15 @@
 
 int rewrite_create_gc_fixture(const char *source_path, const char *output_path);
 int rewrite_marker_mask(const unsigned char *data, size_t size);
+int rewrite_create_catalog_signature_fixture(
+    const char *source_path,
+    const char *output_path);
+int rewrite_create_metadata_fixture(
+    const char *source_path,
+    const char *output_path);
+int rewrite_create_strict_fixture(
+    const char *source_path,
+    const char *output_path);
 
 static void check_impl(int condition, const char *expression, int line)
 {
@@ -51,17 +60,289 @@ static unsigned char *read_file(const char *path, size_t *out_size)
     return data;
 }
 
+static void open_rewritten_pair(
+    const char *path,
+    quantapdf_document **out_source,
+    quantapdf_document **out_rewritten)
+{
+    quantapdf_output *output = NULL;
+    quantapdf_status status;
+
+    *out_source = NULL;
+    *out_rewritten = NULL;
+    CHECK(quantapdf_open(path, NULL, out_source) == QUANTAPDF_OK);
+    status = quantapdf_rewrite_lossless(*out_source, &output);
+    if (status != QUANTAPDF_OK)
+        fprintf(stderr, "rewrite failed for %s: %s\n",
+                path, quantapdf_status_string(status));
+    CHECK(status == QUANTAPDF_OK);
+    CHECK(output != NULL);
+    CHECK(quantapdf_output_save_file(output, REWRITE_SEMANTIC_PDF) ==
+          QUANTAPDF_OK);
+    quantapdf_drop_output(output);
+    CHECK(quantapdf_open(REWRITE_SEMANTIC_PDF, NULL, out_rewritten) ==
+          QUANTAPDF_OK);
+}
+
+typedef struct rendered_page {
+    unsigned char *data;
+    size_t size;
+    int width;
+    int height;
+    int stride;
+    int components;
+} rendered_page;
+
+static rendered_page capture_page(quantapdf_document *document)
+{
+    rendered_page capture = {0};
+    quantapdf_page *page = NULL;
+    quantapdf_bitmap *bitmap = NULL;
+    const unsigned char *borrowed = NULL;
+
+    CHECK(quantapdf_load_page(document, 0, &page) == QUANTAPDF_OK);
+    CHECK(quantapdf_render_page(page, &bitmap) == QUANTAPDF_OK);
+    CHECK(quantapdf_bitmap_dimensions(
+              bitmap, &capture.width, &capture.height,
+              &capture.stride, &capture.components) == QUANTAPDF_OK);
+    CHECK(quantapdf_bitmap_data(bitmap, &borrowed, &capture.size) ==
+          QUANTAPDF_OK);
+    capture.data = (unsigned char *)malloc(capture.size);
+    CHECK(capture.data != NULL);
+    memcpy(capture.data, borrowed, capture.size);
+    quantapdf_drop_bitmap(bitmap);
+    quantapdf_drop_page(page);
+    return capture;
+}
+
+static void test_render_text_and_page_semantics(void)
+{
+    quantapdf_document *source = NULL;
+    quantapdf_document *rewritten = NULL;
+    quantapdf_page *source_page = NULL;
+    quantapdf_page *rewritten_page = NULL;
+    quantapdf_rect source_bounds = {0};
+    quantapdf_rect rewritten_bounds = {0};
+    rendered_page source_render;
+    rendered_page rewritten_render;
+    char *source_text = NULL;
+    char *rewritten_text = NULL;
+    size_t source_text_size = 0;
+    size_t rewritten_text_size = 0;
+    int source_pages = 0;
+    int rewritten_pages = 0;
+
+    open_rewritten_pair(TEXT_PDF, &source, &rewritten);
+    CHECK(quantapdf_page_count(source, &source_pages) == QUANTAPDF_OK);
+    CHECK(quantapdf_page_count(rewritten, &rewritten_pages) == QUANTAPDF_OK);
+    CHECK(source_pages == rewritten_pages);
+    CHECK(quantapdf_load_page(source, 0, &source_page) == QUANTAPDF_OK);
+    CHECK(quantapdf_load_page(rewritten, 0, &rewritten_page) == QUANTAPDF_OK);
+    CHECK(quantapdf_page_bounds(source_page, &source_bounds) == QUANTAPDF_OK);
+    CHECK(quantapdf_page_bounds(rewritten_page, &rewritten_bounds) ==
+          QUANTAPDF_OK);
+    CHECK(memcmp(&source_bounds, &rewritten_bounds, sizeof(source_bounds)) == 0);
+    CHECK(quantapdf_extract_text(source_page, &source_text,
+                                 &source_text_size) == QUANTAPDF_OK);
+    CHECK(quantapdf_extract_text(rewritten_page, &rewritten_text,
+                                 &rewritten_text_size) == QUANTAPDF_OK);
+    CHECK(source_text_size == rewritten_text_size);
+    CHECK(memcmp(source_text, rewritten_text, source_text_size) == 0);
+    quantapdf_free(rewritten_text);
+    quantapdf_free(source_text);
+    quantapdf_drop_page(rewritten_page);
+    quantapdf_drop_page(source_page);
+
+    source_render = capture_page(source);
+    rewritten_render = capture_page(rewritten);
+    CHECK(source_render.width == rewritten_render.width);
+    CHECK(source_render.height == rewritten_render.height);
+    CHECK(source_render.stride == rewritten_render.stride);
+    CHECK(source_render.components == rewritten_render.components);
+    CHECK(source_render.size == rewritten_render.size);
+    CHECK(memcmp(source_render.data, rewritten_render.data,
+                 source_render.size) == 0);
+    free(rewritten_render.data);
+    free(source_render.data);
+    quantapdf_close(rewritten);
+    quantapdf_close(source);
+}
+
+static void test_snapshot_semantics(void)
+{
+    quantapdf_document *source = NULL;
+    quantapdf_document *rewritten = NULL;
+    quantapdf_outline *source_outline = NULL;
+    quantapdf_outline *rewritten_outline = NULL;
+    quantapdf_form *source_form = NULL;
+    quantapdf_form *rewritten_form = NULL;
+    quantapdf_page *source_page = NULL;
+    quantapdf_page *rewritten_page = NULL;
+    quantapdf_link_page *source_links = NULL;
+    quantapdf_link_page *rewritten_links = NULL;
+    quantapdf_annotation_page *source_annotations = NULL;
+    quantapdf_annotation_page *rewritten_annotations = NULL;
+    char *source_title = NULL;
+    char *rewritten_title = NULL;
+    size_t source_size = 0;
+    size_t rewritten_size = 0;
+    size_t source_count = 0;
+    size_t rewritten_count = 0;
+
+    CHECK(rewrite_create_metadata_fixture(
+        ONE_PAGE_PDF, REWRITE_METADATA_PDF));
+    open_rewritten_pair(REWRITE_METADATA_PDF, &source, &rewritten);
+    CHECK(quantapdf_document_metadata(source, QUANTAPDF_METADATA_TITLE,
+                                       &source_title, &source_size) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_document_metadata(rewritten, QUANTAPDF_METADATA_TITLE,
+                                       &rewritten_title, &rewritten_size) ==
+          QUANTAPDF_OK);
+    CHECK(source_size == rewritten_size);
+    CHECK(memcmp(source_title, rewritten_title, source_size) == 0);
+    quantapdf_free(rewritten_title);
+    quantapdf_free(source_title);
+    quantapdf_close(rewritten);
+    quantapdf_close(source);
+
+    CHECK(rewrite_create_strict_fixture(
+        OUTLINE_PDF, REWRITE_VALIDATED_PDF));
+    open_rewritten_pair(REWRITE_VALIDATED_PDF, &source, &rewritten);
+    CHECK(quantapdf_document_outline(source, &source_outline) == QUANTAPDF_OK);
+    CHECK(quantapdf_document_outline(rewritten, &rewritten_outline) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_outline_count(source_outline, &source_count) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_outline_count(rewritten_outline, &rewritten_count) ==
+          QUANTAPDF_OK);
+    CHECK(source_count == rewritten_count);
+    quantapdf_drop_outline(rewritten_outline);
+    quantapdf_drop_outline(source_outline);
+    quantapdf_close(rewritten);
+    quantapdf_close(source);
+
+    CHECK(rewrite_create_strict_fixture(
+        LINKS_PDF, REWRITE_VALIDATED_PDF));
+    open_rewritten_pair(REWRITE_VALIDATED_PDF, &source, &rewritten);
+    CHECK(quantapdf_load_page(source, 0, &source_page) == QUANTAPDF_OK);
+    CHECK(quantapdf_load_page(rewritten, 0, &rewritten_page) == QUANTAPDF_OK);
+    CHECK(quantapdf_extract_links(source_page, &source_links) == QUANTAPDF_OK);
+    CHECK(quantapdf_extract_links(rewritten_page, &rewritten_links) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_link_count(source_links, &source_count) == QUANTAPDF_OK);
+    CHECK(quantapdf_link_count(rewritten_links, &rewritten_count) ==
+          QUANTAPDF_OK);
+    CHECK(source_count == rewritten_count);
+    quantapdf_drop_link_page(rewritten_links);
+    quantapdf_drop_link_page(source_links);
+    quantapdf_drop_page(rewritten_page);
+    quantapdf_drop_page(source_page);
+    quantapdf_close(rewritten);
+    quantapdf_close(source);
+
+    CHECK(rewrite_create_strict_fixture(
+        ANNOTATIONS_PDF, REWRITE_VALIDATED_PDF));
+    open_rewritten_pair(REWRITE_VALIDATED_PDF, &source, &rewritten);
+    CHECK(quantapdf_load_page(source, 0, &source_page) == QUANTAPDF_OK);
+    CHECK(quantapdf_load_page(rewritten, 0, &rewritten_page) == QUANTAPDF_OK);
+    CHECK(quantapdf_extract_annotations(source_page, &source_annotations) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_extract_annotations(
+              rewritten_page, &rewritten_annotations) == QUANTAPDF_OK);
+    CHECK(quantapdf_annotation_count(source_annotations, &source_count) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_annotation_count(
+              rewritten_annotations, &rewritten_count) == QUANTAPDF_OK);
+    CHECK(source_count == rewritten_count);
+    quantapdf_drop_annotation_page(rewritten_annotations);
+    quantapdf_drop_annotation_page(source_annotations);
+    quantapdf_drop_page(rewritten_page);
+    quantapdf_drop_page(source_page);
+    quantapdf_close(rewritten);
+    quantapdf_close(source);
+
+    CHECK(rewrite_create_strict_fixture(
+        ACROFORM_PDF, REWRITE_VALIDATED_PDF));
+    open_rewritten_pair(REWRITE_VALIDATED_PDF, &source, &rewritten);
+    CHECK(quantapdf_document_form(source, &source_form) == QUANTAPDF_OK);
+    CHECK(quantapdf_document_form(rewritten, &rewritten_form) == QUANTAPDF_OK);
+    CHECK(quantapdf_form_field_count(source_form, &source_count) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_form_field_count(rewritten_form, &rewritten_count) ==
+          QUANTAPDF_OK);
+    CHECK(source_count == rewritten_count);
+    CHECK(quantapdf_form_widget_count(source_form, &source_count) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_form_widget_count(rewritten_form, &rewritten_count) ==
+          QUANTAPDF_OK);
+    CHECK(source_count == rewritten_count);
+    quantapdf_drop_form(rewritten_form);
+    quantapdf_drop_form(source_form);
+    quantapdf_close(rewritten);
+    quantapdf_close(source);
+}
+
+static void expect_rewrite_error(
+    const char *path,
+    const char *password,
+    quantapdf_status expected)
+{
+    quantapdf_document *document = NULL;
+    quantapdf_output *output = (quantapdf_output *)(uintptr_t)1;
+    quantapdf_status status;
+
+    CHECK(quantapdf_open(path, password, &document) == QUANTAPDF_OK);
+    status = quantapdf_rewrite_lossless(document, &output);
+    if (status != expected)
+        fprintf(stderr, "rewrite policy mismatch for %s: expected %s, got %s\n",
+                path, quantapdf_status_string(expected),
+                quantapdf_status_string(status));
+    CHECK(status == expected);
+    CHECK(output == NULL);
+    quantapdf_close(document);
+}
+
+static void test_fail_closed_policy(void)
+{
+    quantapdf_document *unsigned_document = NULL;
+    quantapdf_output *unsigned_output = NULL;
+
+    CHECK(rewrite_create_catalog_signature_fixture(
+        ONE_PAGE_PDF, REWRITE_SIGNED_PDF));
+    expect_rewrite_error(
+        REWRITE_SIGNED_PDF, NULL, QUANTAPDF_ERROR_UNSUPPORTED);
+    expect_rewrite_error(
+        ENCRYPTED_PDF, "user-pass", QUANTAPDF_ERROR_UNSUPPORTED);
+    expect_rewrite_error(
+        SIGNED_FIELD_PDF, NULL, QUANTAPDF_ERROR_UNSUPPORTED);
+    expect_rewrite_error(
+        REPAIRABLE_BAD_PDF, NULL, QUANTAPDF_ERROR_FORMAT);
+
+    CHECK(quantapdf_open(
+              UNSIGNED_SIGNATURE_PDF, NULL, &unsigned_document) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_rewrite_lossless(unsigned_document, &unsigned_output) ==
+          QUANTAPDF_OK);
+    CHECK(unsigned_output != NULL);
+    quantapdf_drop_output(unsigned_output);
+    quantapdf_close(unsigned_document);
+}
+
 static void test_gc_and_repeated_determinism(void)
 {
     quantapdf_document *document = NULL;
     quantapdf_output *first = NULL;
     quantapdf_output *second = NULL;
+    quantapdf_output *third = NULL;
+    quantapdf_document *rewritten_document = NULL;
     const unsigned char *first_data = NULL;
     const unsigned char *second_data = NULL;
     unsigned char *source_data;
     size_t source_size = 0;
     size_t first_size = 0;
     size_t second_size = 0;
+    const unsigned char *third_data = NULL;
+    size_t third_size = 0;
     int page_count = 0;
 
     CHECK(rewrite_create_gc_fixture(ONE_PAGE_PDF, REWRITE_GC_PDF));
@@ -86,12 +367,24 @@ static void test_gc_and_repeated_determinism(void)
     CHECK(rewrite_marker_mask(first_data, first_size) == 4);
     CHECK(quantapdf_page_count(document, &page_count) == QUANTAPDF_OK);
     CHECK(page_count == 1);
+    CHECK(quantapdf_output_save_file(first, REWRITE_OUTPUT_PDF) ==
+          QUANTAPDF_OK);
 
     quantapdf_close(document);
     document = NULL;
     CHECK(quantapdf_output_data(first, &first_data, &first_size) ==
           QUANTAPDF_OK);
     CHECK(first_data != NULL && first_size != 0);
+    CHECK(quantapdf_open(REWRITE_OUTPUT_PDF, NULL, &rewritten_document) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_rewrite_lossless(rewritten_document, &third) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_output_data(third, &third_data, &third_size) ==
+          QUANTAPDF_OK);
+    CHECK(first_size == third_size);
+    CHECK(memcmp(first_data, third_data, first_size) == 0);
+    quantapdf_drop_output(third);
+    quantapdf_close(rewritten_document);
     quantapdf_drop_output(second);
     quantapdf_drop_output(first);
 }
@@ -106,5 +399,8 @@ int main(void)
     CHECK(quantapdf_rewrite_lossless(NULL, NULL) ==
           QUANTAPDF_ERROR_ARGUMENT);
     test_gc_and_repeated_determinism();
+    test_render_text_and_page_semantics();
+    test_snapshot_semantics();
+    test_fail_closed_policy();
     return EXIT_SUCCESS;
 }

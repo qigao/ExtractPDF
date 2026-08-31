@@ -657,6 +657,101 @@ static bool quantapdf_qpdf_rewrite_forbidden(QPDF& pdf)
     return false;
 }
 
+static quantapdf_status quantapdf_qpdf_lossless_field_preflight(
+    QPDFObjectHandle field,
+    std::string const& inherited_type,
+    size_t depth,
+    std::set<QPDFObjGen> *seen)
+{
+    if (depth > 256u || !field.isDictionary())
+        return QUANTAPDF_ERROR_FORMAT;
+    if (field.isIndirect() && !seen->insert(field.getObjGen()).second)
+        return QUANTAPDF_ERROR_FORMAT;
+
+    std::string field_type = inherited_type;
+    QPDFObjectHandle type = field.getKey("/FT");
+    if (!type.isNull()) {
+        if (!type.isName())
+            return QUANTAPDF_ERROR_FORMAT;
+        field_type = type.getName();
+    }
+    QPDFObjectHandle value = field.getKey("/V");
+    if (field_type == "/Sig" && !value.isNull()) {
+        if (!value.isDictionary())
+            return QUANTAPDF_ERROR_FORMAT;
+        QPDFObjectHandle signature_type = value.getKey("/Type");
+        if (!signature_type.isNull() &&
+            (!signature_type.isName() ||
+             signature_type.getName() != "/Sig"))
+            return QUANTAPDF_ERROR_FORMAT;
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+
+    QPDFObjectHandle kids = field.getKey("/Kids");
+    if (kids.isNull())
+        return QUANTAPDF_OK;
+    if (!kids.isArray())
+        return QUANTAPDF_ERROR_FORMAT;
+    int const count = kids.getArrayNItems();
+    for (int index = 0; index < count; ++index) {
+        quantapdf_status const status =
+            quantapdf_qpdf_lossless_field_preflight(
+                kids.getArrayItem(index), field_type, depth + 1u, seen);
+        if (status != QUANTAPDF_OK)
+            return status;
+    }
+    return QUANTAPDF_OK;
+}
+
+static quantapdf_status quantapdf_qpdf_lossless_preflight(QPDF& pdf)
+{
+    if (pdf.isEncrypted())
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
+    QPDFObjectHandle root = pdf.getRoot();
+    if (!root.isDictionary())
+        return QUANTAPDF_ERROR_FORMAT;
+    QPDFObjectHandle permissions = root.getKey("/Perms");
+    if (!permissions.isNull()) {
+        if (!permissions.isDictionary())
+            return QUANTAPDF_ERROR_FORMAT;
+        for (char const *key : {"/DocMDP", "/UR", "/UR3"}) {
+            QPDFObjectHandle signature = permissions.getKey(key);
+            if (signature.isNull())
+                continue;
+            if (!signature.isDictionary())
+                return QUANTAPDF_ERROR_FORMAT;
+            QPDFObjectHandle type = signature.getKey("/Type");
+            if (!type.isNull() &&
+                (!type.isName() || type.getName() != "/Sig"))
+                return QUANTAPDF_ERROR_FORMAT;
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        }
+    }
+
+    QPDFObjectHandle acroform = root.getKey("/AcroForm");
+    if (acroform.isNull())
+        return QUANTAPDF_OK;
+    if (!acroform.isDictionary())
+        return QUANTAPDF_ERROR_FORMAT;
+    QPDFObjectHandle fields = acroform.getKey("/Fields");
+    if (fields.isNull())
+        return QUANTAPDF_OK;
+    if (!fields.isArray())
+        return QUANTAPDF_ERROR_FORMAT;
+
+    std::set<QPDFObjGen> seen;
+    int const count = fields.getArrayNItems();
+    for (int index = 0; index < count; ++index) {
+        quantapdf_status const status =
+            quantapdf_qpdf_lossless_field_preflight(
+                fields.getArrayItem(index), std::string(), 1u, &seen);
+        if (status != QUANTAPDF_OK)
+            return status;
+    }
+    return QUANTAPDF_OK;
+}
+
 static quantapdf_status quantapdf_qpdf_public_crop_to_pdf(
     quantapdf_qpdf_page_geometry const& geometry,
     quantapdf_rect const& requested,
@@ -2809,8 +2904,10 @@ extern "C" quantapdf_status quantapdf_qpdf_rewrite_lossless(
         (void)pdf->getAllObjects();
         if (pdf->anyWarnings())
             return QUANTAPDF_ERROR_FORMAT;
-        if (pdf->isEncrypted())
-            return QUANTAPDF_ERROR_UNSUPPORTED;
+        quantapdf_status const preflight =
+            quantapdf_qpdf_lossless_preflight(*pdf);
+        if (preflight != QUANTAPDF_OK)
+            return preflight;
 
         quantapdf_status const status = quantapdf_qpdf_write_memory(
             *pdf, out_data, out_size);
