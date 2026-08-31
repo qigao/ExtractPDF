@@ -170,5 +170,12 @@ if(EXTRACTPDF_BUILD_TESTS)
     FLATTEN_FORM_ANCESTOR_SURVIVES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-form-ancestor-survives.pdf"
     FLATTEN_WIDGET_AS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-widget-as.pdf"
     FLATTEN_WIDGET_RADIO_AS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-widget-radio-as.pdf"
-    FLATTEN_POLICY_LINK_DEFAULT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-policy-link-default.pdf")
+    FLATTEN_POLICY_LINK_DEFAULT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-policy-link-default.pdf"
+    FLATTEN_POLICY_LINK_BS0_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-policy-link-bs0.pdf"
+    FLATTEN_POLICY_LINK_BORDER0_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-policy-link-border0.pdf"
+    FLATTEN_POLICY_LINK_BS0_BORDER4_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-policy-link-bs0-border4.pdf"
+    FLATTEN_POLICY_LINK_BS4_BORDER0_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-policy-link-bs4-border0.pdf"
+    FLATTEN_POLICY_LINK_BS_MISSING_W_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-policy-link-bs-missing-w.pdf"
+    FLATTEN_POLICY_LINK_APN_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-policy-link-apn.pdf"
+    FLATTEN_POLICY_LINK_BS_MALFORMED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/flatten-policy-link-bs-malformed.pdf")
 endif()
