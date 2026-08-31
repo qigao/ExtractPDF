@@ -8,6 +8,7 @@
 #include "image_snapshot.h"
 #include "link_snapshot.h"
 #include "annotation_snapshot.h"
+#include "outline_snapshot.h"
 
 typedef struct quantapdf_pdfium_document quantapdf_pdfium_document;
 typedef struct quantapdf_pdfium_page quantapdf_pdfium_page;

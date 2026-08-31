@@ -154,6 +154,15 @@ quantapdf_status quantapdf_open(
         quantapdf_dispose_document(document);
         return status;
     }
+    status = quantapdf_qpdf_open_memory(
+        document->source_data,
+        document->source_size,
+        document->password,
+        &document->qpdf_document);
+    if (status != QUANTAPDF_OK) {
+        quantapdf_dispose_document(document);
+        return status;
+    }
 
     *out_document = document;
     return QUANTAPDF_OK;
@@ -174,19 +183,8 @@ quantapdf_status quantapdf_document_page_user_unit(
     int page_index,
     double *out_user_unit)
 {
-    quantapdf_status status;
-
     if (document == NULL || out_user_unit == NULL || page_index < 0)
         return QUANTAPDF_ERROR_ARGUMENT;
-    if (document->qpdf_document == NULL) {
-        status = quantapdf_qpdf_open_memory(
-            document->source_data,
-            document->source_size,
-            document->password,
-            &document->qpdf_document);
-        if (status != QUANTAPDF_OK)
-            return status;
-    }
     return quantapdf_qpdf_page_user_unit(
         document->qpdf_document, page_index, out_user_unit);
 }

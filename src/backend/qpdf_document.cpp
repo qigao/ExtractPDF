@@ -1,5 +1,6 @@
 #include "qpdf_document.h"
 #include "../annotation_snapshot.h"
+#include "../outline_snapshot.h"
 
 #include <qpdf/Constants.h>
 #include <qpdf/QPDF.hh>
@@ -15,6 +16,7 @@
 #include <memory>
 #include <new>
 #include <limits>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -96,6 +98,202 @@ struct quantapdf_qpdf_captured_annotation {
     std::string contents;
     bool has_contents;
 };
+
+struct quantapdf_qpdf_captured_outline_node {
+    size_t parent_index = SIZE_MAX;
+    size_t first_child_index = SIZE_MAX;
+    size_t next_sibling_index = SIZE_MAX;
+    quantapdf_outline_destination_kind destination_kind =
+        QUANTAPDF_OUTLINE_DESTINATION_NONE;
+    int target_page = -1;
+    quantapdf_point target = {};
+    std::string title;
+    std::string uri;
+    bool has_title = false;
+    bool is_open = false;
+};
+
+static bool quantapdf_qpdf_same_object(
+    QPDFObjectHandle const& left,
+    QPDFObjectHandle const& right)
+{
+    return left.isIndirect() && right.isIndirect() &&
+        left.getObjGen() == right.getObjGen();
+}
+
+static quantapdf_status quantapdf_qpdf_decode_outline_destination(
+    QPDF& pdf,
+    QPDFObjectHandle const& item,
+    quantapdf_qpdf_captured_outline_node *node)
+{
+    QPDFObjectHandle destination = item.getKey("/Dest");
+    QPDFObjectHandle action = item.getKey("/A");
+
+    if (destination.isNull() && !action.isNull()) {
+        if (!action.isDictionary())
+            return QUANTAPDF_ERROR_FORMAT;
+        QPDFObjectHandle action_type = action.getKey("/S");
+        if (!action_type.isName())
+            return QUANTAPDF_ERROR_FORMAT;
+        if (action_type.getName() == "/URI") {
+            QPDFObjectHandle uri = action.getKey("/URI");
+            if (!uri.isString())
+                return QUANTAPDF_ERROR_FORMAT;
+            node->destination_kind = QUANTAPDF_OUTLINE_DESTINATION_URI;
+            node->uri = uri.getUTF8Value();
+            return QUANTAPDF_OK;
+        }
+        if (action_type.getName() != "/GoTo")
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        destination = action.getKey("/D");
+    }
+    if (destination.isNull())
+        return QUANTAPDF_OK;
+    if (!destination.isArray() || destination.getArrayNItems() < 1)
+        return QUANTAPDF_ERROR_FORMAT;
+
+    QPDFObjectHandle destination_page = destination.getArrayItem(0);
+    auto const& pages = pdf.getAllPages();
+    int page_index = -1;
+    for (size_t index = 0; index < pages.size(); ++index) {
+        if (quantapdf_qpdf_same_object(destination_page, pages[index])) {
+            page_index = static_cast<int>(index);
+            break;
+        }
+    }
+    if (page_index < 0)
+        return QUANTAPDF_ERROR_FORMAT;
+
+    QPDFObjectHandle crop = quantapdf_qpdf_inherited_value(
+        pages[static_cast<size_t>(page_index)], "/CropBox");
+    if (crop.isNull()) {
+        crop = quantapdf_qpdf_inherited_value(
+            pages[static_cast<size_t>(page_index)], "/MediaBox");
+    }
+    if (!crop.isArray() || crop.getArrayNItems() != 4 ||
+        !crop.getArrayItem(0).isNumber() ||
+        !crop.getArrayItem(3).isNumber())
+        return QUANTAPDF_ERROR_FORMAT;
+    double const crop_left = crop.getArrayItem(0).getNumericValue();
+    double const crop_top = crop.getArrayItem(3).getNumericValue();
+    double user_unit = 1.0;
+    QPDFObjectHandle user_unit_object =
+        pages[static_cast<size_t>(page_index)].getKey("/UserUnit");
+    if (!user_unit_object.isNull()) {
+        if (!user_unit_object.isNumber())
+            return QUANTAPDF_ERROR_FORMAT;
+        user_unit = user_unit_object.getNumericValue();
+    }
+
+    double x = crop_left;
+    double y = crop_top;
+    if (destination.getArrayNItems() >= 4 &&
+        destination.getArrayItem(1).isName() &&
+        destination.getArrayItem(1).getName() == "/XYZ") {
+        QPDFObjectHandle x_object = destination.getArrayItem(2);
+        QPDFObjectHandle y_object = destination.getArrayItem(3);
+        if (!x_object.isNull()) {
+            if (!x_object.isNumber())
+                return QUANTAPDF_ERROR_FORMAT;
+            x = x_object.getNumericValue();
+        }
+        if (!y_object.isNull()) {
+            if (!y_object.isNumber())
+                return QUANTAPDF_ERROR_FORMAT;
+            y = y_object.getNumericValue();
+        }
+    }
+    node->destination_kind = QUANTAPDF_OUTLINE_DESTINATION_INTERNAL;
+    node->target_page = page_index;
+    node->target.x = static_cast<float>((x - crop_left) * user_unit);
+    node->target.y = static_cast<float>((crop_top - y) * user_unit);
+    return QUANTAPDF_OK;
+}
+
+static quantapdf_status quantapdf_qpdf_walk_outline_siblings(
+    QPDF& pdf,
+    QPDFObjectHandle first,
+    QPDFObjectHandle last,
+    QPDFObjectHandle const& parent_object,
+    size_t parent_index,
+    size_t depth,
+    std::vector<quantapdf_qpdf_captured_outline_node> *nodes,
+    std::set<QPDFObjGen> *seen)
+{
+    if (first.isNull() != last.isNull())
+        return QUANTAPDF_ERROR_FORMAT;
+    if (first.isNull())
+        return QUANTAPDF_OK;
+    if (depth > 256u)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+
+    QPDFObjectHandle previous = QPDFObjectHandle::newNull();
+    size_t previous_index = SIZE_MAX;
+    QPDFObjectHandle current = first;
+    while (!current.isNull()) {
+        if (!current.isDictionary() || !current.isIndirect())
+            return QUANTAPDF_ERROR_FORMAT;
+        if (!seen->insert(current.getObjGen()).second)
+            return QUANTAPDF_ERROR_FORMAT;
+        if (!quantapdf_qpdf_same_object(
+                current.getKey("/Parent"), parent_object))
+            return QUANTAPDF_ERROR_FORMAT;
+
+        QPDFObjectHandle current_previous = current.getKey("/Prev");
+        if (previous.isNull()) {
+            if (!current_previous.isNull())
+                return QUANTAPDF_ERROR_FORMAT;
+        } else if (!quantapdf_qpdf_same_object(current_previous, previous)) {
+            return QUANTAPDF_ERROR_FORMAT;
+        }
+
+        size_t const current_index = nodes->size();
+        if (previous_index != SIZE_MAX)
+            (*nodes)[previous_index].next_sibling_index = current_index;
+        nodes->emplace_back();
+        auto *node = &nodes->back();
+        node->parent_index = parent_index;
+
+        QPDFObjectHandle title = current.getKey("/Title");
+        if (!title.isNull()) {
+            if (!title.isString())
+                return QUANTAPDF_ERROR_FORMAT;
+            node->title = title.getUTF8Value();
+            node->has_title = true;
+        }
+        QPDFObjectHandle count = current.getKey("/Count");
+        if (!count.isNull()) {
+            if (!count.isInteger())
+                return QUANTAPDF_ERROR_FORMAT;
+            node->is_open = count.getIntValue() > 0;
+        }
+        quantapdf_status status = quantapdf_qpdf_decode_outline_destination(
+            pdf, current, node);
+        if (status != QUANTAPDF_OK)
+            return status;
+
+        QPDFObjectHandle child_first = current.getKey("/First");
+        QPDFObjectHandle child_last = current.getKey("/Last");
+        if (!child_first.isNull())
+            node->first_child_index = nodes->size();
+        status = quantapdf_qpdf_walk_outline_siblings(
+            pdf, child_first, child_last, current, current_index,
+            depth + 1u, nodes, seen);
+        if (status != QUANTAPDF_OK)
+            return status;
+
+        QPDFObjectHandle next = current.getKey("/Next");
+        if (next.isNull()) {
+            if (!quantapdf_qpdf_same_object(current, last))
+                return QUANTAPDF_ERROR_FORMAT;
+            return QUANTAPDF_OK;
+        }
+        previous = current;
+        previous_index = current_index;
+        current = next;
+    }
+    return QUANTAPDF_ERROR_FORMAT;
+}
 
 extern "C" quantapdf_status quantapdf_qpdf_open_memory(
     const unsigned char *data,
@@ -427,6 +625,188 @@ extern "C" quantapdf_status quantapdf_qpdf_extract_annotations(
         snapshot->count = captured.size();
         snapshot->string_size = string_position;
         *out_annotations = snapshot;
+        return QUANTAPDF_OK;
+    } catch (QPDFExc const& error) {
+        return quantapdf_status_from_qpdf(error);
+    } catch (std::bad_alloc const&) {
+        return QUANTAPDF_ERROR_NOMEM;
+    } catch (std::exception const&) {
+        return QUANTAPDF_ERROR_BACKEND;
+    } catch (...) {
+        return QUANTAPDF_ERROR_BACKEND;
+    }
+}
+
+extern "C" quantapdf_status quantapdf_qpdf_metadata(
+    quantapdf_qpdf_document *document,
+    quantapdf_metadata_field field,
+    char **out_utf8,
+    size_t *out_size)
+{
+    if (out_utf8 != nullptr)
+        *out_utf8 = nullptr;
+    if (out_size != nullptr)
+        *out_size = 0;
+    if (document == nullptr || document->pdf == nullptr ||
+        out_utf8 == nullptr || out_size == nullptr)
+        return QUANTAPDF_ERROR_ARGUMENT;
+
+    char const *key;
+    switch (field) {
+    case QUANTAPDF_METADATA_TITLE: key = "/Title"; break;
+    case QUANTAPDF_METADATA_AUTHOR: key = "/Author"; break;
+    case QUANTAPDF_METADATA_SUBJECT: key = "/Subject"; break;
+    case QUANTAPDF_METADATA_KEYWORDS: key = "/Keywords"; break;
+    case QUANTAPDF_METADATA_CREATOR: key = "/Creator"; break;
+    case QUANTAPDF_METADATA_PRODUCER: key = "/Producer"; break;
+    case QUANTAPDF_METADATA_CREATION_DATE: key = "/CreationDate"; break;
+    case QUANTAPDF_METADATA_MODIFICATION_DATE: key = "/ModDate"; break;
+    default: return QUANTAPDF_ERROR_ARGUMENT;
+    }
+
+    try {
+        QPDFObjectHandle info = document->pdf->getTrailer().getKey("/Info");
+        if (info.isNull())
+            return QUANTAPDF_OK;
+        if (!info.isDictionary())
+            return QUANTAPDF_ERROR_FORMAT;
+        QPDFObjectHandle value = info.getKey(key);
+        if (value.isNull())
+            return QUANTAPDF_OK;
+        if (!value.isString())
+            return QUANTAPDF_ERROR_FORMAT;
+        std::string const text = value.getUTF8Value();
+        auto *copy = static_cast<char *>(std::malloc(text.size() + 1u));
+        if (copy == nullptr)
+            return QUANTAPDF_ERROR_NOMEM;
+        if (!text.empty())
+            std::memcpy(copy, text.data(), text.size());
+        copy[text.size()] = '\0';
+        *out_utf8 = copy;
+        *out_size = text.size();
+        return QUANTAPDF_OK;
+    } catch (QPDFExc const& error) {
+        return quantapdf_status_from_qpdf(error);
+    } catch (std::bad_alloc const&) {
+        return QUANTAPDF_ERROR_NOMEM;
+    } catch (std::exception const&) {
+        return QUANTAPDF_ERROR_BACKEND;
+    } catch (...) {
+        return QUANTAPDF_ERROR_BACKEND;
+    }
+}
+
+extern "C" quantapdf_status quantapdf_qpdf_outline(
+    quantapdf_qpdf_document *document,
+    quantapdf_outline **out_outline)
+{
+    if (out_outline == nullptr)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    *out_outline = nullptr;
+    if (document == nullptr || document->pdf == nullptr)
+        return QUANTAPDF_ERROR_ARGUMENT;
+
+    try {
+        std::vector<quantapdf_qpdf_captured_outline_node> nodes;
+        std::set<QPDFObjGen> seen;
+        QPDFObjectHandle root = document->pdf->getRoot();
+        QPDFObjectHandle outlines = root.getKey("/Outlines");
+        if (!outlines.isNull()) {
+            if (!outlines.isDictionary() || !outlines.isIndirect())
+                return QUANTAPDF_ERROR_FORMAT;
+            quantapdf_status const status =
+                quantapdf_qpdf_walk_outline_siblings(
+                    *document->pdf,
+                    outlines.getKey("/First"),
+                    outlines.getKey("/Last"),
+                    outlines,
+                    SIZE_MAX,
+                    1u,
+                    &nodes,
+                    &seen);
+            if (status != QUANTAPDF_OK)
+                return status;
+        }
+
+        auto *snapshot = static_cast<quantapdf_outline *>(
+            std::calloc(1u, sizeof(quantapdf_outline)));
+        if (snapshot == nullptr)
+            return QUANTAPDF_ERROR_NOMEM;
+        if (!nodes.empty()) {
+            snapshot->nodes = static_cast<quantapdf_outline_node_internal *>(
+                std::calloc(nodes.size(), sizeof(quantapdf_outline_node_internal)));
+            if (snapshot->nodes == nullptr) {
+                std::free(snapshot);
+                return QUANTAPDF_ERROR_NOMEM;
+            }
+        }
+
+        size_t string_size = 0;
+        for (auto const& node : nodes) {
+            if (node.has_title) {
+                if (string_size > std::numeric_limits<size_t>::max() -
+                        node.title.size() - 1u) {
+                    std::free(snapshot->nodes);
+                    std::free(snapshot);
+                    return QUANTAPDF_ERROR_NOMEM;
+                }
+                string_size += node.title.size() + 1u;
+            }
+            if (node.destination_kind == QUANTAPDF_OUTLINE_DESTINATION_URI) {
+                if (string_size > std::numeric_limits<size_t>::max() -
+                        node.uri.size() - 1u) {
+                    std::free(snapshot->nodes);
+                    std::free(snapshot);
+                    return QUANTAPDF_ERROR_NOMEM;
+                }
+                string_size += node.uri.size() + 1u;
+            }
+        }
+        if (string_size != 0) {
+            snapshot->strings = static_cast<char *>(std::malloc(string_size));
+            if (snapshot->strings == nullptr) {
+                std::free(snapshot->nodes);
+                std::free(snapshot);
+                return QUANTAPDF_ERROR_NOMEM;
+            }
+        }
+
+        size_t position = 0;
+        for (size_t index = 0; index < nodes.size(); ++index) {
+            auto const& source = nodes[index];
+            auto *target = &snapshot->nodes[index];
+            target->parent_index = source.parent_index;
+            target->first_child_index = source.first_child_index;
+            target->next_sibling_index = source.next_sibling_index;
+            target->destination_kind = source.destination_kind;
+            target->target_page = source.target_page;
+            target->target = source.target;
+            target->is_open = source.is_open ? 1 : 0;
+            if (source.has_title) {
+                target->title_offset = position;
+                target->title_size = source.title.size();
+                target->has_title = 1;
+                std::memcpy(
+                    snapshot->strings + position,
+                    source.title.data(),
+                    source.title.size());
+                position += source.title.size();
+                snapshot->strings[position++] = '\0';
+            }
+            if (source.destination_kind == QUANTAPDF_OUTLINE_DESTINATION_URI) {
+                target->uri_offset = position;
+                target->uri_size = source.uri.size();
+                std::memcpy(
+                    snapshot->strings + position,
+                    source.uri.data(),
+                    source.uri.size());
+                position += source.uri.size();
+                snapshot->strings[position++] = '\0';
+            }
+        }
+        snapshot->count = nodes.size();
+        snapshot->string_size = position;
+        *out_outline = snapshot;
         return QUANTAPDF_OK;
     } catch (QPDFExc const& error) {
         return quantapdf_status_from_qpdf(error);
