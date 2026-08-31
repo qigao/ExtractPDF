@@ -7,7 +7,7 @@ endobj
 << /Type /Pages /Kids [3 0 R 5 0 R 7 0 R] /Count 3 >>
 endobj
 3 0 obj
-<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /Font << /F1 9 0 R >> >> /Contents 4 0 R >>
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /CropBox [0 0 200 200] /Resources << /Font << /F1 9 0 R >> >> /Contents 4 0 R >>
 endobj
 4 0 obj
 << /Length 77 >>
@@ -17,7 +17,7 @@ BT /F1 18 Tf 20 100 Td (POSTER-BEFORE) Tj ET
 endstream
 endobj
 5 0 obj
-<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 300] /Resources << /Font << /F1 9 0 R >> >> /Contents 6 0 R >>
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 300] /CropBox [0 0 400 300] /Resources << /Font << /F1 9 0 R >> >> /Contents 6 0 R >>
 endobj
 6 0 obj
 << /Length 309 >>
@@ -34,7 +34,7 @@ BT /F1 18 Tf 230 80 Td (POSTER-11) Tj ET
 endstream
 endobj
 7 0 obj
-<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Resources << /Font << /F1 9 0 R >> >> /Contents 8 0 R >>
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /CropBox [0 0 200 200] /Resources << /Font << /F1 9 0 R >> >> /Contents 8 0 R >>
 endobj
 8 0 obj
 << /Length 78 >>
@@ -52,14 +52,14 @@ xref
 0000000015 00000 n 
 0000000064 00000 n 
 0000000133 00000 n 
-0000000259 00000 n 
-0000000385 00000 n 
-0000000511 00000 n 
-0000000870 00000 n 
-0000000996 00000 n 
-0000001123 00000 n 
+0000000282 00000 n 
+0000000408 00000 n 
+0000000557 00000 n 
+0000000916 00000 n 
+0000001065 00000 n 
+0000001192 00000 n 
 trailer
 << /Size 10 /Root 1 0 R >>
 startxref
-1193
+1262
 %%EOF
