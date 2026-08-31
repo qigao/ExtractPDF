@@ -1,6 +1,4 @@
-#include <fpdfview.h>
-
-#include "backend/pdfium_runtime.h"
+#include "backend/pdfium_document.h"
 #include "backend/qpdf_document.h"
 
 #include <stdio.h>
@@ -64,19 +62,52 @@ int main(void)
 {
     unsigned char *data;
     size_t size;
-    FPDF_DOCUMENT pdfium_document;
+    int sentinel = 0;
+    quantapdf_pdfium_document *pdfium_document = NULL;
+    quantapdf_pdfium_page *pdfium_page = NULL;
     quantapdf_qpdf_document *qpdf_document = NULL;
+    quantapdf_rect bounds = { -1.0f, -2.0f, -3.0f, -4.0f };
+    int pdfium_page_count = 0;
     int qpdf_page_count = 0;
+    int iteration;
 
     data = read_fixture(ONE_PAGE_PDF, &size);
     CHECK(data != NULL);
 
-    CHECK(quantapdf_pdfium_enter() == QUANTAPDF_OK);
-    pdfium_document = FPDF_LoadMemDocument64(data, size, NULL);
+    CHECK(quantapdf_pdfium_open_memory(
+        data, size, NULL, &pdfium_document) == QUANTAPDF_OK);
     CHECK(pdfium_document != NULL);
-    CHECK(FPDF_GetPageCount(pdfium_document) == 1);
-    FPDF_CloseDocument(pdfium_document);
-    quantapdf_pdfium_leave();
+    CHECK(quantapdf_pdfium_page_count(
+        pdfium_document, &pdfium_page_count) == QUANTAPDF_OK);
+    CHECK(pdfium_page_count == 1);
+    CHECK(quantapdf_pdfium_load_page(
+        pdfium_document, 0, &pdfium_page) == QUANTAPDF_OK);
+    CHECK(pdfium_page != NULL);
+    CHECK(quantapdf_pdfium_page_bounds(pdfium_page, &bounds) == QUANTAPDF_OK);
+    CHECK(bounds.x0 == 0.0f);
+    CHECK(bounds.y0 == 0.0f);
+    CHECK(bounds.x1 == 72.0f);
+    CHECK(bounds.y1 == 72.0f);
+    quantapdf_pdfium_drop_page(pdfium_page);
+    quantapdf_pdfium_close(pdfium_document);
+
+    pdfium_document = (quantapdf_pdfium_document *)&sentinel;
+    CHECK(quantapdf_pdfium_open_memory(
+        NULL, size, NULL, &pdfium_document) == QUANTAPDF_ERROR_ARGUMENT);
+    CHECK(pdfium_document == NULL);
+    CHECK(quantapdf_pdfium_open_memory(
+        data, size, NULL, NULL) == QUANTAPDF_ERROR_ARGUMENT);
+
+    for (iteration = 0; iteration < 100; ++iteration) {
+        pdfium_document = NULL;
+        pdfium_page = NULL;
+        CHECK(quantapdf_pdfium_open_memory(
+            data, size, NULL, &pdfium_document) == QUANTAPDF_OK);
+        CHECK(quantapdf_pdfium_load_page(
+            pdfium_document, 0, &pdfium_page) == QUANTAPDF_OK);
+        quantapdf_pdfium_drop_page(pdfium_page);
+        quantapdf_pdfium_close(pdfium_document);
+    }
 
     CHECK(quantapdf_qpdf_open_memory(
         data, size, NULL, &qpdf_document) == QUANTAPDF_OK);

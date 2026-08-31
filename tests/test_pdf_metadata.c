@@ -118,14 +118,9 @@ int main(void)
                                        &value, NULL) == QUANTAPDF_ERROR_ARGUMENT);
     CHECK(value == NULL);
 
-    CHECK(quantapdf_open(COMPOSITION_NON_PDF, NULL, &non_pdf) == QUANTAPDF_OK);
-    value = (char *)(uintptr_t)1;
-    size = (size_t)-1;
-    CHECK(quantapdf_document_metadata(non_pdf, QUANTAPDF_METADATA_TITLE,
-                                       &value, &size) == QUANTAPDF_ERROR_UNSUPPORTED);
-    CHECK(value == NULL);
-    CHECK(size == 0);
-    quantapdf_close(non_pdf);
+    CHECK(quantapdf_open(COMPOSITION_NON_PDF, NULL, &non_pdf) ==
+          QUANTAPDF_ERROR_FORMAT);
+    CHECK(non_pdf == NULL);
 
     value = NULL;
     size = 0;

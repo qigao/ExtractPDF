@@ -119,7 +119,6 @@ int main(void)
     quantapdf_document *text_document = NULL;
     quantapdf_output *range_output = NULL;
     quantapdf_output *index_output = NULL;
-    quantapdf_output *probe = NULL;
     const unsigned char *range_data = NULL;
     const unsigned char *index_data = NULL;
     size_t range_size = 0;
@@ -229,19 +228,9 @@ int main(void)
     reopened = NULL;
 
     if (quantapdf_open(COMPOSITION_NON_PDF, NULL, &text_document) !=
-            QUANTAPDF_OK) {
-        fprintf(stderr, "non-PDF fixture did not open through generic API\n");
-        goto cleanup;
-    }
-
-    probe = output_sentinel();
-    if (quantapdf_export_page_range(text_document, 0, 1, &probe) !=
-            QUANTAPDF_ERROR_UNSUPPORTED ||
-        probe != NULL) {
-        fprintf(stderr, "non-PDF range unsupported contract failed\n");
-        if (probe != NULL && probe != output_sentinel())
-            quantapdf_drop_output(probe);
-        probe = NULL;
+            QUANTAPDF_ERROR_FORMAT ||
+        text_document != NULL) {
+        fprintf(stderr, "non-PDF open contract failed\n");
         goto cleanup;
     }
 
@@ -253,8 +242,6 @@ cleanup:
     quantapdf_close(text_document);
     quantapdf_drop_output(range_output);
     quantapdf_drop_output(index_output);
-    if (probe != NULL && probe != output_sentinel())
-        quantapdf_drop_output(probe);
     (void)remove(RANGE_OUTPUT_PDF);
     return result;
 }

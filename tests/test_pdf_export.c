@@ -81,7 +81,6 @@ int main(void)
     quantapdf_document *text_document = NULL;
     quantapdf_output *first = NULL;
     quantapdf_output *second = NULL;
-    quantapdf_output *probe = NULL;
     const unsigned char *first_data = NULL;
     const unsigned char *second_data = NULL;
     const unsigned char *reset_data = NULL;
@@ -93,7 +92,6 @@ int main(void)
     int negative[] = {-1};
     int high[] = {3};
     int mixed[] = {0, 3, 1};
-    int one[] = {0};
     int result = 1;
 
     (void)remove(COMPOSITION_OUTPUT_PDF);
@@ -205,19 +203,9 @@ int main(void)
     reopened = NULL;
 
     if (quantapdf_open(COMPOSITION_NON_PDF, NULL, &text_document) !=
-            QUANTAPDF_OK) {
-        fprintf(stderr, "non-PDF fixture did not open through generic API\n");
-        goto cleanup;
-    }
-
-    probe = output_sentinel();
-    if (quantapdf_export_pages(text_document, one, 1, &probe) !=
-            QUANTAPDF_ERROR_UNSUPPORTED ||
-        probe != NULL) {
-        fprintf(stderr, "non-PDF unsupported contract failed\n");
-        if (probe != NULL && probe != output_sentinel())
-            quantapdf_drop_output(probe);
-        probe = NULL;
+            QUANTAPDF_ERROR_FORMAT ||
+        text_document != NULL) {
+        fprintf(stderr, "non-PDF open contract failed\n");
         goto cleanup;
     }
 
@@ -230,8 +218,6 @@ cleanup:
     quantapdf_close(text_document);
     quantapdf_drop_output(first);
     quantapdf_drop_output(second);
-    if (probe != NULL && probe != output_sentinel())
-        quantapdf_drop_output(probe);
     (void)remove(COMPOSITION_OUTPUT_PDF);
     return result;
 }

@@ -1,5 +1,9 @@
 #include "internal.h"
 
+#include "backend/pdfium_document.h"
+
+#include <float.h>
+#include <math.h>
 #include <stdlib.h>
 
 quantapdf_status quantapdf_load_page(
@@ -8,8 +12,8 @@ quantapdf_status quantapdf_load_page(
     quantapdf_page **out_page)
 {
     quantapdf_page *page;
-    int page_count = 0;
     int caught_code = FZ_ERROR_NONE;
+    quantapdf_status status;
 
     if (out_page == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
@@ -18,30 +22,20 @@ quantapdf_status quantapdf_load_page(
     if (document == NULL || page_index < 0)
         return QUANTAPDF_ERROR_ARGUMENT;
 
-    fz_var(page_count);
-    fz_var(caught_code);
-
-    fz_try(document->ctx)
-    {
-        page_count = fz_count_pages(document->ctx, document->doc);
-    }
-    fz_catch(document->ctx)
-    {
-        caught_code = fz_caught(document->ctx);
-        fz_report_error(document->ctx);
-    }
-
-    if (caught_code != FZ_ERROR_NONE)
-        return quantapdf_status_from_backend(caught_code);
-    if (page_index >= page_count)
-        return QUANTAPDF_ERROR_ARGUMENT;
-
     page = (quantapdf_page *)calloc(1, sizeof(*page));
     if (page == NULL)
         return QUANTAPDF_ERROR_NOMEM;
 
     page->document = document;
+    page->page_index = page_index;
+    status = quantapdf_pdfium_load_page(
+        document->pdfium_document, page_index, &page->pdfium_page);
+    if (status != QUANTAPDF_OK) {
+        free(page);
+        return status;
+    }
     caught_code = FZ_ERROR_NONE;
+    fz_var(caught_code);
 
     fz_try(document->ctx)
     {
@@ -54,6 +48,7 @@ quantapdf_status quantapdf_load_page(
     }
 
     if (caught_code != FZ_ERROR_NONE) {
+        quantapdf_pdfium_drop_page(page->pdfium_page);
         free(page);
         return quantapdf_status_from_backend(caught_code);
     }
@@ -66,32 +61,31 @@ quantapdf_status quantapdf_page_bounds(
     quantapdf_page *page,
     quantapdf_rect *out_bounds)
 {
-    fz_rect bounds;
-    int caught_code = FZ_ERROR_NONE;
+    quantapdf_rect bounds;
+    quantapdf_status status;
+    double user_unit;
+    double width;
+    double height;
 
     if (page == NULL || out_bounds == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
-
-    fz_var(bounds);
-    fz_var(caught_code);
-
-    fz_try(page->document->ctx)
-    {
-        bounds = fz_bound_page(page->document->ctx, page->page);
-    }
-    fz_catch(page->document->ctx)
-    {
-        caught_code = fz_caught(page->document->ctx);
-        fz_report_error(page->document->ctx);
-    }
-
-    if (caught_code != FZ_ERROR_NONE)
-        return quantapdf_status_from_backend(caught_code);
-
-    out_bounds->x0 = bounds.x0;
-    out_bounds->y0 = bounds.y0;
-    out_bounds->x1 = bounds.x1;
-    out_bounds->y1 = bounds.y1;
+    status = quantapdf_pdfium_page_bounds(page->pdfium_page, &bounds);
+    if (status != QUANTAPDF_OK)
+        return status;
+    status = quantapdf_document_page_user_unit(
+        page->document, page->page_index, &user_unit);
+    if (status != QUANTAPDF_OK)
+        return status;
+    width = (double)bounds.x1 * user_unit;
+    height = (double)bounds.y1 * user_unit;
+    if (!isfinite(width) || !isfinite(height) ||
+        width <= 0.0 || height <= 0.0 ||
+        width > FLT_MAX || height > FLT_MAX)
+        return QUANTAPDF_ERROR_FORMAT;
+    out_bounds->x0 = 0.0f;
+    out_bounds->y0 = 0.0f;
+    out_bounds->x1 = (float)width;
+    out_bounds->y1 = (float)height;
     return QUANTAPDF_OK;
 }
 
@@ -148,5 +142,6 @@ void quantapdf_drop_page(quantapdf_page *page)
 
     if (page->page != NULL)
         fz_drop_page(page->document->ctx, page->page);
+    quantapdf_pdfium_drop_page(page->pdfium_page);
     free(page);
 }

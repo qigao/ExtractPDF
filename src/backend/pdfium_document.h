@@ -1,0 +1,41 @@
+#ifndef QUANTAPDF_BACKEND_PDFIUM_DOCUMENT_H
+#define QUANTAPDF_BACKEND_PDFIUM_DOCUMENT_H
+
+#include <stddef.h>
+
+#include <quantapdf/quantapdf.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct quantapdf_pdfium_document quantapdf_pdfium_document;
+typedef struct quantapdf_pdfium_page quantapdf_pdfium_page;
+
+quantapdf_status quantapdf_pdfium_open_memory(
+    const unsigned char *data,
+    size_t size,
+    const char *password_utf8,
+    quantapdf_pdfium_document **out_document);
+
+quantapdf_status quantapdf_pdfium_page_count(
+    quantapdf_pdfium_document *document,
+    int *out_page_count);
+
+quantapdf_status quantapdf_pdfium_load_page(
+    quantapdf_pdfium_document *document,
+    int page_index,
+    quantapdf_pdfium_page **out_page);
+
+quantapdf_status quantapdf_pdfium_page_bounds(
+    quantapdf_pdfium_page *page,
+    quantapdf_rect *out_bounds);
+
+void quantapdf_pdfium_drop_page(quantapdf_pdfium_page *page);
+void quantapdf_pdfium_close(quantapdf_pdfium_document *document);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif

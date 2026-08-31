@@ -205,11 +205,9 @@ static void test_cycle_depth_and_pdf_only_boundaries(void)
 
     document = NULL;
     outline = (quantapdf_outline *)&sentinel;
-    CHECK(quantapdf_open(COMPOSITION_NON_PDF, NULL, &document) == QUANTAPDF_OK);
-    CHECK(quantapdf_document_outline(document, &outline) ==
-          QUANTAPDF_ERROR_UNSUPPORTED);
-    CHECK(outline == NULL);
-    quantapdf_close(document);
+    CHECK(quantapdf_open(COMPOSITION_NON_PDF, NULL, &document) ==
+          QUANTAPDF_ERROR_FORMAT);
+    CHECK(document == NULL);
 }
 
 static void test_argument_and_reset_contract(void)

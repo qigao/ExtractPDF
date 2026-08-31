@@ -21,6 +21,11 @@ quantapdf_status quantapdf_qpdf_page_count(
     quantapdf_qpdf_document *document,
     int *out_page_count);
 
+quantapdf_status quantapdf_qpdf_page_user_unit(
+    quantapdf_qpdf_document *document,
+    int page_index,
+    double *out_user_unit);
+
 void quantapdf_qpdf_close(quantapdf_qpdf_document *document);
 
 #ifdef __cplusplus

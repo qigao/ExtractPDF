@@ -597,10 +597,8 @@ int main(void)
     bad.bounds.x0 = -1.0f;
     expect_crop_error(document, &bad, 1, QUANTAPDF_ERROR_ARGUMENT);
 
-    other = open_document(NON_PDF, NULL);
-    expect_crop_error(other, &full, 1, QUANTAPDF_ERROR_UNSUPPORTED);
-    quantapdf_close(other);
-    other = NULL;
+    CHECK(quantapdf_open(NON_PDF, NULL, &other) == QUANTAPDF_ERROR_FORMAT);
+    CHECK(other == NULL);
 
     other = open_document(ENCRYPTED_PDF, "user-pass");
     expect_crop_error(other, &full, 1, QUANTAPDF_ERROR_UNSUPPORTED);

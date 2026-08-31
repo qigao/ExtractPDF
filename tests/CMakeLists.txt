@@ -10,19 +10,6 @@ target_compile_definitions(quantapdf_test_backend_foundation PRIVATE
 add_test(NAME quantapdf.backend_foundation
   COMMAND quantapdf_test_backend_foundation)
 set_tests_properties(quantapdf.backend_foundation PROPERTIES TIMEOUT 30)
-if(WIN32)
-  set_property(TEST quantapdf.backend_foundation PROPERTY
-    ENVIRONMENT_MODIFICATION
-      "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
-elseif(APPLE)
-  set_property(TEST quantapdf.backend_foundation PROPERTY
-    ENVIRONMENT_MODIFICATION
-      "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
-else()
-  set_property(TEST quantapdf.backend_foundation PROPERTY
-    ENVIRONMENT_MODIFICATION
-      "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
-endif()
 
 add_executable(quantapdf_test_status test_status.c)
 target_link_libraries(quantapdf_test_status PRIVATE QuantaPDF::QuantaPDF)
@@ -42,6 +29,7 @@ target_compile_definitions(quantapdf_test_document PRIVATE
   TWO_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/two-page.pdf"
   PAGE_BOXES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/page-boxes.pdf"
   ENCRYPTED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/encrypted-one-page.pdf"
+  NON_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/composition-non-pdf.txt"
   TRUNCATED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/truncated.pdf"
   MISSING_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/does-not-exist.pdf"
   UTF8_PDF="${UTF8_PDF}")
@@ -277,13 +265,13 @@ target_link_libraries(quantapdf_test_pdf_form_mutation PRIVATE QuantaPDF::Quanta
 target_compile_definitions(quantapdf_test_pdf_form_mutation PRIVATE
   FORM_MUTATION_BASIC_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-basic.pdf"
   FORM_MUTATION_CHOICE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-choice.pdf"
-  FORM_MUTATION_GROUPS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-groups.pdf"
-  FORM_MUTATION_MODES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-modes.pdf"
+  FORM_MUTATION_GROUPS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-groups-pdfium.pdf"
+  FORM_MUTATION_MODES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-modes-pdfium.pdf"
   FORM_MUTATION_EVENTS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-events.pdf"
   FORM_MUTATION_NEED_APPEARANCES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-need-appearances.pdf"
   FORM_MUTATION_XFA_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-xfa.pdf"
   FORM_MUTATION_BAD_NEED_APPEARANCES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-bad-need-appearances.pdf"
-  FORM_MUTATION_DIRECT_FIELD_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-direct-field.pdf")
+  FORM_MUTATION_DIRECT_FIELD_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-mutation-direct-field-pdfium.pdf")
 add_test(NAME quantapdf.pdf_form_mutation
   COMMAND quantapdf_test_pdf_form_mutation)
 set_tests_properties(quantapdf.pdf_form_mutation PROPERTIES TIMEOUT 60)
@@ -327,3 +315,15 @@ target_compile_definitions(quantapdf_test_pdf_poster_split PRIVATE
   POSTER_BASIC_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/poster-basic.pdf")
 add_test(NAME quantapdf.pdf_poster_split COMMAND quantapdf_test_pdf_poster_split)
 set_tests_properties(quantapdf.pdf_poster_split PROPERTIES TIMEOUT 60)
+
+get_property(_quantapdf_tests DIRECTORY PROPERTY TESTS)
+if(WIN32)
+  set_property(TEST ${_quantapdf_tests} PROPERTY ENVIRONMENT_MODIFICATION
+    "PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+elseif(APPLE)
+  set_property(TEST ${_quantapdf_tests} PROPERTY ENVIRONMENT_MODIFICATION
+    "DYLD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+else()
+  set_property(TEST ${_quantapdf_tests} PROPERTY ENVIRONMENT_MODIFICATION
+    "LD_LIBRARY_PATH=path_list_prepend:${QUANTAPDF_PDFIUM_RUNTIME_DIR}")
+endif()

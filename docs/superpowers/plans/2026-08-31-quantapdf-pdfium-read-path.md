@@ -59,13 +59,13 @@ void quantapdf_pdfium_drop_page(quantapdf_pdfium_page *page);
 void quantapdf_pdfium_close(quantapdf_pdfium_document *document);
 ```
 
-- [ ] Read the complete file into QuantaPDF-owned bytes with `_wfopen_s` after strict UTF-8 conversion on Windows and `fopen` elsewhere. Detect seek/size/allocation/read failures without publishing partial data.
-- [ ] Map `FPDF_GetLastError()` exactly: file to `IO`, format/page to `FORMAT`, password to `PASSWORD`, security to `UNSUPPORTED`, unknown to `BACKEND`.
-- [ ] Extend the transitional document/page structs with opaque PDFium handles. Source bytes are freed only after the PDFium document closes.
-- [ ] Open PDFium and the transitional MuPDF document from the same file. Failure of either backend aborts construction; there is no fallback.
-- [ ] Route public page count and page bounds through PDFium. Route page-index validation through PDFium before loading the transitional MuPDF page required by unported features.
-- [ ] Add repeated open/page/drop tests and static checks proving `document.c` no longer calls MuPDF page counting and `page.c` no longer uses MuPDF for generic page bounds.
-- [ ] Run `quantapdf.document`, then the full Windows Release suite.
+- [x] Read the complete file into QuantaPDF-owned bytes with `_wfopen_s` after strict UTF-8 conversion on Windows and `fopen` elsewhere. Detect seek/size/allocation/read failures without publishing partial data.
+- [x] Map `FPDF_GetLastError()` exactly: file to `IO`, format/page to `FORMAT`, password to `PASSWORD`, security to `UNSUPPORTED`, unknown to `BACKEND`.
+- [x] Extend the transitional document/page structs with opaque PDFium handles. Source bytes are freed only after the PDFium document closes.
+- [x] Open PDFium and the transitional MuPDF document from the same file. Failure of either backend aborts construction; there is no fallback.
+- [x] Route public page count and page bounds through PDFium. Route page-index validation through PDFium before loading the transitional MuPDF page required by unported features.
+- [x] Add repeated open/page/drop tests and static checks proving `document.c` no longer calls MuPDF page counting and `page.c` no longer uses MuPDF for generic page bounds.
+- [x] Run `quantapdf.document`, then the full Windows Release suite.
 
 ---
 

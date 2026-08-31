@@ -80,6 +80,8 @@ The current supported surface includes:
 - Input paths are UTF-8.
 - `password == NULL` means no password was supplied.
 - Missing or incorrect passwords return `QUANTAPDF_ERROR_PASSWORD`.
+- `quantapdf_open` accepts PDF input; non-PDF data returns
+  `QUANTAPDF_ERROR_FORMAT`.
 - `quantapdf_open` leaves the output handle NULL on failure.
 - `quantapdf_close(NULL)`, `quantapdf_drop_page(NULL)`, and `quantapdf_drop_bitmap(NULL)` are safe.
 - qpdf and standard C++ exceptions are caught inside the private bridge and
@@ -116,7 +118,7 @@ Snapshot/output ownership is explicit:
 
 ## Page coordinates
 
-All public page rectangles use **Fitz page space** rather than raw PDF object coordinates:
+All public page rectangles use **displayed page space** rather than raw PDF object coordinates:
 
 - the CropBox top-left is the page-space origin `(0, 0)`;
 - x increases to the right;
@@ -127,7 +129,7 @@ All public page rectangles use **Fitz page space** rather than raw PDF object co
 
 This same page-space contract is intended for later text geometry, search quads, images, links, and annotations.
 
-Intrinsic format-specific rotation metadata is intentionally not part of the generic Page API. Fitz bounds already describe displayed page geometry; PDF `/Rotate`, if needed by callers, belongs in a later PDF-specific metadata surface. Rendering rotation is explicit and per-call.
+Intrinsic format-specific rotation metadata is intentionally not part of the generic Page API. Page bounds already describe displayed geometry, including `/Rotate` and `/UserUnit`; raw rotation metadata, if needed by callers, belongs in a later PDF-specific metadata surface. Rendering rotation is explicit and per-call.
 
 ## Rendering
 
@@ -147,7 +149,7 @@ quantapdf_render_options options = {
     144.0f, /* dpi */
     0.0f,   /* rotation_degrees */
     0,      /* clip_enabled */
-    { 0 },  /* clip in Fitz page space */
+    { 0 },  /* clip in displayed page space */
     0       /* alpha */
 };
 
@@ -156,14 +158,14 @@ quantapdf_render_page_with_options(page, &options, &bitmap);
 
 `struct_size` is part of the ABI contract. Callers should initialize it to the size of the struct they compiled against. Render options are a single append-only structure; the library ignores fields beyond the caller-provided size so older binaries retain their original defaults.
 
-`dpi` is the canonical zoom/resolution input: 72 DPI is scale 1.0, 144 DPI is scale 2.0. Rotation is in degrees and is applied only to that render call. When clipping is enabled, `clip` is expressed in Fitz page space and is transformed by the same DPI/rotation matrix; QuantaPDF renders directly into the clipped device bbox rather than allocating a full-page intermediate image.
+`dpi` is the canonical zoom/resolution input: 72 DPI is scale 1.0, 144 DPI is scale 2.0. Rotation is in degrees and is applied only to that render call. When clipping is enabled, `clip` is expressed in displayed page space and is transformed by the same DPI/rotation matrix; QuantaPDF renders directly into the clipped device bbox rather than allocating a full-page intermediate image.
 
 `alpha` accepts only 0 or 1:
 
 - `0`: 8-bit interleaved RGB, opaque white untouched pixels;
 - `1`: 8-bit interleaved RGBA, transparent untouched pixels.
 
-RGBA samples produced by the renderer use **premultiplied alpha**, matching MuPDF's rendered pixmap contract. `stride` returned by `quantapdf_bitmap_dimensions` is the authoritative byte distance between rows; callers must not assume a different packing rule. The pointer returned by `quantapdf_bitmap_data` is borrowed read-only storage and remains valid only until `quantapdf_drop_bitmap`.
+RGBA samples produced by the renderer use **premultiplied alpha**. `stride` returned by `quantapdf_bitmap_dimensions` is the authoritative byte distance between rows; callers must not assume a different packing rule. The pointer returned by `quantapdf_bitmap_data` is borrowed read-only storage and remains valid only until `quantapdf_drop_bitmap`.
 
 ## Thumbnails
 

@@ -164,7 +164,13 @@
     { "name": "linux-dev-user", "configurePreset": "linux-dev-user" },
     { "name": "linux-release-user", "configurePreset": "linux-release-user" },
     { "name": "macos-x64-release-user", "configurePreset": "macos-x64-release-user" },
-    { "name": "macos-arm64-release-user", "configurePreset": "macos-arm64-release-user" }
+    { "name": "macos-arm64-release-user", "configurePreset": "macos-arm64-release-user" },
+    { "name": "install-win-dev-user", "configurePreset": "win-dev-user", "targets": ["install"] },
+    { "name": "install-win-release-user", "configurePreset": "win-release-user", "targets": ["install"] },
+    { "name": "install-linux-dev-user", "configurePreset": "linux-dev-user", "targets": ["install"] },
+    { "name": "install-linux-release-user", "configurePreset": "linux-release-user", "targets": ["install"] },
+    { "name": "install-macos-x64-release-user", "configurePreset": "macos-x64-release-user", "targets": ["install"] },
+    { "name": "install-macos-arm64-release-user", "configurePreset": "macos-arm64-release-user", "targets": ["install"] }
   ],
   "testPresets": [
     { "name": "win-dev-user", "inherits": "base-test", "configurePreset": "win-dev-user" },

@@ -60,6 +60,11 @@ static void test_arguments_and_errors(void)
     CHECK(quantapdf_open(TRUNCATED_PDF, NULL, &doc) == QUANTAPDF_ERROR_FORMAT);
     CHECK(doc == NULL);
 
+    trace_step("non-PDF file");
+    doc = (quantapdf_document *)&sentinel;
+    CHECK(quantapdf_open(NON_PDF, NULL, &doc) == QUANTAPDF_ERROR_FORMAT);
+    CHECK(doc == NULL);
+
     trace_step("page-count argument validation");
     pages = 123;
     CHECK(quantapdf_page_count(NULL, &pages) == QUANTAPDF_ERROR_ARGUMENT);

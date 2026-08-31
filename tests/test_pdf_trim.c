@@ -228,11 +228,8 @@ int main(void)
     bad.bounds.x1 = source_media.x1 + 1.0f;
     expect_trim_error(document, &bad, 1, QUANTAPDF_ERROR_ARGUMENT);
 
-    other = open_document(non_pdf, NULL);
-    bad = make_trim(0, 0.0f, 0.0f, 100.0f, 100.0f);
-    expect_trim_error(other, &bad, 1, QUANTAPDF_ERROR_UNSUPPORTED);
-    quantapdf_close(other);
-    other = NULL;
+    CHECK(quantapdf_open(non_pdf, NULL, &other) == QUANTAPDF_ERROR_FORMAT);
+    CHECK(other == NULL);
 
     other = open_document(encrypted_pdf, "user-pass");
     bad = make_trim(0, 0.0f, 0.0f, 100.0f, 100.0f);

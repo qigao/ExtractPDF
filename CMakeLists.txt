@@ -31,6 +31,7 @@ endif()
 
 add_library(quantapdf_backend STATIC
   src/backend/qpdf_document.cpp
+  src/backend/pdfium_document.cpp
   src/backend/pdfium_runtime.cpp)
 target_compile_features(quantapdf_backend PRIVATE cxx_std_20)
 target_include_directories(quantapdf_backend PRIVATE
@@ -44,6 +45,7 @@ set_target_properties(quantapdf_backend PROPERTIES
 
 add_library(quantapdf
   src/status.c
+  src/input_file.c
   src/document.c
   src/page.c
   src/render.c

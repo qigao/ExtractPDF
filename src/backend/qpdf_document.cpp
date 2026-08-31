@@ -5,6 +5,7 @@
 #include <qpdf/QPDFExc.hh>
 
 #include <climits>
+#include <cmath>
 #include <exception>
 #include <memory>
 #include <new>
@@ -102,4 +103,40 @@ extern "C" void quantapdf_qpdf_close(
     quantapdf_qpdf_document *document)
 {
     delete document;
+}
+
+extern "C" quantapdf_status quantapdf_qpdf_page_user_unit(
+    quantapdf_qpdf_document *document,
+    int page_index,
+    double *out_user_unit)
+{
+    if (out_user_unit == nullptr)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    *out_user_unit = 0.0;
+    if (document == nullptr || document->pdf == nullptr || page_index < 0)
+        return QUANTAPDF_ERROR_ARGUMENT;
+
+    try {
+        auto const& pages = document->pdf->getAllPages();
+        if (static_cast<size_t>(page_index) >= pages.size())
+            return QUANTAPDF_ERROR_ARGUMENT;
+        QPDFObjectHandle value =
+            pages[static_cast<size_t>(page_index)].getKey("/UserUnit");
+        if (!value.null() && !value.isNumber())
+            return QUANTAPDF_ERROR_FORMAT;
+        double const user_unit = value.null() ? 1.0 : value.getNumericValue();
+        if (!std::isfinite(user_unit) || user_unit <= 0.0 ||
+            user_unit > 75000.0)
+            return QUANTAPDF_ERROR_FORMAT;
+        *out_user_unit = user_unit;
+        return QUANTAPDF_OK;
+    } catch (QPDFExc const& error) {
+        return quantapdf_status_from_qpdf(error);
+    } catch (std::bad_alloc const&) {
+        return QUANTAPDF_ERROR_NOMEM;
+    } catch (std::exception const&) {
+        return QUANTAPDF_ERROR_BACKEND;
+    } catch (...) {
+        return QUANTAPDF_ERROR_BACKEND;
+    }
 }
