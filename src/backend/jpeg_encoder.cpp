@@ -47,17 +47,21 @@ void configure_compression(
     }
 }
 
-bool sample_size_overflows(jpeg_image_spec const& spec) noexcept
+} // namespace
+
+bool
+jpeg_sample_size_overflows(
+    std::size_t width,
+    std::size_t height,
+    std::size_t components) noexcept
 {
     std::size_t const maximum = std::numeric_limits<std::size_t>::max();
-    if (spec.width > maximum / spec.height) {
+    if (width != 0 && height > maximum / width) {
         return true;
     }
-    std::size_t const pixels = spec.width * spec.height;
-    return pixels > maximum / static_cast<std::size_t>(spec.components);
+    std::size_t const pixels = width * height;
+    return components != 0 && pixels > maximum / components;
 }
-
-} // namespace
 
 class jpeg_encoder::impl {
   public:
@@ -116,7 +120,10 @@ jpeg_encoder::create(
         static_cast<std::size_t>(JPEG_MAX_DIMENSION);
     if (spec.width > jpeg_max_dimension || spec.height > jpeg_max_dimension ||
         spec.width > jdimension_max || spec.height > jdimension_max ||
-        sample_size_overflows(spec)) {
+        jpeg_sample_size_overflows(
+            spec.width,
+            spec.height,
+            static_cast<std::size_t>(spec.components))) {
         return QUANTAPDF_ERROR_FORMAT;
     }
 

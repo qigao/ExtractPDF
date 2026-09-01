@@ -468,6 +468,21 @@ void test_factory_validation()
         "factory failure clears a previously published encoder");
 }
 
+void test_sample_size_overflow()
+{
+    std::size_t const maximum = std::numeric_limits<std::size_t>::max();
+    check(
+        !quantapdf::detail::jpeg_sample_size_overflows(maximum, 1, 1),
+        "maximum representable sample count does not overflow");
+    check(
+        quantapdf::detail::jpeg_sample_size_overflows(maximum, 2, 1),
+        "pixel-count multiplication overflow is detected");
+    check(
+        quantapdf::detail::jpeg_sample_size_overflows(
+            maximum / 3 + 1, 1, 3),
+        "component-count multiplication overflow is detected");
+}
+
 void test_wrong_sample_size()
 {
     for (std::size_t size: {gray_samples.size() - 1, gray_samples.size() + 1}) {
@@ -497,6 +512,7 @@ int main()
 {
     test_valid_encoding();
     test_factory_validation();
+    test_sample_size_overflow();
     test_wrong_sample_size();
     return failures == 0 ? 0 : 1;
 }

@@ -17,6 +17,11 @@ struct jpeg_image_spec {
     int quality;
 };
 
+bool jpeg_sample_size_overflows(
+    std::size_t width,
+    std::size_t height,
+    std::size_t components) noexcept;
+
 class jpeg_encoder {
   public:
     ~jpeg_encoder();
