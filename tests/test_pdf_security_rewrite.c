@@ -55,6 +55,11 @@ int quantapdf_security_create_signature_fixture(
     int kind,
     int encrypt);
 
+int quantapdf_security_create_incremental_signature_fixture(
+    const char *source_path,
+    const char *output_path,
+    const char *password);
+
 int quantapdf_security_create_id_fixture(
     const char *source_path,
     const char *output_path,
@@ -472,6 +477,7 @@ static int test_authentication_randomness_and_lifetime(void)
 
 static int test_signed_and_legacy_policy(void)
 {
+    quantapdf_document *plain = NULL;
     quantapdf_document *signed_document = NULL;
     quantapdf_document *legacy_document = NULL;
     quantapdf_output *output = (quantapdf_output *)(uintptr_t)1u;
@@ -525,6 +531,45 @@ static int test_signed_and_legacy_policy(void)
         CHECK(output == NULL);
         quantapdf_close(signed_document);
     }
+
+    CHECK(quantapdf_security_create_incremental_signature_fixture(
+        SECURITY_PLAIN_PDF, SECURITY_SIGNATURE_FIXTURE, NULL));
+    CHECK(quantapdf_open(
+              SECURITY_SIGNATURE_FIXTURE,
+              NULL,
+              &signed_document) == QUANTAPDF_OK);
+    output = (quantapdf_output *)(uintptr_t)1u;
+    CHECK(quantapdf_encrypt_pdf(
+              signed_document, &options, &output) ==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(output == NULL);
+    quantapdf_close(signed_document);
+
+    CHECK(quantapdf_open(SECURITY_PLAIN_PDF, NULL, &plain) == QUANTAPDF_OK);
+    CHECK(quantapdf_encrypt_pdf(plain, &options, &output) == QUANTAPDF_OK);
+    CHECK(quantapdf_output_save_file(
+              output, SECURITY_ENCRYPTED_OUTPUT) == QUANTAPDF_OK);
+    quantapdf_drop_output(output);
+    output = NULL;
+    quantapdf_close(plain);
+    CHECK(quantapdf_security_create_incremental_signature_fixture(
+        SECURITY_ENCRYPTED_OUTPUT,
+        SECURITY_SIGNATURE_FIXTURE,
+        "user"));
+    CHECK(quantapdf_open(
+              SECURITY_SIGNATURE_FIXTURE,
+              "user",
+              &signed_document) == QUANTAPDF_OK);
+    output = (quantapdf_output *)(uintptr_t)1u;
+    CHECK(quantapdf_decrypt_pdf(signed_document, &output) ==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(output == NULL);
+    output = (quantapdf_output *)(uintptr_t)1u;
+    CHECK(quantapdf_reencrypt_pdf(
+              signed_document, &options, &output) ==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(output == NULL);
+    quantapdf_close(signed_document);
 
     CHECK(quantapdf_open(
               SECURITY_LEGACY_ENCRYPTED_PDF,

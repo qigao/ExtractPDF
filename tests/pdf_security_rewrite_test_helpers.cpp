@@ -5,7 +5,9 @@
 #include <cstddef>
 #include <cstring>
 #include <fstream>
+#include <iomanip>
 #include <iterator>
+#include <sstream>
 
 extern "C" {
 
@@ -194,6 +196,64 @@ int quantapdf_security_create_signature_fixture(
         }
         writer.write();
         return 1;
+    } catch (...) {
+        return 0;
+    }
+}
+
+int quantapdf_security_create_incremental_signature_fixture(
+    char const *source_path,
+    char const *output_path,
+    char const *password)
+{
+    if (source_path == nullptr || output_path == nullptr)
+        return 0;
+    try {
+        auto pdf = QPDF::create();
+        pdf->setAttemptRecovery(false);
+        pdf->processFile(source_path, password == nullptr ? "" : password);
+        QPDFObjGen const root = pdf->getRoot().getObjGen();
+        long long const object_number =
+            pdf->getTrailer().getKey("/Size").getIntValue();
+        if (!root.isIndirect() || object_number <= 0)
+            return 0;
+
+        std::ifstream input(source_path, std::ios::binary);
+        std::string bytes(
+            (std::istreambuf_iterator<char>(input)),
+            std::istreambuf_iterator<char>());
+        if (!input.good() && !input.eof())
+            return 0;
+        size_t const marker = bytes.rfind("startxref");
+        if (marker == std::string::npos)
+            return 0;
+        size_t const number_begin = bytes.find_first_of(
+            "0123456789", marker + std::strlen("startxref"));
+        if (number_begin == std::string::npos)
+            return 0;
+        size_t parsed = 0;
+        unsigned long long const previous_xref = std::stoull(
+            bytes.substr(number_begin), &parsed);
+        if (parsed == 0)
+            return 0;
+
+        std::ostringstream update;
+        size_t const object_offset = bytes.size();
+        update << object_number
+               << " 0 obj\n<< /Type /Sig >>\nendobj\n";
+        size_t const xref_offset = object_offset + update.str().size();
+        update << "xref\n" << object_number << " 1\n"
+               << std::setw(10) << std::setfill('0') << object_offset
+               << " 00000 n \ntrailer\n<< /Size "
+               << (object_number + 1) << " /Root "
+               << root.getObj() << ' ' << root.getGen()
+               << " R /Prev " << previous_xref
+               << " >>\nstartxref\n" << xref_offset << "\n%%EOF\n";
+        bytes += update.str();
+
+        std::ofstream output(output_path, std::ios::binary | std::ios::trunc);
+        output.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+        return output.good() ? 1 : 0;
     } catch (...) {
         return 0;
     }
