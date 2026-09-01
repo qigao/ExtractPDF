@@ -124,9 +124,15 @@ add_test(NAME quantapdf.pdf_security COMMAND quantapdf_test_pdf_security)
 set_tests_properties(quantapdf.pdf_security PROPERTIES TIMEOUT 60)
 
 add_executable(quantapdf_test_pdf_security_rewrite
-  test_pdf_security_rewrite.c)
+  test_pdf_security_rewrite.c
+  pdf_security_rewrite_test_helpers.cpp)
 target_link_libraries(quantapdf_test_pdf_security_rewrite PRIVATE
-  QuantaPDF::QuantaPDF)
+  QuantaPDF::QuantaPDF
+  qpdf::libqpdf)
+target_compile_features(quantapdf_test_pdf_security_rewrite PRIVATE cxx_std_20)
+target_compile_definitions(quantapdf_test_pdf_security_rewrite PRIVATE
+  SECURITY_PLAIN_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
+  SECURITY_ENCRYPTED_OUTPUT="${CMAKE_CURRENT_BINARY_DIR}/security-rewrite-encrypted.pdf")
 add_test(NAME quantapdf.pdf_security_rewrite
   COMMAND quantapdf_test_pdf_security_rewrite)
 set_tests_properties(quantapdf.pdf_security_rewrite PROPERTIES TIMEOUT 60)

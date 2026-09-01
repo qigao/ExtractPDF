@@ -28,6 +28,7 @@ struct quantapdf_document {
     quantapdf_pdfium_document *pdfium_document;
     quantapdf_qpdf_document *qpdf_document;
     char *password;
+    size_t password_size;
 #if defined(QUANTAPDF_TESTING)
     int test_poster_fault;
     size_t test_image_unique_count;

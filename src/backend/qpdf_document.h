@@ -141,6 +141,23 @@ quantapdf_status quantapdf_qpdf_sanitize(
     unsigned char **out_data,
     size_t *out_size);
 
+quantapdf_status quantapdf_qpdf_encrypt_pdf(
+    quantapdf_qpdf_document *document,
+    const quantapdf_encryption_options *options,
+    unsigned char **out_data,
+    size_t *out_size);
+
+quantapdf_status quantapdf_qpdf_decrypt_pdf(
+    quantapdf_qpdf_document *document,
+    unsigned char **out_data,
+    size_t *out_size);
+
+quantapdf_status quantapdf_qpdf_reencrypt_pdf(
+    quantapdf_qpdf_document *document,
+    const quantapdf_encryption_options *options,
+    unsigned char **out_data,
+    size_t *out_size);
+
 quantapdf_status quantapdf_qpdf_flatten_interactive(
     quantapdf_qpdf_document *document,
     uint32_t flags,

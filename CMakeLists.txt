@@ -6,6 +6,7 @@ include(GNUInstallDirs)
 option(QUANTAPDF_BUILD_TESTS "Build QuantaPDF tests" ON)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+include(QuantaPDFExports)
 include(QuantaPDFPdfium)
 quantapdf_import_pdfium()
 
@@ -37,6 +38,7 @@ endif()
 add_library(quantapdf_backend STATIC
   src/backend/qpdf_document.cpp
   src/backend/qpdf_composer.cpp
+  src/backend/secure_random.cpp
   src/backend/jpeg_validator.c
   src/backend/jpeg_encoder.cpp
   src/backend/pdfium_document.cpp
@@ -50,6 +52,11 @@ target_link_libraries(quantapdf_backend PRIVATE
   qpdf::libqpdf
   JPEG::JPEG
   ZLIB::ZLIB)
+if(WIN32)
+  target_link_libraries(quantapdf_backend PRIVATE bcrypt)
+elseif(APPLE)
+  target_link_libraries(quantapdf_backend PRIVATE "-framework Security")
+endif()
 set_target_properties(quantapdf_backend PROPERTIES
   POSITION_INDEPENDENT_CODE ON)
 
@@ -96,6 +103,8 @@ set_target_properties(quantapdf PROPERTIES
   LINKER_LANGUAGE CXX
   VERSION "${PROJECT_VERSION}"
   SOVERSION "${PROJECT_VERSION_MAJOR}")
+quantapdf_configure_shared_exports(
+  quantapdf "${CMAKE_CURRENT_SOURCE_DIR}/abi/quantapdf-v2.exports")
 
 if(BUILD_SHARED_LIBS)
   target_compile_definitions(quantapdf

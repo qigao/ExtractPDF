@@ -14,6 +14,9 @@ extern "C" {
 #  else
 #    define QUANTAPDF_API __declspec(dllimport)
 #  endif
+#elif defined(QUANTAPDF_SHARED) && \
+    (defined(__GNUC__) || defined(__clang__))
+#  define QUANTAPDF_API __attribute__((visibility("default")))
 #else
 #  define QUANTAPDF_API
 #endif
