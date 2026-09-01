@@ -80,13 +80,22 @@ class jpeg_encoder {
         Pipeline* next,
         std::unique_ptr<jpeg_encoder>* out) noexcept;
     Pipeline* pipeline() noexcept;
+
+  private:
+    class impl;
+    explicit jpeg_encoder(std::unique_ptr<impl>) noexcept;
+    std::unique_ptr<impl> impl_;
 };
 }
 ```
 
-The wrapper owns both `Pl_DCT::CompressConfig` and `Pl_DCT`, so the callback
-configuration outlives the pipeline. It accepts decoded bytes incrementally
-and does not expose a raw-sample or encoded-byte vector API.
+`jpeg_encoder::impl` declares its `std::unique_ptr<Pl_DCT::CompressConfig>`
+member before its `std::unique_ptr<Pl_DCT>` member and constructs them in that
+order, so the callback configuration outlives the pipeline and is destroyed
+after it. The private constructor accepts the fully created pImpl, allowing
+the static factory to publish only a usable encoder. The wrapper accepts
+decoded bytes incrementally and does not expose a raw-sample or encoded-byte
+vector API.
 
 - [ ] **Step 1: Add a compile-red characterization test**
 
@@ -167,9 +176,10 @@ because the scaffolded `jpeg_encoder::create()` returns BACKEND.
 - [ ] **Step 3: Implement the minimal fixed encoder**
 
 In `jpeg_encoder.cpp`, validate `next` and `out` first, clear `*out`, use
-checked `width * height * components`, require components 1 or 3 and quality
-1..100, and map observable allocation failure to `QUANTAPDF_ERROR_NOMEM`.
-Configure `Pl_DCT` exactly:
+checked `width * height * components`, independently reject width or height
+above `std::numeric_limits<JDIMENSION>::max()` before converting them, require
+components 1 or 3 and quality 1..100, and map observable allocation failure to
+`QUANTAPDF_ERROR_NOMEM`. Configure `Pl_DCT` exactly:
 
 ```cpp
 auto config = Pl_DCT::make_compress_config(
@@ -231,8 +241,11 @@ dimensions, overflowing dimensions, components 2/4, and qualities 0/101.
 Require `QUANTAPDF_ERROR_ARGUMENT` for invalid factory shape and
 `QUANTAPDF_ERROR_FORMAT` for checked image-size overflow. Exercise short and
 long sample writes and require a caught codec/runtime failure rather than
-memory over-read or partial publication. Record only the controlled-fixture
-facts that quality 40 and 90 bytes differ and quality 100 still emits JPEG.
+memory over-read or partial publication. Add a dimension just above
+`JDIMENSION` maximum when `size_t` can represent it, independent of the
+multiplication-overflow case, and require FORMAT. Record only the
+controlled-fixture facts that quality 40 and 90 bytes differ and quality 100
+still emits JPEG.
 
 Run:
 
