@@ -33,7 +33,7 @@ static void compare_bytes(
         SCHECK(memcmp(left, right, left_size) == 0);
 }
 
-static void compare_outline(
+static size_t compare_outline(
     quantapdf_document *left_document,
     quantapdf_document *right_document)
 {
@@ -79,9 +79,12 @@ static void compare_outline(
     }
     quantapdf_drop_outline(right);
     quantapdf_drop_outline(left);
+    return left_count;
 }
 
-static void compare_links(quantapdf_page *left_page, quantapdf_page *right_page)
+static size_t compare_links(
+    quantapdf_page *left_page,
+    quantapdf_page *right_page)
 {
     quantapdf_link_page *left = NULL;
     quantapdf_link_page *right = NULL;
@@ -113,9 +116,10 @@ static void compare_links(quantapdf_page *left_page, quantapdf_page *right_page)
     }
     quantapdf_drop_link_page(right);
     quantapdf_drop_link_page(left);
+    return left_count;
 }
 
-static void compare_annotations(
+static size_t compare_annotations(
     quantapdf_page *left_page,
     quantapdf_page *right_page)
 {
@@ -151,6 +155,7 @@ static void compare_annotations(
     }
     quantapdf_drop_annotation_page(right);
     quantapdf_drop_annotation_page(left);
+    return left_count;
 }
 
 static size_t compare_images(
@@ -171,16 +176,32 @@ static size_t compare_images(
     for (index = 0; index < left_count; ++index) {
         quantapdf_image_info left_info = {sizeof(left_info)};
         quantapdf_image_info right_info = {sizeof(right_info)};
+        quantapdf_bitmap *left_bitmap = NULL;
+        quantapdf_bitmap *right_bitmap = NULL;
+        const unsigned char *left_pixels = NULL;
+        const unsigned char *right_pixels = NULL;
+        size_t left_pixel_size = 0;
+        size_t right_pixel_size = 0;
         SCHECK(quantapdf_image_get_info(left, index, &left_info) == QUANTAPDF_OK);
         SCHECK(quantapdf_image_get_info(right, index, &right_info) == QUANTAPDF_OK);
         SCHECK(memcmp(&left_info, &right_info, sizeof(left_info)) == 0);
+        SCHECK(quantapdf_image_render(left, index, &left_bitmap) == QUANTAPDF_OK);
+        SCHECK(quantapdf_image_render(right, index, &right_bitmap) == QUANTAPDF_OK);
+        SCHECK(quantapdf_bitmap_data(
+            left_bitmap, &left_pixels, &left_pixel_size) == QUANTAPDF_OK);
+        SCHECK(quantapdf_bitmap_data(
+            right_bitmap, &right_pixels, &right_pixel_size) == QUANTAPDF_OK);
+        SCHECK(left_pixel_size != 0 && left_pixel_size == right_pixel_size);
+        SCHECK(memcmp(left_pixels, right_pixels, left_pixel_size) == 0);
+        quantapdf_drop_bitmap(right_bitmap);
+        quantapdf_drop_bitmap(left_bitmap);
     }
     quantapdf_drop_image_page(right);
     quantapdf_drop_image_page(left);
     return left_count;
 }
 
-static void compare_text_and_search(
+static size_t compare_text_and_search(
     quantapdf_page *left_page,
     quantapdf_page *right_page)
 {
@@ -233,9 +254,10 @@ static void compare_text_and_search(
     free(left_results);
     quantapdf_drop_text_page(right);
     quantapdf_drop_text_page(left);
+    return left_plain_size;
 }
 
-static void compare_form(
+static size_t compare_form(
     quantapdf_document *left_document,
     quantapdf_document *right_document)
 {
@@ -243,6 +265,7 @@ static void compare_form(
     quantapdf_form *right = NULL;
     size_t left_count = 0;
     size_t right_count = 0;
+    size_t field_count;
     size_t field;
 
     SCHECK(quantapdf_document_form(left_document, &left) == QUANTAPDF_OK);
@@ -250,6 +273,7 @@ static void compare_form(
     SCHECK(quantapdf_form_field_count(left, &left_count) == QUANTAPDF_OK);
     SCHECK(quantapdf_form_field_count(right, &right_count) == QUANTAPDF_OK);
     SCHECK(left_count == right_count);
+    field_count = left_count;
     for (field = 0; field < left_count; ++field) {
         quantapdf_form_field_info left_info = {sizeof(left_info)};
         quantapdf_form_field_info right_info = {sizeof(right_info)};
@@ -330,6 +354,7 @@ static void compare_form(
     }
     quantapdf_drop_form(right);
     quantapdf_drop_form(left);
+    return field_count;
 }
 
 static void compare_metadata(
@@ -355,7 +380,16 @@ static void compare_metadata(
     }
 }
 
-static size_t compare_documents(
+typedef struct semantic_observations {
+    size_t image_occurrences;
+    size_t link_occurrences;
+    size_t annotation_occurrences;
+    size_t form_fields;
+    size_t outline_nodes;
+    size_t text_bytes;
+} semantic_observations;
+
+static semantic_observations compare_documents(
     const char *source_path,
     const char *fixture_path)
 {
@@ -375,7 +409,7 @@ static size_t compare_documents(
     int right_pages = 0;
     int page_index;
     quantapdf_status status;
-    size_t image_occurrences = 0;
+    semantic_observations observed = {0};
 
     SCHECK(quantapdf_open(source_path, NULL, &left) == QUANTAPDF_OK);
     {
@@ -409,8 +443,8 @@ static size_t compare_documents(
     SCHECK(quantapdf_page_count(right, &right_pages) == QUANTAPDF_OK);
     SCHECK(left_pages == right_pages);
     compare_metadata(left, right);
-    compare_outline(left, right);
-    compare_form(left, right);
+    observed.outline_nodes += compare_outline(left, right);
+    observed.form_fields += compare_form(left, right);
     for (page_index = 0; page_index < left_pages; ++page_index) {
         quantapdf_page *left_page = NULL;
         quantapdf_page *right_page = NULL;
@@ -431,16 +465,17 @@ static size_t compare_documents(
                 right_page, (quantapdf_page_box)box, &right_bounds) == QUANTAPDF_OK);
             SCHECK(memcmp(&left_bounds, &right_bounds, sizeof(left_bounds)) == 0);
         }
-        compare_text_and_search(left_page, right_page);
-        image_occurrences += compare_images(left_page, right_page);
-        compare_links(left_page, right_page);
-        compare_annotations(left_page, right_page);
+        observed.text_bytes += compare_text_and_search(left_page, right_page);
+        observed.image_occurrences += compare_images(left_page, right_page);
+        observed.link_occurrences += compare_links(left_page, right_page);
+        observed.annotation_occurrences +=
+            compare_annotations(left_page, right_page);
         quantapdf_drop_page(right_page);
         quantapdf_drop_page(left_page);
     }
     quantapdf_close(right);
     quantapdf_close(left);
-    return image_occurrences;
+    return observed;
 }
 
 void quantapdf_security_check_public_semantics(void)
@@ -454,12 +489,24 @@ void quantapdf_security_check_public_semantics(void)
         SECURITY_SEMANTIC_METADATA_PDF,
         SECURITY_SEMANTIC_ANNOTATIONS_PDF};
     size_t index;
-    size_t image_occurrences = 0;
+    semantic_observations totals = {0};
     for (index = 0; index < sizeof(fixtures) / sizeof(fixtures[0]); ++index) {
+        semantic_observations observed;
         SCHECK(quantapdf_security_canonicalize_fixture(
             fixtures[index], SECURITY_SEMANTIC_CANONICAL));
-        image_occurrences += compare_documents(
+        observed = compare_documents(
             SECURITY_SEMANTIC_CANONICAL, fixtures[index]);
+        totals.image_occurrences += observed.image_occurrences;
+        totals.link_occurrences += observed.link_occurrences;
+        totals.annotation_occurrences += observed.annotation_occurrences;
+        totals.form_fields += observed.form_fields;
+        totals.outline_nodes += observed.outline_nodes;
+        totals.text_bytes += observed.text_bytes;
     }
-    SCHECK(image_occurrences >= 1);
+    SCHECK(totals.image_occurrences >= 1);
+    SCHECK(totals.link_occurrences >= 1);
+    SCHECK(totals.annotation_occurrences >= 1);
+    SCHECK(totals.form_fields >= 1);
+    SCHECK(totals.outline_nodes >= 1);
+    SCHECK(totals.text_bytes >= 1);
 }
