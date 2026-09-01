@@ -166,7 +166,7 @@ int quantapdf_security_create_signature_fixture(
     int encrypt)
 {
     if (source_path == nullptr || output_path == nullptr ||
-        kind < 1 || kind > 8)
+        kind < 1 || kind > 11)
         return 0;
     try {
         auto pdf = QPDF::create();
@@ -193,9 +193,19 @@ int quantapdf_security_create_signature_fixture(
                 malformed.replaceKey(
                     "/Type", QPDFObjectHandle::newName("/NotSignature"));
             signature = pdf->makeIndirectObject(malformed);
-        } else if (kind >= 7) {
+        } else if (kind >= 7 && kind <= 8) {
             signature = QPDFObjectHandle::newDictionary({
                 {"/Type", QPDFObjectHandle::newName("/Sig")}});
+        } else if (kind >= 9) {
+            QPDFObjectHandle byte_range = QPDFObjectHandle::newArray();
+            for (int index = 0; index < 4; ++index)
+                byte_range.appendItem(QPDFObjectHandle::newInteger(0));
+            signature = QPDFObjectHandle::newDictionary({
+                {"/ByteRange", byte_range},
+                {"/Contents", QPDFObjectHandle::newString("signed")}});
+            if (kind == 11)
+                signature.replaceKey(
+                    "/Type", QPDFObjectHandle::newName("/DocTimeStamp"));
         }
         if (kind == 1) {
             pdf->getRoot().replaceKey(
@@ -214,7 +224,7 @@ int quantapdf_security_create_signature_fixture(
             pdf->getRoot().replaceKey(
                 "/AcroForm", QPDFObjectHandle::newDictionary({
                     {"/Fields", fields}}));
-        } else if (kind == 7) {
+        } else if (kind == 7 || kind == 9) {
             QPDFObjectHandle field = pdf->makeIndirectObject(
                 QPDFObjectHandle::newDictionary({
                     {"/FT", QPDFObjectHandle::newName("/Sig")},
@@ -224,7 +234,7 @@ int quantapdf_security_create_signature_fixture(
             pdf->getRoot().replaceKey(
                 "/AcroForm", QPDFObjectHandle::newDictionary({
                     {"/Fields", fields}}));
-        } else if (kind == 8) {
+        } else if (kind == 8 || kind == 10 || kind == 11) {
             pdf->getRoot().replaceKey(
                 "/Perms", QPDFObjectHandle::newDictionary({
                     {"/DocMDP", signature}}));

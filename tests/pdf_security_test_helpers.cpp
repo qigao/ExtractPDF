@@ -44,8 +44,12 @@ static QPDFObjectHandle pdf_security_action(QPDF& pdf, const char *name)
 
 static QPDFObjectHandle pdf_security_signature(QPDF& pdf)
 {
+    QPDFObjectHandle byte_range = QPDFObjectHandle::newArray();
+    for (int index = 0; index < 4; ++index)
+        byte_range.appendItem(QPDFObjectHandle::newInteger(0));
     return pdf.makeIndirectObject(QPDFObjectHandle::newDictionary({
         {"/Type", QPDFObjectHandle::newName("/Sig")},
+        {"/ByteRange", byte_range},
         {"/Contents", QPDFObjectHandle::newString("signed")}}));
 }
 
