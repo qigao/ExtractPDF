@@ -36,6 +36,13 @@ typedef struct quantapdf_qpdf_image_recompression_test_stats {
     int every_provider_once;
 } quantapdf_qpdf_image_recompression_test_stats;
 
+typedef struct quantapdf_qpdf_security_test_stats {
+    size_t provider_entries;
+    size_t configure_requests;
+    size_t write_requests;
+    size_t provider_restores;
+} quantapdf_qpdf_security_test_stats;
+
 quantapdf_status quantapdf_qpdf_open_memory(
     const unsigned char *data,
     size_t size,
@@ -144,6 +151,8 @@ quantapdf_status quantapdf_qpdf_sanitize(
 quantapdf_status quantapdf_qpdf_encrypt_pdf(
     quantapdf_qpdf_document *document,
     const quantapdf_encryption_options *options,
+    int test_fault,
+    quantapdf_qpdf_security_test_stats *test_stats,
     unsigned char **out_data,
     size_t *out_size);
 
@@ -155,6 +164,8 @@ quantapdf_status quantapdf_qpdf_decrypt_pdf(
 quantapdf_status quantapdf_qpdf_reencrypt_pdf(
     quantapdf_qpdf_document *document,
     const quantapdf_encryption_options *options,
+    int test_fault,
+    quantapdf_qpdf_security_test_stats *test_stats,
     unsigned char **out_data,
     size_t *out_size);
 

@@ -7373,12 +7373,36 @@ enum class quantapdf_qpdf_security_operation {
 class quantapdf_qpdf_random_provider final : public RandomDataProvider
 {
   public:
+    quantapdf_qpdf_random_provider(
+        int test_fault,
+        int const *phase,
+        quantapdf_qpdf_security_test_stats *test_stats) :
+        test_fault(test_fault),
+        phase(phase),
+        test_stats(test_stats)
+    {
+    }
+
     void provideRandomData(unsigned char *data, size_t size) override
     {
+        if (test_stats != nullptr) {
+            if (*phase == 1)
+                ++test_stats->configure_requests;
+            else
+                ++test_stats->write_requests;
+        }
+        if ((test_fault == 1 && *phase == 1) ||
+            (test_fault == 2 && *phase == 2))
+            throw std::runtime_error("QuantaPDF test entropy failure");
         quantapdf_status const status = quantapdf_secure_random(data, size);
         if (status != QUANTAPDF_OK)
             throw std::runtime_error("QuantaPDF secure random failed");
     }
+
+  private:
+    int test_fault;
+    int const *phase;
+    quantapdf_qpdf_security_test_stats *test_stats;
 };
 
 std::mutex quantapdf_qpdf_provider_mutex;
@@ -7386,17 +7410,26 @@ std::mutex quantapdf_qpdf_provider_mutex;
 class quantapdf_qpdf_provider_guard final
 {
   public:
-    quantapdf_qpdf_provider_guard() : lock(quantapdf_qpdf_provider_mutex)
+    quantapdf_qpdf_provider_guard(
+        int test_fault,
+        quantapdf_qpdf_security_test_stats *test_stats) :
+        lock(quantapdf_qpdf_provider_mutex),
+        provider(test_fault, &phase, test_stats),
+        test_stats(test_stats)
     {
         previous = QUtil::getRandomDataProvider();
         QUtil::setRandomDataProvider(&provider);
         installed = true;
+        if (test_stats != nullptr)
+            ++test_stats->provider_entries;
     }
 
     ~quantapdf_qpdf_provider_guard()
     {
         if (installed)
             QUtil::setRandomDataProvider(previous);
+        if (installed && test_stats != nullptr)
+            ++test_stats->provider_restores;
     }
 
     quantapdf_qpdf_provider_guard(
@@ -7404,11 +7437,18 @@ class quantapdf_qpdf_provider_guard final
     quantapdf_qpdf_provider_guard& operator=(
         quantapdf_qpdf_provider_guard const&) = delete;
 
+    void enter_write_phase() noexcept
+    {
+        phase = 2;
+    }
+
   private:
     std::unique_lock<std::mutex> lock;
+    int phase = 1;
     quantapdf_qpdf_random_provider provider;
     RandomDataProvider *previous = nullptr;
     bool installed = false;
+    quantapdf_qpdf_security_test_stats *test_stats;
 };
 
 quantapdf_status quantapdf_qpdf_security_signature_preflight(
@@ -7523,6 +7563,8 @@ quantapdf_status quantapdf_qpdf_security_rewrite(
     quantapdf_qpdf_document *document,
     quantapdf_qpdf_security_operation operation,
     quantapdf_encryption_options const *options,
+    int test_fault,
+    quantapdf_qpdf_security_test_stats *test_stats,
     unsigned char **out_data,
     size_t *out_size)
 {
@@ -7579,7 +7621,8 @@ quantapdf_status quantapdf_qpdf_security_rewrite(
             writer.setDeterministicID(true);
             writer.write();
         } else {
-            quantapdf_qpdf_provider_guard provider_guard;
+            quantapdf_qpdf_provider_guard provider_guard(
+                test_fault, test_stats);
             QPDFObjectHandle trailer = pdf->getTrailer();
             bool const had_info = trailer.hasKey("/Info");
             QPDFObjectHandle original_info = trailer.getKey("/Info");
@@ -7615,6 +7658,7 @@ quantapdf_status quantapdf_qpdf_security_rewrite(
                 trailer.replaceKey("/Info", original_info);
             else
                 trailer.removeKey("/Info");
+            provider_guard.enter_write_phase();
             writer.write();
         }
 
@@ -7645,12 +7689,14 @@ quantapdf_status quantapdf_qpdf_security_rewrite(
 extern "C" quantapdf_status quantapdf_qpdf_encrypt_pdf(
     quantapdf_qpdf_document *document,
     quantapdf_encryption_options const *options,
+    int test_fault,
+    quantapdf_qpdf_security_test_stats *test_stats,
     unsigned char **out_data,
     size_t *out_size)
 {
     return quantapdf_qpdf_security_rewrite(
         document, quantapdf_qpdf_security_operation::encrypt,
-        options, out_data, out_size);
+        options, test_fault, test_stats, out_data, out_size);
 }
 
 extern "C" quantapdf_status quantapdf_qpdf_decrypt_pdf(
@@ -7660,16 +7706,18 @@ extern "C" quantapdf_status quantapdf_qpdf_decrypt_pdf(
 {
     return quantapdf_qpdf_security_rewrite(
         document, quantapdf_qpdf_security_operation::decrypt,
-        nullptr, out_data, out_size);
+        nullptr, 0, nullptr, out_data, out_size);
 }
 
 extern "C" quantapdf_status quantapdf_qpdf_reencrypt_pdf(
     quantapdf_qpdf_document *document,
     quantapdf_encryption_options const *options,
+    int test_fault,
+    quantapdf_qpdf_security_test_stats *test_stats,
     unsigned char **out_data,
     size_t *out_size)
 {
     return quantapdf_qpdf_security_rewrite(
         document, quantapdf_qpdf_security_operation::reencrypt,
-        options, out_data, out_size);
+        options, test_fault, test_stats, out_data, out_size);
 }

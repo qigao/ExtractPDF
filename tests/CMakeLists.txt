@@ -125,14 +125,35 @@ set_tests_properties(quantapdf.pdf_security PROPERTIES TIMEOUT 60)
 
 add_executable(quantapdf_test_pdf_security_rewrite
   test_pdf_security_rewrite.c
-  pdf_security_rewrite_test_helpers.cpp)
+  pdf_security_rewrite_test_helpers.cpp
+  pdf_security_rewrite_fault_hook.c)
+target_include_directories(quantapdf_test_pdf_security_rewrite PRIVATE
+  "${PROJECT_SOURCE_DIR}/src")
 target_link_libraries(quantapdf_test_pdf_security_rewrite PRIVATE
   QuantaPDF::QuantaPDF
   qpdf::libqpdf)
 target_compile_features(quantapdf_test_pdf_security_rewrite PRIVATE cxx_std_20)
 target_compile_definitions(quantapdf_test_pdf_security_rewrite PRIVATE
+  QUANTAPDF_TESTING=1)
+target_compile_definitions(quantapdf_test_pdf_security_rewrite PRIVATE
   SECURITY_PLAIN_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
-  SECURITY_ENCRYPTED_OUTPUT="${CMAKE_CURRENT_BINARY_DIR}/security-rewrite-encrypted.pdf")
+  SECURITY_SIGNED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotation-mutation-signed.pdf"
+  SECURITY_TEXT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/text-one-page.pdf"
+  SECURITY_LEGACY_ENCRYPTED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/encrypted-one-page.pdf"
+  SECURITY_ENCRYPTED_OUTPUT="${CMAKE_CURRENT_BINARY_DIR}/security-rewrite-encrypted.pdf"
+  SECURITY_REENCRYPTED_OUTPUT="${CMAKE_CURRENT_BINARY_DIR}/security-rewrite-reencrypted.pdf"
+  SECURITY_DECRYPTED_OUTPUT="${CMAKE_CURRENT_BINARY_DIR}/security-rewrite-decrypted.pdf")
+target_compile_definitions(quantapdf_test_pdf_security_rewrite PRIVATE
+  SECURITY_METADATA_FIXTURE="${CMAKE_CURRENT_BINARY_DIR}/security-rewrite-metadata.pdf"
+  SECURITY_METADATA_ENCRYPTED_TRUE="${CMAKE_CURRENT_BINARY_DIR}/security-rewrite-metadata-true.pdf"
+  SECURITY_METADATA_ENCRYPTED_FALSE="${CMAKE_CURRENT_BINARY_DIR}/security-rewrite-metadata-false.pdf")
+target_compile_definitions(quantapdf_test_pdf_security_rewrite PRIVATE
+  SECURITY_SEMANTIC_ENCRYPTED="${CMAKE_CURRENT_BINARY_DIR}/security-rewrite-semantic-encrypted.pdf"
+  SECURITY_SEMANTIC_DECRYPTED="${CMAKE_CURRENT_BINARY_DIR}/security-rewrite-semantic-decrypted.pdf")
+target_compile_definitions(quantapdf_test_pdf_security_rewrite PRIVATE
+  SECURITY_SIGNATURE_FIXTURE="${CMAKE_CURRENT_BINARY_DIR}/security-rewrite-signature.pdf")
+target_compile_definitions(quantapdf_test_pdf_security_rewrite PRIVATE
+  SECURITY_ID_FIXTURE="${CMAKE_CURRENT_BINARY_DIR}/security-rewrite-id.pdf")
 add_test(NAME quantapdf.pdf_security_rewrite
   COMMAND quantapdf_test_pdf_security_rewrite)
 set_tests_properties(quantapdf.pdf_security_rewrite PROPERTIES TIMEOUT 60)

@@ -69,6 +69,8 @@ static quantapdf_status quantapdf_security_rewrite(
 {
     quantapdf_output *output;
     quantapdf_status status;
+    int test_fault = 0;
+    quantapdf_qpdf_security_test_stats test_stats = {0};
 
     if (out_output == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
@@ -81,26 +83,50 @@ static quantapdf_status quantapdf_security_rewrite(
             return status;
     }
 
+#if defined(QUANTAPDF_TESTING)
+    test_fault = document->test_security_fault;
+    document->test_security_fault = QUANTAPDF_TEST_SECURITY_FAULT_NONE;
+    document->test_security_provider_entries = 0;
+    document->test_security_configure_requests = 0;
+    document->test_security_write_requests = 0;
+    document->test_security_provider_restores = 0;
+    if (test_fault == QUANTAPDF_TEST_SECURITY_FAULT_OUTPUT_NOMEM)
+        return QUANTAPDF_ERROR_NOMEM;
+#endif
+
     output = (quantapdf_output *)calloc(1, sizeof(*output));
     if (output == NULL)
         return QUANTAPDF_ERROR_NOMEM;
     if (operation == QUANTAPDF_SECURITY_ENCRYPT_INTERNAL) {
         status = quantapdf_qpdf_encrypt_pdf(
-            document->qpdf_document, options,
+            document->qpdf_document, options, test_fault, &test_stats,
             &output->data, &output->size);
     } else if (operation == QUANTAPDF_SECURITY_DECRYPT_INTERNAL) {
         status = quantapdf_qpdf_decrypt_pdf(
             document->qpdf_document, &output->data, &output->size);
     } else {
         status = quantapdf_qpdf_reencrypt_pdf(
-            document->qpdf_document, options,
+            document->qpdf_document, options, test_fault, &test_stats,
             &output->data, &output->size);
     }
+#if defined(QUANTAPDF_TESTING)
+    document->test_security_provider_entries = test_stats.provider_entries;
+    document->test_security_configure_requests = test_stats.configure_requests;
+    document->test_security_write_requests = test_stats.write_requests;
+    document->test_security_provider_restores = test_stats.provider_restores;
+#endif
     if (status != QUANTAPDF_OK) {
         free(output->data);
         free(output);
         return status;
     }
+#if defined(QUANTAPDF_TESTING)
+    if (test_fault == QUANTAPDF_TEST_SECURITY_FAULT_BEFORE_PUBLICATION) {
+        free(output->data);
+        free(output);
+        return QUANTAPDF_ERROR_BACKEND;
+    }
+#endif
     *out_output = output;
     return QUANTAPDF_OK;
 }
