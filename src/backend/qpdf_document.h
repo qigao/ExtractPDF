@@ -14,6 +14,13 @@ typedef struct quantapdf_annotation_page quantapdf_annotation_page;
 typedef struct quantapdf_pdf_form_model quantapdf_pdf_form_model;
 typedef struct quantapdf_outline quantapdf_outline;
 
+typedef struct quantapdf_qpdf_image_recompression_test_stats {
+    size_t unique_images;
+    size_t provider_registrations;
+    size_t provider_invocations;
+    int every_provider_once;
+} quantapdf_qpdf_image_recompression_test_stats;
+
 quantapdf_status quantapdf_qpdf_open_memory(
     const unsigned char *data,
     size_t size,
@@ -104,6 +111,7 @@ quantapdf_status quantapdf_qpdf_recompress_images(
     quantapdf_qpdf_document *document,
     int jpeg_quality,
     size_t max_decoded_bytes_per_image,
+    quantapdf_qpdf_image_recompression_test_stats *test_stats,
     unsigned char **out_data,
     size_t *out_size);
 

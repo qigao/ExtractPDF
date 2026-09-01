@@ -28,11 +28,18 @@ add_test(NAME quantapdf.jpeg_encoder COMMAND quantapdf_test_jpeg_encoder)
 set_tests_properties(quantapdf.jpeg_encoder PROPERTIES TIMEOUT 10)
 
 add_executable(quantapdf_test_pdf_image_recompression
-  test_pdf_image_recompression.c)
+  test_pdf_image_recompression.c
+  image_recompression_test_helpers.cpp
+  pdf_image_recompression_fault_hook.c)
 target_link_libraries(quantapdf_test_pdf_image_recompression PRIVATE
-  QuantaPDF::QuantaPDF)
+  QuantaPDF::QuantaPDF
+  qpdf::libqpdf)
+target_compile_features(quantapdf_test_pdf_image_recompression PRIVATE cxx_std_20)
 target_compile_definitions(quantapdf_test_pdf_image_recompression PRIVATE
-  ONE_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf")
+  QUANTAPDF_TESTING=1
+  ONE_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
+  POSITIVE_SOURCE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/poster-basic.pdf"
+  POSITIVE_FIXTURE_PDF="${CMAKE_CURRENT_BINARY_DIR}/image-recompression-positive.pdf")
 add_test(NAME quantapdf.pdf_image_recompression
   COMMAND quantapdf_test_pdf_image_recompression)
 set_tests_properties(quantapdf.pdf_image_recompression PROPERTIES TIMEOUT 60)

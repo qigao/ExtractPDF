@@ -18,6 +18,7 @@ quantapdf_status quantapdf_recompress_images(
         QUANTAPDF_IMAGE_RECOMPRESSION_DEFAULT_MAX_DECODED_BYTES;
     quantapdf_output *output;
     quantapdf_status status;
+    quantapdf_qpdf_image_recompression_test_stats test_stats = {0, 0, 0, 0};
 
     if (out_output == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
@@ -36,12 +37,30 @@ quantapdf_status quantapdf_recompress_images(
     output = (quantapdf_output *)calloc(1, sizeof(*output));
     if (output == NULL)
         return QUANTAPDF_ERROR_NOMEM;
+#if defined(QUANTAPDF_TESTING)
+    document->test_image_unique_count = 0;
+    document->test_image_provider_registrations = 0;
+    document->test_image_provider_invocations = 0;
+    document->test_image_every_provider_once = 0;
+#endif
     status = quantapdf_qpdf_recompress_images(
         document->qpdf_document,
         options->jpeg_quality,
         max_decoded_bytes_per_image,
+#if defined(QUANTAPDF_TESTING)
+        &test_stats,
+#else
+        NULL,
+#endif
         &output->data,
         &output->size);
+#if defined(QUANTAPDF_TESTING)
+    document->test_image_unique_count = test_stats.unique_images;
+    document->test_image_provider_registrations =
+        test_stats.provider_registrations;
+    document->test_image_provider_invocations = test_stats.provider_invocations;
+    document->test_image_every_provider_once = test_stats.every_provider_once;
+#endif
     if (status != QUANTAPDF_OK) {
         free(output->data);
         free(output);
