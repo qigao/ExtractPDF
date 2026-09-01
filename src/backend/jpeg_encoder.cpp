@@ -112,7 +112,10 @@ jpeg_encoder::create(
 
     std::size_t const jdimension_max =
         static_cast<std::size_t>(std::numeric_limits<JDIMENSION>::max());
-    if (spec.width > jdimension_max || spec.height > jdimension_max ||
+    std::size_t const jpeg_max_dimension =
+        static_cast<std::size_t>(JPEG_MAX_DIMENSION);
+    if (spec.width > jpeg_max_dimension || spec.height > jpeg_max_dimension ||
+        spec.width > jdimension_max || spec.height > jdimension_max ||
         sample_size_overflows(spec)) {
         return QUANTAPDF_ERROR_FORMAT;
     }

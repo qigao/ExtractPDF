@@ -236,12 +236,62 @@ static const std::vector<unsigned char> golden_rgb_q100 = {
 
 int failures = 0;
 
+class recording_pipeline final : public Pipeline {
+  public:
+    recording_pipeline() : Pipeline("quantapdf-jpeg-recording", nullptr)
+    {
+    }
+
+    void write(unsigned char const*, std::size_t size) override
+    {
+        ++write_count;
+        byte_count += size;
+    }
+
+    void finish() override
+    {
+        ++finish_count;
+    }
+
+    std::size_t write_count = 0;
+    std::size_t byte_count = 0;
+    std::size_t finish_count = 0;
+};
+
 void check(bool condition, char const* message)
 {
     if (!condition) {
         std::fprintf(stderr, "FAIL: %s\n", message);
         ++failures;
     }
+}
+
+void check_golden(
+    std::vector<unsigned char> const& actual,
+    std::vector<unsigned char> const& expected,
+    int components,
+    int quality)
+{
+    if (actual == expected) {
+        return;
+    }
+
+    std::size_t const common_size =
+        actual.size() < expected.size() ? actual.size() : expected.size();
+    std::size_t offset = 0;
+    while (offset < common_size && actual[offset] == expected[offset]) {
+        ++offset;
+    }
+    std::fprintf(
+        stderr,
+        "FAIL: JPEG golden mismatch (components=%d quality=%d actual=%zu "
+        "expected=%zu first-difference=%zu)\n",
+        components,
+        quality,
+        actual.size(),
+        expected.size(),
+        offset);
+    ++failures;
 }
 
 std::vector<unsigned char> const& golden_for(int components, int quality)
@@ -311,9 +361,8 @@ void test_valid_encoding()
                 "repeated fixed JPEG encoding succeeds");
             check(is_complete_jpeg(first), "output has complete JPEG markers");
             check(first == second, "repeated fixed JPEG bytes are identical");
-            check(
-                first == golden_for(components, quality),
-                "complete JPEG bytes match the checked golden array");
+            check_golden(
+                first, golden_for(components, quality), components, quality);
         }
     }
 
@@ -367,6 +416,31 @@ void test_factory_validation()
     expect({8, 8, 1, 101}, &sink, QUANTAPDF_ERROR_ARGUMENT,
            "quality above 100 is rejected");
 
+    std::size_t const jpeg_max_dimension =
+        static_cast<std::size_t>(JPEG_MAX_DIMENSION);
+    check(
+        quantapdf::detail::jpeg_encoder::create(
+            {jpeg_max_dimension, 1, 1, 90}, &sink, &encoder) == QUANTAPDF_OK &&
+            encoder != nullptr,
+        "JPEG maximum width is accepted");
+    encoder.reset();
+    check(
+        quantapdf::detail::jpeg_encoder::create(
+            {1, jpeg_max_dimension, 1, 90}, &sink, &encoder) == QUANTAPDF_OK &&
+            encoder != nullptr,
+        "JPEG maximum height is accepted");
+    encoder.reset();
+    expect(
+        {jpeg_max_dimension + 1, 1, 1, 90},
+        &sink,
+        QUANTAPDF_ERROR_FORMAT,
+        "width above JPEG_MAX_DIMENSION is rejected");
+    expect(
+        {1, jpeg_max_dimension + 1, 1, 90},
+        &sink,
+        QUANTAPDF_ERROR_FORMAT,
+        "height above JPEG_MAX_DIMENSION is rejected");
+
     std::size_t const jdimension_max =
         static_cast<std::size_t>(std::numeric_limits<JDIMENSION>::max());
     if (jdimension_max < std::numeric_limits<std::size_t>::max()) {
@@ -397,9 +471,9 @@ void test_factory_validation()
 void test_wrong_sample_size()
 {
     for (std::size_t size: {gray_samples.size() - 1, gray_samples.size() + 1}) {
+        recording_pipeline sink;
         bool threw = false;
         try {
-            Pl_Buffer sink("quantapdf-jpeg-wrong-size");
             std::unique_ptr<quantapdf::detail::jpeg_encoder> encoder;
             if (quantapdf::detail::jpeg_encoder::create(
                     {8, 8, 1, 90}, &sink, &encoder) == QUANTAPDF_OK) {
@@ -411,6 +485,9 @@ void test_wrong_sample_size()
             threw = true;
         }
         check(threw, "wrong sample size raises a codec runtime error");
+        check(sink.write_count == 0, "wrong sample size publishes no writes");
+        check(sink.byte_count == 0, "wrong sample size publishes no bytes");
+        check(sink.finish_count == 0, "wrong sample size publishes no finish");
     }
 }
 
