@@ -16,6 +16,17 @@ add_executable(quantapdf_test_status test_status.c)
 target_link_libraries(quantapdf_test_status PRIVATE QuantaPDF::QuantaPDF)
 add_test(NAME quantapdf.status COMMAND quantapdf_test_status)
 
+add_executable(quantapdf_test_jpeg_encoder
+  test_jpeg_encoder.cpp
+  ../src/backend/jpeg_encoder.cpp)
+target_include_directories(quantapdf_test_jpeg_encoder PRIVATE
+  "${PROJECT_SOURCE_DIR}/include"
+  "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_jpeg_encoder PRIVATE qpdf::libqpdf)
+target_compile_features(quantapdf_test_jpeg_encoder PRIVATE cxx_std_20)
+add_test(NAME quantapdf.jpeg_encoder COMMAND quantapdf_test_jpeg_encoder)
+set_tests_properties(quantapdf.jpeg_encoder PROPERTIES TIMEOUT 10)
+
 add_executable(quantapdf_test_version test_version.c)
 target_link_libraries(quantapdf_test_version PRIVATE QuantaPDF::QuantaPDF)
 add_test(NAME quantapdf.version COMMAND quantapdf_test_version)

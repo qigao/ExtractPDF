@@ -29,5 +29,22 @@ and unverified system PDFium installations are not accepted.
 - License: Apache License 2.0 or Artistic License 2.0
 - Initial feature boundary: no optional OpenSSL, GnuTLS, or Zopfli feature
 
+## libjpeg-turbo
+
+- Version: `3.2.0`
+- Upstream: <https://github.com/libjpeg-turbo/libjpeg-turbo>
+- Package source: transitive qpdf dependency from vcpkg baseline
+  `f74a2eade17a628413746557d04db25ccf6e76f9`
+- License: IJG License and Modified (3-clause) BSD License
+- Direct behavior boundary: the private JPEG qualification target configures
+  the libjpeg API through qpdf `Pl_DCT`; no second JPEG implementation is
+  added
+- Redistribution requirement: before this adapter enters the production
+  library, binary packages must install the vcpkg-provided
+  `share/libjpeg-turbo/copyright` notice and include the required IJG
+  acknowledgement
+
 The qpdf package's installed copyright file and PDFium's root `LICENSE` plus
 complete `licenses/` directory are the authoritative redistribution notices.
+The installed libjpeg-turbo copyright file is the authoritative notice for the
+JPEG codec boundary.
