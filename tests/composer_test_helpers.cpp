@@ -1,6 +1,7 @@
 #include "composer_test_helpers.h"
 
 #include "backend/jpeg_encoder.h"
+#include "backend/qpdf_composer.h"
 
 #include <qpdf/Buffer.hh>
 #include <qpdf/Pl_Buffer.hh>
@@ -226,6 +227,113 @@ extern "C" int quantapdf_test_make_truncated_jpeg(
     return 0;
 }
 
+extern "C" int quantapdf_test_make_huge_progressive_jpeg(
+    unsigned char const* data,
+    size_t size,
+    unsigned char** out_data,
+    size_t* out_size)
+{
+    if (data == nullptr || out_data == nullptr || out_size == nullptr ||
+        size < 12u)
+        return 0;
+    *out_data = static_cast<unsigned char*>(std::malloc(size));
+    *out_size = 0u;
+    if (*out_data == nullptr)
+        return 0;
+    std::memcpy(*out_data, data, size);
+    for (size_t offset = 2u; offset + 9u <= size; ++offset) {
+        if ((*out_data)[offset] == 0xffu &&
+            (*out_data)[offset + 1u] == 0xc0u) {
+            (*out_data)[offset + 1u] = 0xc2u;
+            (*out_data)[offset + 5u] = 0xfdu;
+            (*out_data)[offset + 6u] = 0xe8u;
+            (*out_data)[offset + 7u] = 0xfdu;
+            (*out_data)[offset + 8u] = 0xe8u;
+            *out_size = size;
+            return 1;
+        }
+    }
+    std::free(*out_data);
+    *out_data = nullptr;
+    return 0;
+}
+
+extern "C" int quantapdf_test_jpeg_forced_oom(
+    unsigned char const* data,
+    size_t size)
+{
+    uint32_t width = 1u;
+    uint32_t height = 1u;
+    int components = 1;
+    quantapdf_jpeg_force_oom_for_testing(1);
+    quantapdf_status const status = quantapdf_jpeg_validate(
+        data, size, SIZE_MAX, &width, &height, &components);
+    quantapdf_jpeg_force_oom_for_testing(0);
+    return status == QUANTAPDF_ERROR_NOMEM && width == 0u && height == 0u &&
+        components == 0;
+}
+
+extern "C" int quantapdf_test_make_malformed_png(
+    int variant,
+    unsigned char** out_data,
+    size_t* out_size)
+{
+    static unsigned char const signature[] = {
+        0x89u, 'P', 'N', 'G', 0x0du, 0x0au, 0x1au, 0x0au};
+    unsigned char ihdr[13] = {
+        0u, 0u, 0u, 2u, 0u, 0u, 0u, 1u, 8u, 2u, 0u, 0u, 0u};
+    unsigned char scanline[] = {0u, 255u, 0u, 0u, 0u, 255u, 0u};
+    unsigned char palette[] = {0u, 0u, 0u};
+    unsigned char text[] = {'x'};
+    uLongf compressed_size = compressBound(sizeof(scanline));
+    std::vector<unsigned char> compressed(compressed_size);
+    std::vector<unsigned char> png(signature, signature + sizeof(signature));
+
+    if (out_data == nullptr || out_size == nullptr || variant < 0 ||
+        variant > 6)
+        return 0;
+    *out_data = nullptr;
+    *out_size = 0u;
+    if (compress2(
+            compressed.data(), &compressed_size, scanline, sizeof(scanline),
+            Z_BEST_COMPRESSION) != Z_OK)
+        return 0;
+    compressed.resize(compressed_size);
+    if (variant == 0)
+        append_chunk(png, "tEXt", text, sizeof(text));
+    append_chunk(png, "IHDR", ihdr, sizeof(ihdr));
+    if (variant == 1 || variant == 2)
+        append_chunk(png, "PLTE", palette, sizeof(palette));
+    if (variant == 2)
+        append_chunk(png, "PLTE", palette, sizeof(palette));
+    if (variant == 3) {
+        size_t const split = compressed.size() / 2u;
+        append_chunk(png, "IDAT", compressed.data(), split);
+        append_chunk(png, "tEXt", text, sizeof(text));
+        append_chunk(
+            png, "IDAT", compressed.data() + split,
+            compressed.size() - split);
+    } else {
+        append_chunk(png, "IDAT", compressed.data(), compressed.size());
+    }
+    if (variant == 1)
+        append_chunk(png, "PLTE", palette, sizeof(palette));
+    if (variant == 4)
+        append_chunk(png, "abca", text, sizeof(text));
+    if (variant == 5)
+        append_chunk(png, "a1Ca", text, sizeof(text));
+    append_chunk(png, "IEND", nullptr, 0u);
+    if (variant == 6)
+        png.push_back(0u);
+    auto* copied = static_cast<unsigned char*>(std::malloc(png.size()));
+    if (copied == nullptr)
+        return 0;
+    std::memcpy(copied, png.data(), png.size());
+    *out_data = copied;
+    *out_size = png.size();
+    return 1;
+}
+
 extern "C" int quantapdf_test_pdf_content_contains(
     unsigned char const* data,
     size_t size,
@@ -280,6 +388,27 @@ extern "C" size_t quantapdf_test_pdf_content_count(
         return count;
     } catch (...) {
         return 0u;
+    }
+}
+
+extern "C" int quantapdf_test_pdf_page_size_positive(
+    unsigned char const* data,
+    size_t size,
+    size_t page_index)
+{
+    try {
+        QPDF pdf;
+        pdf.processMemoryFile(
+            "composer-test.pdf", reinterpret_cast<char const*>(data), size);
+        auto pages = pdf.getAllPages();
+        if (page_index >= pages.size())
+            return 0;
+        auto box = pages[page_index].getKey("/MediaBox");
+        return box.isArray() && box.getArrayNItems() == 4 &&
+            box.getArrayItem(2).getNumericValue() > 0.0 &&
+            box.getArrayItem(3).getNumericValue() > 0.0;
+    } catch (...) {
+        return 0;
     }
 }
 

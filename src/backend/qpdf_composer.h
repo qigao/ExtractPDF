@@ -35,6 +35,13 @@ quantapdf_status quantapdf_jpeg_validate(
     uint32_t *out_height,
     int *out_components);
 
+#if defined(QUANTAPDF_TESTING)
+#if defined(__GNUC__)
+__attribute__((visibility("hidden")))
+#endif
+void quantapdf_jpeg_force_oom_for_testing(int enabled);
+#endif
+
 #ifdef __cplusplus
 }
 #endif

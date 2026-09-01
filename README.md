@@ -190,7 +190,9 @@ Register JPEG or PNG bytes once with `quantapdf_composer_add_image()`, then
 place the returned nonzero image ID with `quantapdf_composer_draw_image()`.
 The fit policy can contain, cover (with clipping), or stretch the image.
 Opaque 8-bit RGB PNG and 8-bit RGBA PNG are supported; PNG alpha is preserved
-as a PDF soft mask. JPEG supports 8-bit gray and RGB images.
+as a PDF soft mask. JPEG supports baseline 8-bit gray and RGB images;
+progressive JPEG is rejected before decode to preserve the configured memory
+bound.
 
 V1 text accepts UTF-8 input that is representable by WinAnsi and the 12
 Helvetica/Times/Courier base-14 variants. Invalid UTF-8 or unrepresentable

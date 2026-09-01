@@ -50,6 +50,16 @@ bool checked_add(size_t left, size_t right, size_t& result)
     return true;
 }
 
+bool png_chunk_type_valid(unsigned char const* type)
+{
+    for (size_t i = 0u; i < 4u; ++i) {
+        if (!((type[i] >= 'A' && type[i] <= 'Z') ||
+              (type[i] >= 'a' && type[i] <= 'z')))
+            return false;
+    }
+    return type[2] >= 'A' && type[2] <= 'Z';
+}
+
 unsigned char paeth_predictor(
     unsigned char left,
     unsigned char up,
@@ -66,11 +76,20 @@ unsigned char paeth_predictor(
     return up_distance <= diagonal_distance ? up : upper_left;
 }
 
+int decimal_precision(double value)
+{
+    double const magnitude = std::abs(value);
+    if (magnitude == 0.0 || magnitude >= 0.00005)
+        return 4;
+    return std::min(
+        64, std::max(4, static_cast<int>(std::ceil(-std::log10(magnitude))) + 4));
+}
+
 std::string number(double value)
 {
     std::ostringstream stream;
     stream.imbue(std::locale::classic());
-    stream << std::fixed << std::setprecision(4) << value;
+    stream << std::fixed << std::setprecision(decimal_precision(value)) << value;
     std::string result = stream.str();
     while (result.size() > 1u && result.back() == '0')
         result.pop_back();
@@ -387,6 +406,8 @@ extern "C" quantapdf_status quantapdf_png_decode(
             unsigned char const* type = data + offset;
             unsigned char const* payload = type + 4u;
             uint32_t const expected_crc = read_be32(payload + chunk_size);
+            if (!png_chunk_type_valid(type))
+                return QUANTAPDF_ERROR_FORMAT;
             if (chunk_size > std::numeric_limits<uInt>::max() - 4u)
                 return QUANTAPDF_ERROR_UNSUPPORTED;
             uLong crc = crc32(0L, Z_NULL, 0);
@@ -626,9 +647,11 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
             media_box.appendItem(QPDFObjectHandle::newInteger(0));
             media_box.appendItem(QPDFObjectHandle::newInteger(0));
             media_box.appendItem(QPDFObjectHandle::newReal(
-                composer->pages[page_index].width_points, 4));
+                composer->pages[page_index].width_points,
+                decimal_precision(composer->pages[page_index].width_points)));
             media_box.appendItem(QPDFObjectHandle::newReal(
-                composer->pages[page_index].height_points, 4));
+                composer->pages[page_index].height_points,
+                decimal_precision(composer->pages[page_index].height_points)));
             page.replaceKey("/Type", QPDFObjectHandle::newName("/Page"));
             page.replaceKey("/MediaBox", media_box);
             page.replaceKey("/Resources", resources);

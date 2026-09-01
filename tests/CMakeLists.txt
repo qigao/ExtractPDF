@@ -28,6 +28,7 @@ target_link_libraries(quantapdf_test_composer PRIVATE
   ZLIB::ZLIB)
 target_compile_features(quantapdf_test_composer PRIVATE cxx_std_20)
 target_compile_definitions(quantapdf_test_composer PRIVATE
+  QUANTAPDF_TESTING=1
   COMPOSER_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/composer-output.pdf"
   COMPOSER_OUTPUT_SECOND_PDF="${CMAKE_CURRENT_BINARY_DIR}/composer-output-second.pdf")
 add_test(NAME quantapdf.composer COMMAND quantapdf_test_composer)

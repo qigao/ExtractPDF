@@ -141,6 +141,7 @@ install(FILES
 
 if(QUANTAPDF_BUILD_TESTS)
   target_compile_definitions(quantapdf PRIVATE QUANTAPDF_TESTING=1)
+  target_compile_definitions(quantapdf_backend PRIVATE QUANTAPDF_TESTING=1)
   include(CTest)
   add_subdirectory(tests)
   if(WIN32 AND BUILD_SHARED_LIBS)

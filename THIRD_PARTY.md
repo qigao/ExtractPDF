@@ -62,10 +62,13 @@ JPEG codec boundary.
 Copyright (c) 1985, 1987, 1989, 1990, 1997 Adobe Systems Incorporated. All
 Rights Reserved.
 
-The AFM files and their accompanying readme may be used, copied, and
-distributed for any purpose and without charge, with or without modification,
-provided that all copyright notices are retained; AFM files are not distributed
-without the readme; modifications are prominently noted; the permission
-paragraph is not modified; and the distributor does not represent that Adobe
-supports use of the AFM files. Adobe Systems has no responsibility or
-obligation to support their use.
+The generated tables in `src/backend/base14_metrics.h` are prominently marked
+as derived from, and therefore modified from, the source AFM data.
+
+> This file and the 14 PostScript(R) AFM files it accompanies may be used,
+> copied, and distributed for any purpose and without charge, with or without
+> modification, provided that all copyright notices are retained; that the AFM
+> files are not distributed without this file; that all modifications to this
+> file or any of the AFM files are prominently noted in the modified file(s);
+> and that this paragraph is not modified. Adobe Systems has no responsibility
+> or obligation to support the use of the AFM files.

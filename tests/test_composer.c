@@ -21,6 +21,77 @@ static quantapdf_composer *composer_sentinel(void)
     return (quantapdf_composer *)(uintptr_t)1;
 }
 
+static int pixel_is_white(
+    const unsigned char *pixels,
+    int stride,
+    int x,
+    int y)
+{
+    const unsigned char *pixel =
+        pixels + (size_t)y * (size_t)stride + (size_t)x * 3u;
+    return pixel[0] > 245u && pixel[1] > 245u && pixel[2] > 245u;
+}
+
+static size_t count_blue_pixels(
+    const unsigned char *pixels,
+    int stride,
+    int x0,
+    int y0,
+    int x1,
+    int y1)
+{
+    size_t count = 0u;
+    int x;
+    int y;
+
+    for (y = y0; y < y1; ++y) {
+        for (x = x0; x < x1; ++x) {
+            const unsigned char *pixel =
+                pixels + (size_t)y * (size_t)stride + (size_t)x * 3u;
+            if (pixel[2] > 80u && pixel[2] > pixel[0] * 2u &&
+                pixel[2] > pixel[1] + 20u)
+                ++count;
+        }
+    }
+    return count;
+}
+
+static int render_page_pixels(
+    quantapdf_document *document,
+    int page_index,
+    quantapdf_bitmap **out_bitmap,
+    const unsigned char **out_pixels,
+    int *out_stride)
+{
+    quantapdf_render_options options = {0};
+    quantapdf_page *page = NULL;
+    size_t size = 0u;
+    int width = 0;
+    int height = 0;
+    int components = 0;
+
+    *out_bitmap = NULL;
+    *out_pixels = NULL;
+    *out_stride = 0;
+    options.struct_size = sizeof(options);
+    options.dpi = 72.0f;
+    if (quantapdf_load_page(document, page_index, &page) != QUANTAPDF_OK ||
+        quantapdf_render_page_with_options(page, &options, out_bitmap) !=
+            QUANTAPDF_OK ||
+        quantapdf_bitmap_dimensions(
+            *out_bitmap, &width, &height, out_stride, &components) !=
+            QUANTAPDF_OK ||
+        quantapdf_bitmap_data(*out_bitmap, out_pixels, &size) != QUANTAPDF_OK) {
+        quantapdf_drop_bitmap(*out_bitmap);
+        *out_bitmap = NULL;
+        quantapdf_drop_page(page);
+        return 0;
+    }
+    quantapdf_drop_page(page);
+    return width == 200 && height == 400 && components == 3 &&
+        size == (size_t)*out_stride * (size_t)height;
+}
+
 static int test_create_contract(void)
 {
     quantapdf_composer *composer = composer_sentinel();
@@ -45,6 +116,9 @@ static int test_page_validation_and_capacity(void)
     quantapdf_composer_options options = {0};
     quantapdf_composer_page_options page = {0};
     quantapdf_composer *composer = NULL;
+    quantapdf_output *output = NULL;
+    const unsigned char *data = NULL;
+    size_t output_size = 0u;
     size_t page_index = SIZE_MAX;
 
     options.struct_size = QUANTAPDF_COMPOSER_OPTIONS_V1_SIZE;
@@ -72,6 +146,19 @@ static int test_page_validation_and_capacity(void)
     CHECK(quantapdf_composer_add_page(composer, &page, &page_index) ==
           QUANTAPDF_ERROR_ARGUMENT);
 
+    quantapdf_drop_composer(composer);
+
+    composer = NULL;
+    page.width_points = 0.000001f;
+    page.height_points = 0.000001f;
+    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_add_page(composer, &page, &page_index) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_composer_finish(composer, &output) == QUANTAPDF_OK);
+    CHECK(quantapdf_output_data(output, &data, &output_size) == QUANTAPDF_OK);
+    CHECK(quantapdf_test_pdf_page_size_positive(
+        data, output_size, 0u));
+    quantapdf_drop_output(output);
     quantapdf_drop_composer(composer);
     return 0;
 }
@@ -414,14 +501,19 @@ static int test_decoder_resource_and_format_guards(void)
     quantapdf_composer_image_id image_id = UINT32_MAX;
     unsigned char *jpeg = NULL;
     unsigned char *truncated = NULL;
+    unsigned char *huge_progressive = NULL;
     unsigned char *oversized_png = NULL;
     size_t jpeg_size = 0u;
     size_t truncated_size = 0u;
+    size_t huge_progressive_size = 0u;
     size_t oversized_size = 0u;
 
     CHECK(quantapdf_test_make_jpeg(&jpeg, &jpeg_size));
     CHECK(quantapdf_test_make_truncated_jpeg(
         jpeg, jpeg_size, &truncated, &truncated_size));
+    CHECK(quantapdf_test_make_huge_progressive_jpeg(
+        jpeg, jpeg_size, &huge_progressive, &huge_progressive_size));
+    CHECK(quantapdf_test_jpeg_forced_oom(jpeg, jpeg_size));
     CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
     CHECK(quantapdf_composer_add_image(
               composer, truncated, truncated_size, &image_id) ==
@@ -436,6 +528,9 @@ static int test_decoder_resource_and_format_guards(void)
     CHECK(quantapdf_composer_add_image(
               composer, jpeg, jpeg_size, &image_id) ==
           QUANTAPDF_ERROR_UNSUPPORTED);
+    CHECK(quantapdf_composer_add_image(
+              composer, huge_progressive, huge_progressive_size, &image_id) ==
+          QUANTAPDF_ERROR_UNSUPPORTED);
     quantapdf_drop_composer(composer);
     composer = NULL;
 
@@ -446,9 +541,24 @@ static int test_decoder_resource_and_format_guards(void)
     CHECK(quantapdf_composer_add_image(
               composer, oversized_png, oversized_size, &image_id) ==
           QUANTAPDF_ERROR_UNSUPPORTED);
+    {
+        int variant;
+        for (variant = 0; variant <= 6; ++variant) {
+            unsigned char *malformed = NULL;
+            size_t malformed_size = 0u;
+            CHECK(quantapdf_test_make_malformed_png(
+                variant, &malformed, &malformed_size));
+            CHECK(quantapdf_composer_add_image(
+                      composer, malformed, malformed_size, &image_id) ==
+                  QUANTAPDF_ERROR_FORMAT);
+            CHECK(image_id == 0u);
+            free(malformed);
+        }
+    }
 
     quantapdf_drop_composer(composer);
     free(oversized_png);
+    free(huge_progressive);
     free(truncated);
     free(jpeg);
     return 0;
@@ -461,6 +571,8 @@ static int test_layout_order_fit_and_locale(void)
     quantapdf_composer_image_options image_options = {0};
     quantapdf_composer *composer = NULL;
     quantapdf_output *output = NULL;
+    quantapdf_document *document = NULL;
+    quantapdf_bitmap *bitmap = NULL;
     quantapdf_composer_image_id image_id = 0u;
     quantapdf_rect text_bounds = {0.0f, 0.0f, 100.0f, 20.0f};
     quantapdf_rect wrap_bounds = {0.0f, 30.0f, 18.0f, 80.0f};
@@ -470,10 +582,12 @@ static int test_layout_order_fit_and_locale(void)
     quantapdf_rect stretch = {10.0f, 230.0f, 110.0f, 330.0f};
     unsigned char *png = NULL;
     const unsigned char *data = NULL;
+    const unsigned char *pixels = NULL;
     size_t png_size = 0u;
     size_t output_size = 0u;
     size_t page = SIZE_MAX;
     quantapdf_status finish_status;
+    int stride = 0;
 
     CHECK(quantapdf_test_make_png(0, &png, &png_size));
     CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
@@ -573,6 +687,31 @@ static int test_layout_order_fit_and_locale(void)
     CHECK(quantapdf_test_pdf_content_count(
               data, output_size, 3u, "/Im1 Do") == 3u);
 
+    CHECK(quantapdf_output_save_file(output, COMPOSER_OUTPUT_SECOND_PDF) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_open(COMPOSER_OUTPUT_SECOND_PDF, NULL, &document) ==
+          QUANTAPDF_OK);
+    CHECK(render_page_pixels(document, 0, &bitmap, &pixels, &stride));
+    CHECK(count_blue_pixels(pixels, stride, 0, 0, 110, 90) > 10u);
+    quantapdf_drop_bitmap(bitmap);
+    bitmap = NULL;
+    CHECK(render_page_pixels(document, 1, &bitmap, &pixels, &stride));
+    CHECK(count_blue_pixels(pixels, stride, 20, 100, 120, 150) > 0u);
+    quantapdf_drop_bitmap(bitmap);
+    bitmap = NULL;
+    CHECK(render_page_pixels(document, 2, &bitmap, &pixels, &stride));
+    CHECK(count_blue_pixels(pixels, stride, 20, 100, 120, 150) == 0u);
+    quantapdf_drop_bitmap(bitmap);
+    bitmap = NULL;
+    CHECK(render_page_pixels(document, 3, &bitmap, &pixels, &stride));
+    CHECK(pixel_is_white(pixels, stride, 20, 20));
+    CHECK(!pixel_is_white(pixels, stride, 20, 50));
+    CHECK(pixel_is_white(pixels, stride, 5, 170));
+    CHECK(!pixel_is_white(pixels, stride, 20, 170));
+    CHECK(!pixel_is_white(pixels, stride, 20, 250));
+
+    quantapdf_drop_bitmap(bitmap);
+    quantapdf_close(document);
     quantapdf_drop_output(output);
     quantapdf_drop_composer(composer);
     return 0;

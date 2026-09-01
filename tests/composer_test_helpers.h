@@ -20,6 +20,18 @@ int quantapdf_test_make_truncated_jpeg(
     size_t size,
     unsigned char **out_data,
     size_t *out_size);
+int quantapdf_test_make_huge_progressive_jpeg(
+    const unsigned char *data,
+    size_t size,
+    unsigned char **out_data,
+    size_t *out_size);
+int quantapdf_test_jpeg_forced_oom(
+    const unsigned char *data,
+    size_t size);
+int quantapdf_test_make_malformed_png(
+    int variant,
+    unsigned char **out_data,
+    size_t *out_size);
 int quantapdf_test_pdf_content_contains(
     const unsigned char *data,
     size_t size,
@@ -36,6 +48,10 @@ size_t quantapdf_test_pdf_content_count(
     size_t size,
     size_t page_index,
     const char *needle);
+int quantapdf_test_pdf_page_size_positive(
+    const unsigned char *data,
+    size_t size,
+    size_t page_index);
 void quantapdf_test_use_comma_locale(int enabled);
 
 #ifdef __cplusplus
