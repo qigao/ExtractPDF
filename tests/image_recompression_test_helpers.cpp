@@ -8,6 +8,9 @@
 #include <set>
 #include <string>
 #include <cstdio>
+#include <cctype>
+#include <fstream>
+#include <iterator>
 
 namespace {
 
@@ -166,6 +169,26 @@ std::map<long long, bool> marked_dct_states(QPDF& pdf)
     return result;
 }
 
+std::string base64_encode(unsigned char const *data, size_t size)
+{
+    static char const alphabet[] =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    std::string result;
+    result.reserve(((size + 2u) / 3u) * 4u);
+    for (size_t offset = 0; offset < size; offset += 3u) {
+        size_t const remaining = size - offset;
+        unsigned int const first = data[offset];
+        unsigned int const second = remaining > 1u ? data[offset + 1u] : 0u;
+        unsigned int const third = remaining > 2u ? data[offset + 2u] : 0u;
+        unsigned int const value = (first << 16u) | (second << 8u) | third;
+        result.push_back(alphabet[(value >> 18u) & 0x3fu]);
+        result.push_back(alphabet[(value >> 12u) & 0x3fu]);
+        result.push_back(remaining > 1u ? alphabet[(value >> 6u) & 0x3fu] : '=');
+        result.push_back(remaining > 2u ? alphabet[value & 0x3fu] : '=');
+    }
+    return result;
+}
+
 } // namespace
 
 extern "C" int image_recompression_create_positive_fixture(
@@ -300,6 +323,32 @@ extern "C" int image_recompression_check_positive_output(
             seen.insert(object.getObjGen());
         }
         return seen.size() == expected_image_count;
+    } catch (...) {
+        return 0;
+    }
+}
+
+extern "C" int image_recompression_matches_expected_base64(
+    const unsigned char *data,
+    size_t size,
+    const char *expected_path)
+{
+    try {
+        if (data == nullptr || size == 0 || expected_path == nullptr)
+            return 0;
+        std::ifstream input(expected_path, std::ios::binary);
+        if (!input)
+            return 0;
+        std::string expected(
+            (std::istreambuf_iterator<char>(input)),
+            std::istreambuf_iterator<char>());
+        expected.erase(
+            std::remove_if(
+                expected.begin(),
+                expected.end(),
+                [](unsigned char value) { return std::isspace(value) != 0; }),
+            expected.end());
+        return base64_encode(data, size) == expected;
     } catch (...) {
         return 0;
     }

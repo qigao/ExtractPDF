@@ -8,6 +8,10 @@
 
 **Public ABI:** additive ABI v2
 
+**Implementation status:** Phase A encoder qualification is merged. Phase B
+implementation and the local Windows Release/MSVC-ASan acceptance matrix pass
+on 2026-09-01; PR CI, merge, and release are intentionally not claimed here.
+
 ## Goal
 
 Add one immutable, explicitly lossy whole-document transform that re-encodes a

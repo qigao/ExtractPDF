@@ -341,6 +341,8 @@ int main(void)
             quantapdf_output_data(positive_output, &data, &size) ==
             QUANTAPDF_OK);
         CHECK(data != NULL && size != 0);
+        CHECK(image_recompression_matches_expected_base64(
+            data, size, EXPECTED_Q90_BASE64));
 
         CHECK(
             quantapdf_recompress_images(document, &options, &repeated_output) ==

@@ -16,6 +16,11 @@ int image_recompression_check_positive_output(
     size_t size,
     size_t expected_image_count);
 
+int image_recompression_matches_expected_base64(
+    const unsigned char *data,
+    size_t size,
+    const char *expected_path);
+
 int image_recompression_create_policy_fixture(
     const char *source_path,
     const char *output_path);
