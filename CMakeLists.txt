@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(QuantaPDF VERSION 2.5.0 LANGUAGES C CXX)
+project(QuantaPDF VERSION 2.6.0 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 
@@ -83,7 +83,8 @@ add_library(quantapdf
   src/pdf_edit_forms.c
   src/pdf_edit_annotations.c
   src/pdf_flatten.c
-  src/pdf_security.c)
+  src/pdf_security.c
+  src/pdf_security_rewrite.c)
 add_library(QuantaPDF::QuantaPDF ALIAS quantapdf)
 target_compile_features(quantapdf PUBLIC c_std_11)
 target_include_directories(quantapdf PUBLIC

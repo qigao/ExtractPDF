@@ -123,6 +123,14 @@ target_compile_definitions(quantapdf_test_pdf_security PRIVATE
 add_test(NAME quantapdf.pdf_security COMMAND quantapdf_test_pdf_security)
 set_tests_properties(quantapdf.pdf_security PROPERTIES TIMEOUT 60)
 
+add_executable(quantapdf_test_pdf_security_rewrite
+  test_pdf_security_rewrite.c)
+target_link_libraries(quantapdf_test_pdf_security_rewrite PRIVATE
+  QuantaPDF::QuantaPDF)
+add_test(NAME quantapdf.pdf_security_rewrite
+  COMMAND quantapdf_test_pdf_security_rewrite)
+set_tests_properties(quantapdf.pdf_security_rewrite PROPERTIES TIMEOUT 60)
+
 add_executable(quantapdf_test_pdf_rewrite_lossless
   test_pdf_rewrite_lossless.c
   rewrite_test_helpers.cpp)
