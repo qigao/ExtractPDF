@@ -25,9 +25,6 @@ int quantapdf_test_make_huge_progressive_jpeg(
     size_t size,
     unsigned char **out_data,
     size_t *out_size);
-int quantapdf_test_jpeg_forced_oom(
-    const unsigned char *data,
-    size_t size);
 int quantapdf_test_make_malformed_png(
     int variant,
     unsigned char **out_data,

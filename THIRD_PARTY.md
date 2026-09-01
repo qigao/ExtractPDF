@@ -36,9 +36,10 @@ and unverified system PDFium installations are not accepted.
 - Package source: transitive qpdf dependency from vcpkg baseline
   `f74a2eade17a628413746557d04db25ccf6e76f9`
 - License: IJG License and Modified (3-clause) BSD License
-- Direct behavior boundary: the private JPEG qualification target configures
-  the libjpeg API through qpdf `Pl_DCT`; no second JPEG implementation is
-  added
+- Direct behavior boundary: Composer validates baseline JPEG input through the
+  libjpeg decompression API without retaining decoded samples; qpdf `Pl_DCT`
+  provides the existing private JPEG encoding path. No second JPEG
+  implementation is added.
 - Redistribution: binary installs copy the vcpkg-provided
   `share/libjpeg-turbo/copyright` notice to
   `share/quantapdf/licenses/libjpeg-turbo/copyright`, including the required

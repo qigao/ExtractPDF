@@ -103,9 +103,15 @@ quantapdf_status quantapdf_jpeg_validate(
     if (setjmp(errors->jump) != 0)
         goto cleanup;
     errors->destroyable = 1;
+#if defined(QUANTAPDF_TESTING)
+    if (quantapdf_jpeg_force_oom == 1) {
+        errors->manager.msg_code = JERR_OUT_OF_MEMORY;
+        quantapdf_jpeg_fail((j_common_ptr)decoder);
+    }
+#endif
     jpeg_create_decompress(decoder);
 #if defined(QUANTAPDF_TESTING)
-    if (quantapdf_jpeg_force_oom) {
+    if (quantapdf_jpeg_force_oom == 2) {
         errors->manager.msg_code = JERR_OUT_OF_MEMORY;
         quantapdf_jpeg_fail((j_common_ptr)decoder);
     }

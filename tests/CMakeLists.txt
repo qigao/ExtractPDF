@@ -28,11 +28,29 @@ target_link_libraries(quantapdf_test_composer PRIVATE
   ZLIB::ZLIB)
 target_compile_features(quantapdf_test_composer PRIVATE cxx_std_20)
 target_compile_definitions(quantapdf_test_composer PRIVATE
-  QUANTAPDF_TESTING=1
   COMPOSER_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/composer-output.pdf"
   COMPOSER_OUTPUT_SECOND_PDF="${CMAKE_CURRENT_BINARY_DIR}/composer-output-second.pdf")
 add_test(NAME quantapdf.composer COMMAND quantapdf_test_composer)
 set_tests_properties(quantapdf.composer PROPERTIES TIMEOUT 30)
+
+add_executable(quantapdf_test_jpeg_validator
+  test_jpeg_validator.c
+  composer_test_helpers.cpp
+  ../src/backend/jpeg_validator.c
+  ../src/backend/jpeg_encoder.cpp)
+target_include_directories(quantapdf_test_jpeg_validator PRIVATE
+  "${PROJECT_SOURCE_DIR}/include"
+  "${PROJECT_SOURCE_DIR}/src")
+target_compile_definitions(quantapdf_test_jpeg_validator PRIVATE
+  QUANTAPDF_TESTING=1)
+target_link_libraries(quantapdf_test_jpeg_validator PRIVATE
+  qpdf::libqpdf
+  JPEG::JPEG
+  ZLIB::ZLIB)
+target_compile_features(quantapdf_test_jpeg_validator PRIVATE cxx_std_20)
+add_test(NAME quantapdf.jpeg_validator
+  COMMAND quantapdf_test_jpeg_validator)
+set_tests_properties(quantapdf.jpeg_validator PROPERTIES TIMEOUT 10)
 
 add_executable(quantapdf_test_jpeg_encoder
   test_jpeg_encoder.cpp

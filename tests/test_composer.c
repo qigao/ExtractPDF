@@ -513,7 +513,6 @@ static int test_decoder_resource_and_format_guards(void)
         jpeg, jpeg_size, &truncated, &truncated_size));
     CHECK(quantapdf_test_make_huge_progressive_jpeg(
         jpeg, jpeg_size, &huge_progressive, &huge_progressive_size));
-    CHECK(quantapdf_test_jpeg_forced_oom(jpeg, jpeg_size));
     CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
     CHECK(quantapdf_composer_add_image(
               composer, truncated, truncated_size, &image_id) ==

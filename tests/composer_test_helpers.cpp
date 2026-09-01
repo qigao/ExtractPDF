@@ -1,7 +1,6 @@
 #include "composer_test_helpers.h"
 
 #include "backend/jpeg_encoder.h"
-#include "backend/qpdf_composer.h"
 
 #include <qpdf/Buffer.hh>
 #include <qpdf/Pl_Buffer.hh>
@@ -256,21 +255,6 @@ extern "C" int quantapdf_test_make_huge_progressive_jpeg(
     std::free(*out_data);
     *out_data = nullptr;
     return 0;
-}
-
-extern "C" int quantapdf_test_jpeg_forced_oom(
-    unsigned char const* data,
-    size_t size)
-{
-    uint32_t width = 1u;
-    uint32_t height = 1u;
-    int components = 1;
-    quantapdf_jpeg_force_oom_for_testing(1);
-    quantapdf_status const status = quantapdf_jpeg_validate(
-        data, size, SIZE_MAX, &width, &height, &components);
-    quantapdf_jpeg_force_oom_for_testing(0);
-    return status == QUANTAPDF_ERROR_NOMEM && width == 0u && height == 0u &&
-        components == 0;
 }
 
 extern "C" int quantapdf_test_make_malformed_png(
