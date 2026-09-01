@@ -1136,7 +1136,8 @@ static quantapdf_status quantapdf_qpdf_audit_signature_fields(
             QPDFObjectHandle signature_type = value.getKey("/Type");
             if (value.hasKey("/Type") &&
                 (!signature_type.isName() ||
-                 signature_type.getName() != "/Sig"))
+                 (signature_type.getName() != "/Sig" &&
+                  signature_type.getName() != "/DocTimeStamp")))
                 return QUANTAPDF_ERROR_FORMAT;
             *findings |= QUANTAPDF_AUDIT_SIGNATURE;
         }

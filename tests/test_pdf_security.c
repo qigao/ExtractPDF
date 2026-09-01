@@ -366,6 +366,7 @@ static void test_valid_audit_matrix(void)
         {"rich_sound", QUANTAPDF_AUDIT_RICH_MEDIA},
         {"rich_screen", QUANTAPDF_AUDIT_RICH_MEDIA},
         {"inherited_signature", QUANTAPDF_AUDIT_SIGNATURE},
+        {"document_timestamp_field", QUANTAPDF_AUDIT_SIGNATURE},
         {"perms_docmdp", QUANTAPDF_AUDIT_SIGNATURE},
         {"perms_ur", QUANTAPDF_AUDIT_SIGNATURE},
         {"perms_ur3", QUANTAPDF_AUDIT_SIGNATURE},

@@ -501,9 +501,9 @@ static int test_signed_and_legacy_policy(void)
     CHECK(output == NULL);
     quantapdf_close(signed_document);
 
-    for (kind = 1; kind <= 11; ++kind) {
+    for (kind = 1; kind <= 12; ++kind) {
         quantapdf_status const expected =
-            (kind <= 3 || kind == 5 || kind == 9 || kind == 10)
+            (kind <= 3 || kind == 5 || kind == 9 || kind == 10 || kind == 12)
             ? QUANTAPDF_ERROR_UNSUPPORTED
             : QUANTAPDF_ERROR_FORMAT;
         CHECK(quantapdf_security_create_signature_fixture(

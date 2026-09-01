@@ -166,7 +166,7 @@ int quantapdf_security_create_signature_fixture(
     int encrypt)
 {
     if (source_path == nullptr || output_path == nullptr ||
-        kind < 1 || kind > 11)
+        kind < 1 || kind > 12)
         return 0;
     try {
         auto pdf = QPDF::create();
@@ -203,7 +203,7 @@ int quantapdf_security_create_signature_fixture(
             signature = QPDFObjectHandle::newDictionary({
                 {"/ByteRange", byte_range},
                 {"/Contents", QPDFObjectHandle::newString("signed")}});
-            if (kind == 11)
+            if (kind == 11 || kind == 12)
                 signature.replaceKey(
                     "/Type", QPDFObjectHandle::newName("/DocTimeStamp"));
         }
@@ -224,7 +224,7 @@ int quantapdf_security_create_signature_fixture(
             pdf->getRoot().replaceKey(
                 "/AcroForm", QPDFObjectHandle::newDictionary({
                     {"/Fields", fields}}));
-        } else if (kind == 7 || kind == 9) {
+        } else if (kind == 7 || kind == 9 || kind == 12) {
             QPDFObjectHandle field = pdf->makeIndirectObject(
                 QPDFObjectHandle::newDictionary({
                     {"/FT", QPDFObjectHandle::newName("/Sig")},
