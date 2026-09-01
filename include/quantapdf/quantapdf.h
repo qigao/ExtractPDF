@@ -19,7 +19,7 @@ extern "C" {
 #endif
 
 #define QUANTAPDF_VERSION_MAJOR 2
-#define QUANTAPDF_VERSION_MINOR 3
+#define QUANTAPDF_VERSION_MINOR 4
 #define QUANTAPDF_VERSION_PATCH 0
 #define QUANTAPDF_ABI_VERSION 2
 
@@ -65,6 +65,21 @@ typedef struct quantapdf_page_poster_split {
     size_t columns;
     size_t rows;
 } quantapdf_page_poster_split;
+
+#define QUANTAPDF_IMAGE_RECOMPRESSION_DEFAULT_MAX_DECODED_BYTES \
+    ((size_t)64u * (size_t)1024u * (size_t)1024u)
+
+typedef struct quantapdf_image_recompression_options {
+    size_t struct_size;
+    int jpeg_quality;
+    size_t max_decoded_bytes_per_image;
+} quantapdf_image_recompression_options;
+
+#define QUANTAPDF_IMAGE_RECOMPRESSION_OPTIONS_V1_MIN_SIZE \
+    (offsetof(quantapdf_image_recompression_options, jpeg_quality) + \
+     sizeof(int))
+#define QUANTAPDF_IMAGE_RECOMPRESSION_OPTIONS_V1_SIZE \
+    (sizeof(quantapdf_image_recompression_options))
 
 typedef enum quantapdf_flatten_flag {
     QUANTAPDF_FLATTEN_ANNOTATIONS = 1u << 0,
@@ -527,6 +542,11 @@ QUANTAPDF_API quantapdf_status quantapdf_poster_split_pages(
 
 QUANTAPDF_API quantapdf_status quantapdf_rewrite_lossless(
     quantapdf_document *document,
+    quantapdf_output **out_output);
+
+QUANTAPDF_API quantapdf_status quantapdf_recompress_images(
+    quantapdf_document *document,
+    const quantapdf_image_recompression_options *options,
     quantapdf_output **out_output);
 
 QUANTAPDF_API quantapdf_status quantapdf_flatten_interactive(

@@ -4271,6 +4271,24 @@ extern "C" quantapdf_status quantapdf_qpdf_rewrite_lossless(
     }
 }
 
+extern "C" quantapdf_status quantapdf_qpdf_recompress_images(
+    quantapdf_qpdf_document *document,
+    int jpeg_quality,
+    size_t max_decoded_bytes_per_image,
+    unsigned char **out_data,
+    size_t *out_size)
+{
+    if (out_data == nullptr || out_size == nullptr)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    *out_data = nullptr;
+    *out_size = 0;
+    if (document == nullptr || document->pdf == nullptr ||
+        jpeg_quality < 1 || jpeg_quality > 100 ||
+        max_decoded_bytes_per_image == 0)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    return QUANTAPDF_ERROR_UNSUPPORTED;
+}
+
 extern "C" quantapdf_status quantapdf_qpdf_document_audit(
     quantapdf_qpdf_document *document,
     uint32_t *out_findings)

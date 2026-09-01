@@ -100,6 +100,13 @@ quantapdf_status quantapdf_qpdf_rewrite_lossless(
     unsigned char **out_data,
     size_t *out_size);
 
+quantapdf_status quantapdf_qpdf_recompress_images(
+    quantapdf_qpdf_document *document,
+    int jpeg_quality,
+    size_t max_decoded_bytes_per_image,
+    unsigned char **out_data,
+    size_t *out_size);
+
 quantapdf_status quantapdf_qpdf_document_audit(
     quantapdf_qpdf_document *document,
     uint32_t *out_findings);

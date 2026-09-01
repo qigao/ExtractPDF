@@ -27,6 +27,16 @@ target_compile_features(quantapdf_test_jpeg_encoder PRIVATE cxx_std_20)
 add_test(NAME quantapdf.jpeg_encoder COMMAND quantapdf_test_jpeg_encoder)
 set_tests_properties(quantapdf.jpeg_encoder PROPERTIES TIMEOUT 10)
 
+add_executable(quantapdf_test_pdf_image_recompression
+  test_pdf_image_recompression.c)
+target_link_libraries(quantapdf_test_pdf_image_recompression PRIVATE
+  QuantaPDF::QuantaPDF)
+target_compile_definitions(quantapdf_test_pdf_image_recompression PRIVATE
+  ONE_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf")
+add_test(NAME quantapdf.pdf_image_recompression
+  COMMAND quantapdf_test_pdf_image_recompression)
+set_tests_properties(quantapdf.pdf_image_recompression PROPERTIES TIMEOUT 60)
+
 add_executable(quantapdf_test_version test_version.c)
 target_link_libraries(quantapdf_test_version PRIVATE QuantaPDF::QuantaPDF)
 add_test(NAME quantapdf.version COMMAND quantapdf_test_version)
