@@ -14,12 +14,15 @@ extern "C" {
 #  else
 #    define QUANTAPDF_API __declspec(dllimport)
 #  endif
+#elif defined(QUANTAPDF_SHARED) && \
+    (defined(__GNUC__) || defined(__clang__))
+#  define QUANTAPDF_API __attribute__((visibility("default")))
 #else
 #  define QUANTAPDF_API
 #endif
 
 #define QUANTAPDF_VERSION_MAJOR 2
-#define QUANTAPDF_VERSION_MINOR 5
+#define QUANTAPDF_VERSION_MINOR 6
 #define QUANTAPDF_VERSION_PATCH 0
 #define QUANTAPDF_ABI_VERSION 2
 
@@ -203,6 +206,35 @@ typedef struct quantapdf_audit_result {
 #define QUANTAPDF_AUDIT_RESULT_V1_MIN_SIZE \
     (offsetof(quantapdf_audit_result, findings) + sizeof(uint32_t))
 #define QUANTAPDF_AUDIT_RESULT_V1_SIZE (sizeof(quantapdf_audit_result))
+
+typedef enum quantapdf_encryption_method {
+    QUANTAPDF_ENCRYPTION_AES_256 = 1
+} quantapdf_encryption_method;
+
+typedef enum quantapdf_pdf_permission {
+    QUANTAPDF_PERMISSION_PRINT_LOW_RESOLUTION = 1u << 0,
+    QUANTAPDF_PERMISSION_MODIFY_OTHER = 1u << 1,
+    QUANTAPDF_PERMISSION_COPY = 1u << 2,
+    QUANTAPDF_PERMISSION_ANNOTATE_AND_FILL_FORMS = 1u << 3,
+    QUANTAPDF_PERMISSION_FILL_FORMS = 1u << 4,
+    QUANTAPDF_PERMISSION_ASSEMBLE = 1u << 5,
+    QUANTAPDF_PERMISSION_PRINT_HIGH_QUALITY = 1u << 6,
+    QUANTAPDF_PERMISSION_ALL = (1u << 7) - 1u
+} quantapdf_pdf_permission;
+
+typedef struct quantapdf_encryption_options {
+    size_t struct_size;
+    quantapdf_encryption_method method;
+    const char *user_password_utf8;
+    const char *owner_password_utf8;
+    uint32_t permissions;
+    int encrypt_metadata;
+} quantapdf_encryption_options;
+
+#define QUANTAPDF_ENCRYPTION_OPTIONS_V1_MIN_SIZE \
+    (offsetof(quantapdf_encryption_options, encrypt_metadata) + sizeof(int))
+#define QUANTAPDF_ENCRYPTION_OPTIONS_V1_SIZE \
+    (sizeof(quantapdf_encryption_options))
 
 /*
  * These types are traversed as C arrays and therefore have fixed V1 layouts.
@@ -676,6 +708,20 @@ QUANTAPDF_API quantapdf_status quantapdf_flatten_interactive(
 QUANTAPDF_API quantapdf_status quantapdf_sanitize(
     quantapdf_document *document,
     uint32_t flags,
+    quantapdf_output **out_output);
+
+QUANTAPDF_API quantapdf_status quantapdf_encrypt_pdf(
+    quantapdf_document *document,
+    const quantapdf_encryption_options *options,
+    quantapdf_output **out_output);
+
+QUANTAPDF_API quantapdf_status quantapdf_decrypt_pdf(
+    quantapdf_document *document,
+    quantapdf_output **out_output);
+
+QUANTAPDF_API quantapdf_status quantapdf_reencrypt_pdf(
+    quantapdf_document *document,
+    const quantapdf_encryption_options *options,
     quantapdf_output **out_output);
 
 QUANTAPDF_API quantapdf_status quantapdf_output_data(

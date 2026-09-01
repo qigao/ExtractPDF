@@ -17,11 +17,11 @@ static void quantapdf_dispose_document(quantapdf_document *document)
     quantapdf_qpdf_close(document->qpdf_document);
     free(document->source_data);
     if (document->password != NULL) {
-        volatile char *cursor = document->password;
-        while (*cursor != '\0') {
-            *cursor = '\0';
-            ++cursor;
-        }
+        volatile unsigned char *cursor =
+            (volatile unsigned char *)document->password;
+        size_t remaining = document->password_size;
+        while (remaining-- != 0)
+            *cursor++ = 0;
         free(document->password);
     }
     free(document);
@@ -29,7 +29,8 @@ static void quantapdf_dispose_document(quantapdf_document *document)
 
 static quantapdf_status quantapdf_copy_password(
     const char *password,
-    char **out_password)
+    char **out_password,
+    size_t *out_size)
 {
     const char *source = password != NULL ? password : "";
     size_t size = strlen(source);
@@ -42,6 +43,7 @@ static quantapdf_status quantapdf_copy_password(
         return QUANTAPDF_ERROR_NOMEM;
     memcpy(copy, source, size + 1);
     *out_password = copy;
+    *out_size = size;
     return QUANTAPDF_OK;
 }
 
@@ -64,7 +66,8 @@ quantapdf_status quantapdf_open(
     if (document == NULL)
         return QUANTAPDF_ERROR_NOMEM;
 
-    status = quantapdf_copy_password(password, &document->password);
+    status = quantapdf_copy_password(
+        password, &document->password, &document->password_size);
     if (status != QUANTAPDF_OK) {
         quantapdf_dispose_document(document);
         return status;

@@ -65,6 +65,7 @@ The current supported surface includes:
 - immutable AcroForm snapshots and isolated PDF edit sessions
 - page export/range export, output merging, and file saving
 - catalog-reachable document security audit and immutable policy sanitization
+- explicit AES-256 encrypt, authenticated decrypt, and re-encrypt transforms
 - immutable CropBox crop, MediaBox trim, poster-split, interactive-content
   flattening, lossless rewrite/GC, and selective image recompression transforms
 - deterministic PDF composition from formatted base-14 text and JPEG/PNG images
@@ -309,6 +310,72 @@ proof that arbitrary custom object edges are safe. Malformed conventional
 structures return `QUANTAPDF_ERROR_FORMAT`; a bounded traversal or a requested
 removal that cannot be proven complete returns `QUANTAPDF_ERROR_UNSUPPORTED`
 without publishing output.
+
+## PDF security rewrite
+
+Security changes are explicit immutable transforms. V1 writes only the PDF
+Standard Security Handler revision 6 with AES-256; decrypt and re-encrypt
+accept encrypted documents that `quantapdf_open()` has already authenticated.
+Signed inputs are rejected because a full rewrite would invalidate signatures.
+
+```c
+quantapdf_encryption_options security = {
+    .struct_size = QUANTAPDF_ENCRYPTION_OPTIONS_V1_SIZE,
+    .method = QUANTAPDF_ENCRYPTION_AES_256,
+    .user_password_utf8 = "reader",
+    .owner_password_utf8 = "document-owner",
+    .permissions = QUANTAPDF_PERMISSION_COPY |
+        QUANTAPDF_PERMISSION_PRINT_LOW_RESOLUTION,
+    .encrypt_metadata = 1
+};
+quantapdf_output *encrypted = NULL;
+
+if (quantapdf_encrypt_pdf(doc, &security, &encrypted) == QUANTAPDF_OK) {
+    quantapdf_output_save_file(encrypted, "encrypted.pdf");
+    quantapdf_drop_output(encrypted);
+}
+```
+
+V1 passwords are NUL-terminated preparation-invariant printable ASCII
+(`0x20..0x7e`) with a maximum of 127 bytes. The user password may be empty;
+the owner password must be nonempty and distinct. No password is truncated.
+The field names retain the `_utf8` suffix because printable ASCII is a strict
+UTF-8 subset; arbitrary Unicode passwords are intentionally deferred until a
+standards-compliant preparation dependency is available.
+
+Permissions are advisory viewer hints, not DRM. High-quality printing requires
+the low-resolution print bit. `ANNOTATE_AND_FILL_FORMS` reflects PDF bit 6,
+which permits both annotation changes and filling existing fields;
+`FILL_FORMS` controls the independent PDF bit 9. Accessibility extraction is
+always available for R6 and therefore has no misleading public toggle.
+
+Encryption and re-encryption intentionally produce different bytes on repeated
+calls. QuantaPDF supplies qpdf with OS-backed cryptographic randomness and
+generates fresh security material. Decryption is deterministic for identical
+authenticated input. Every result owns its bytes independently of the source:
+
+```c
+quantapdf_document *authenticated = NULL;
+quantapdf_output *plaintext = NULL;
+
+if (quantapdf_open("encrypted.pdf", "reader", &authenticated) ==
+        QUANTAPDF_OK &&
+    quantapdf_decrypt_pdf(authenticated, &plaintext) == QUANTAPDF_OK) {
+    quantapdf_output_save_file(plaintext, "plaintext.pdf");
+}
+quantapdf_drop_output(plaintext);
+quantapdf_close(authenticated);
+```
+
+To edit an encrypted document, decrypt it, save and reopen the plaintext,
+perform the desired explicit transforms, then encrypt the final document.
+Existing save, crop, trim, flatten, recompress, rewrite, edit, and Composer
+operations never add, remove, or replace encryption implicitly.
+
+Shared builds isolate the private qpdf provider. In a static-link process,
+replacing qpdf's process-global provider after QuantaPDF initializes causes
+encrypt and re-encrypt to fail `QUANTAPDF_ERROR_UNSUPPORTED`; QuantaPDF never
+temporarily overrides or restores the consumer's pointer.
 
 ## Lossless rewrite and garbage collection
 

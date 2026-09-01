@@ -93,3 +93,6 @@ quantapdf_trim_pages
 quantapdf_document_audit
 quantapdf_sanitize
 quantapdf_recompress_images
+quantapdf_encrypt_pdf
+quantapdf_decrypt_pdf
+quantapdf_reencrypt_pdf

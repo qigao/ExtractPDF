@@ -42,10 +42,16 @@ static QPDFObjectHandle pdf_security_action(QPDF& pdf, const char *name)
         {"/S", QPDFObjectHandle::newName(name)}}));
 }
 
-static QPDFObjectHandle pdf_security_signature(QPDF& pdf)
+static QPDFObjectHandle pdf_security_signature(
+    QPDF& pdf,
+    char const *type = "/Sig")
 {
+    QPDFObjectHandle byte_range = QPDFObjectHandle::newArray();
+    for (int index = 0; index < 4; ++index)
+        byte_range.appendItem(QPDFObjectHandle::newInteger(0));
     return pdf.makeIndirectObject(QPDFObjectHandle::newDictionary({
-        {"/Type", QPDFObjectHandle::newName("/Sig")},
+        {"/Type", QPDFObjectHandle::newName(type)},
+        {"/ByteRange", byte_range},
         {"/Contents", QPDFObjectHandle::newString("signed")}}));
 }
 
@@ -631,6 +637,13 @@ extern "C" int pdf_security_create_fixture(
             parent.replaceKey("/FT", QPDFObjectHandle::newName("/Sig"));
             parent.replaceKey("/Kids", kids);
             pdf_security_set_fields(root, parent);
+        } else if (scenario == "document_timestamp_field") {
+            pdf_security_set_fields(
+                root, pdf->makeIndirectObject(
+                    QPDFObjectHandle::newDictionary({
+                        {"/FT", QPDFObjectHandle::newName("/Sig")},
+                        {"/V", pdf_security_signature(
+                            *pdf, "/DocTimeStamp")}})));
         } else if (scenario == "perms_docmdp") {
             pdf_security_set_perms_signature(*pdf, root, "/DocMDP");
         } else if (scenario == "perms_ur") {

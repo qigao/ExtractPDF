@@ -1,11 +1,12 @@
 cmake_minimum_required(VERSION 3.20)
-project(QuantaPDF VERSION 2.5.0 LANGUAGES C CXX)
+project(QuantaPDF VERSION 2.6.0 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 
 option(QUANTAPDF_BUILD_TESTS "Build QuantaPDF tests" ON)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+include(QuantaPDFExports)
 include(QuantaPDFPdfium)
 quantapdf_import_pdfium()
 
@@ -37,6 +38,7 @@ endif()
 add_library(quantapdf_backend STATIC
   src/backend/qpdf_document.cpp
   src/backend/qpdf_composer.cpp
+  src/backend/secure_random.cpp
   src/backend/jpeg_validator.c
   src/backend/jpeg_encoder.cpp
   src/backend/pdfium_document.cpp
@@ -50,6 +52,11 @@ target_link_libraries(quantapdf_backend PRIVATE
   qpdf::libqpdf
   JPEG::JPEG
   ZLIB::ZLIB)
+if(WIN32)
+  target_link_libraries(quantapdf_backend PRIVATE bcrypt)
+elseif(APPLE)
+  target_link_libraries(quantapdf_backend PRIVATE "-framework Security")
+endif()
 set_target_properties(quantapdf_backend PROPERTIES
   POSITION_INDEPENDENT_CODE ON)
 
@@ -83,7 +90,8 @@ add_library(quantapdf
   src/pdf_edit_forms.c
   src/pdf_edit_annotations.c
   src/pdf_flatten.c
-  src/pdf_security.c)
+  src/pdf_security.c
+  src/pdf_security_rewrite.c)
 add_library(QuantaPDF::QuantaPDF ALIAS quantapdf)
 target_compile_features(quantapdf PUBLIC c_std_11)
 target_include_directories(quantapdf PUBLIC
@@ -95,6 +103,8 @@ set_target_properties(quantapdf PROPERTIES
   LINKER_LANGUAGE CXX
   VERSION "${PROJECT_VERSION}"
   SOVERSION "${PROJECT_VERSION_MAJOR}")
+quantapdf_configure_shared_exports(
+  quantapdf "${CMAKE_CURRENT_SOURCE_DIR}/abi/quantapdf-v2.exports")
 
 if(BUILD_SHARED_LIBS)
   target_compile_definitions(quantapdf
