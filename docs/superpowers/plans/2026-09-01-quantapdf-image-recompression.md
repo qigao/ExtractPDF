@@ -481,7 +481,7 @@ ctest --test-dir build/Msvc-Release -R '^quantapdf\.(jpeg_encoder|pdf_image_reco
 
 Expected: 2/2 selected tests pass.
 
-- [ ] **Step 7: Add determinism, lifetime, and quality cases**
+- [x] **Step 7: Add determinism, lifetime, and quality cases**
 
 Call the transform twice at quality 90 and require byte equality. Close the
 source before reading/reopening output. Require quality 40 and 90 image stream
@@ -492,7 +492,7 @@ bytes. Save the reviewed quality-90 controlled output as
 run's complete output bytes with that file so Linux, macOS, and Windows prove
 the same serialization.
 
-- [ ] **Step 8: Commit the successful transform**
+- [x] **Step 8: Commit the successful transform**
 
 ```powershell
 git add src/backend/qpdf_document.cpp tests/image_recompression_test_helpers.h tests/image_recompression_test_helpers.cpp tests/test_pdf_image_recompression.c tests/CMakeLists.txt

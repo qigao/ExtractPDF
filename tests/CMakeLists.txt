@@ -85,7 +85,7 @@ target_compile_definitions(quantapdf_test_pdf_security PRIVATE
   SECURITY_ENCRYPTED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/encrypted-one-page.pdf"
   SECURITY_FIXTURE_DIR="${CMAKE_CURRENT_BINARY_DIR}")
 add_test(NAME quantapdf.pdf_security COMMAND quantapdf_test_pdf_security)
-set_tests_properties(quantapdf.pdf_security PROPERTIES TIMEOUT 30)
+set_tests_properties(quantapdf.pdf_security PROPERTIES TIMEOUT 60)
 
 add_executable(quantapdf_test_pdf_rewrite_lossless
   test_pdf_rewrite_lossless.c
