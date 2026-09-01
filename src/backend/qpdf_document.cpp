@@ -926,7 +926,8 @@ static quantapdf_status quantapdf_qpdf_audit_javascript_name_tree(
         return QUANTAPDF_ERROR_UNSUPPORTED;
     if (tree.isIndirect())
         node_seen.insert(tree.getObjGen());
-    node_work.push_back({tree});
+    node_work.emplace_back();
+    node_work.back().node = tree;
 
     while (!node_work.empty()) {
         frame& current = node_work.back();
@@ -1005,7 +1006,8 @@ static quantapdf_status quantapdf_qpdf_audit_javascript_name_tree(
             if (child.isIndirect() &&
                 !node_seen.insert(child.getObjGen()).second)
                 return QUANTAPDF_ERROR_FORMAT;
-            node_work.push_back({child});
+            node_work.emplace_back();
+            node_work.back().node = child;
             continue;
         }
 
@@ -1411,7 +1413,8 @@ static quantapdf_status quantapdf_qpdf_sanitize_javascript_name_tree(
         return QUANTAPDF_ERROR_UNSUPPORTED;
     if (tree.isIndirect())
         node_seen.insert(tree.getObjGen());
-    node_work.push_back({tree});
+    node_work.emplace_back();
+    node_work.back().node = tree;
 
     while (!node_work.empty()) {
         frame& current = node_work.back();
@@ -1469,7 +1472,8 @@ static quantapdf_status quantapdf_qpdf_sanitize_javascript_name_tree(
             if (child.isIndirect() &&
                 !node_seen.insert(child.getObjGen()).second)
                 continue;
-            node_work.push_back({child});
+            node_work.emplace_back();
+            node_work.back().node = child;
             continue;
         }
 
