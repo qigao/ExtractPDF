@@ -84,14 +84,20 @@ findings. Malformed action containers return `QUANTAPDF_ERROR_FORMAT` instead
 of being silently skipped.
 
 The catalog `/Names /JavaScript` value is a strict PDF name tree, not merely a
-presence marker. Its iterative walker accepts an empty root, otherwise validates
-dictionary nodes, mutually exclusive `/Kids` and `/Names`, two-string
-`/Limits`, dictionary children, even alternating string/action pairs, and every
-action dictionary through the shared classifier. It follows every action
+presence marker. Its iterative postorder walker accepts an empty root and empty
+nodes without `/Limits`; otherwise it validates dictionary nodes, mutually
+exclusive `/Kids` and `/Names`, dictionary children, even alternating
+string/action pairs, and every action dictionary through the shared classifier.
+Leaf keys are raw string bytes in strictly increasing order. Child subtree
+ranges are strictly increasing and nonoverlapping. `/Limits` is optional for
+compatibility, but whenever present it is exactly two strings equal to the
+actual first and last key of that node's nonempty subtree; an empty node cannot
+have `/Limits`. It follows every action
 `/Next` chain, so a JavaScript tree can report launch, external, or other action
-bits in addition to the JavaScript-tree presence bit. Indirect nodes and actions
-are cycle-safe, and every enqueue or inspected name-tree item is charged before
-de-duplication against the shared audit budget. Malformed trees return
+bits in addition to the JavaScript-tree presence bit. Every indirect name-tree
+node may occur exactly once: a cycle or multi-parent duplicate is malformed.
+Actions remain cycle-safe. Every enqueue or inspected name-tree item is charged
+before the repeat check against the shared audit budget. Malformed trees return
 `QUANTAPDF_ERROR_FORMAT`; exhausted traversal returns
 `QUANTAPDF_ERROR_UNSUPPORTED`.
 
@@ -145,15 +151,18 @@ Repeated identical calls and reopen-then-sanitize are byte-idempotent.
 
 Before mutation, a second bounded role/ownership preflight records every
 reachable indirect container reference by semantic role, charging before
-role-aware de-duplication. A container that the selected policy would mutate is
-rejected with `QUANTAPDF_ERROR_UNSUPPORTED` if it also has an incoming custom
-alias or a different conventional role. This prevents one in-place edit from
-silently changing an unselected interpretation, such as one array serving both
-`/Annots` and action `/Next`. Multiple aliases in the same semantic role remain
-supported, including shared `/AA` dictionaries and shared `/Next` arrays. Direct
-containers cannot be shared by a serialized PDF and retain normal mutation
-behavior. Alias rejection happens after strict audit but before any mutation or
-output publication.
+role-aware de-duplication. Traversal carries the stable nearest indirect owner
+as a mutation anchor. An indirect child becomes its own anchor; editing any
+direct descendant targets that nearest indirect anchor. A selected target is
+rejected with `QUANTAPDF_ERROR_UNSUPPORTED` if its anchor also has an incoming
+custom alias or a different conventional role. This covers direct `/Next`,
+`/AA`, `/Annots`, JavaScript name-pair arrays and catalog name descendants,
+AcroForm/XFA, `/AF`, `/EF`, and action-owner keys as well as indirect mutable
+containers. It prevents one in-place edit from silently changing an unselected
+interpretation, such as one array serving both `/Annots` and action `/Next`.
+Multiple aliases in the same semantic role remain supported, including shared
+`/AA` dictionaries and shared `/Next` arrays. Alias rejection happens after
+strict audit but before any mutation or output publication.
 
 ## Ownership and failure atomicity
 
@@ -179,11 +188,13 @@ Tests prove:
 - safe internal navigation is not reported or removed;
 - unreferenced dangerous-looking garbage is ignored;
 - malformed action/name/annotation structures fail closed;
-- JavaScript name-tree heads and all continuation classes, malformed nodes,
-  cycles, and charge-before-de-duplication budget exhaustion;
+- JavaScript name-tree heads and all continuation classes, strictly ordered
+  byte keys and child ranges, exact optional limits, repeated-node rejection,
+  and charge-before-repeat-check budget exhaustion;
 - every sanitize flag is isolated and `ALL` clears every sanitizable finding;
 - partial sanitize preserves unselected findings;
-- selected mutation of cross-role or conventional/custom indirect aliases is
+- selected mutation of cross-role or conventional/custom indirect aliases,
+  including mutations through direct descendants anchored at those objects, is
   unsupported with NULL output, while same-role sharing and unrelated policies
   remain supported;
 - source immutability, output lifetime, determinism, and idempotence;

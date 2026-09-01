@@ -135,13 +135,15 @@ destination array, name, or string and those forms are not actions. Scan
 The catalog `/Names /JavaScript` entry is walked as a strict iterative PDF name
 tree. Nodes are dictionaries; `/Kids` is an array of dictionary nodes;
 `/Names` is an even array of alternating string keys and action dictionaries;
-`/Kids` and `/Names` are mutually exclusive; and optional `/Limits` is exactly
-two strings. Empty roots are accepted. Feed every action value and recursive
-`/Next` continuation through the shared classifier, charge every enqueue and
-inspected pair before indirect de-duplication, and terminate safely on indirect
-cycles. Malformed trees return FORMAT and exhausted traversal returns
-UNSUPPORTED. Tree presence still contributes the JavaScript finding in
-addition to every action class found in its values.
+and `/Kids` and `/Names` are mutually exclusive. Raw string keys and child
+subtree ranges are strictly increasing and nonoverlapping. `/Limits` is
+optional, but every present pair must exactly equal the node's actual first and
+last descendant keys. Empty nodes are accepted only without `/Limits`. Every
+indirect node occurs once: cycles and multi-parent duplicates return FORMAT.
+Feed every action value and recursive `/Next` continuation through the shared
+classifier and charge every enqueue or inspected pair before the repeat check.
+Exhausted traversal returns UNSUPPORTED. Tree presence still contributes the
+JavaScript finding in addition to every action class found in its values.
 
 The ordinary graph walk flags any `/AF` or `/EF` reference, embedded-file
 stream, or `/FileAttachment` annotation as embedded content. It flags
@@ -234,13 +236,15 @@ do not relabel or retain payload bytes merely to make the bit disappear.
 
 Before mutation, run an independent iterative, overflow-checked, source-bounded
 ownership/role preflight. Record every incoming semantic role for reachable
-indirect containers, charging before role-aware de-duplication. If a container
-that the selected policy would mutate is also referenced through a custom edge
-or a different conventional role, return `QUANTAPDF_ERROR_UNSUPPORTED` before
-mutation and leave output NULL. This covers catalog Names, JavaScript name-tree
-arrays/actions, AcroForm/XFA, `/AA`, `/Next`, `/Annots`, `/AF`, and `/EF` owner
-containers. Multiple aliases with the same role remain supported; an unrelated
-policy that would not mutate the ambiguous container is not rejected.
+indirect containers, charging before role-aware de-duplication, and carry the
+nearest indirect mutation anchor through direct descendants. An indirect child
+becomes its own anchor. If a selected edit's container or nearest indirect
+anchor is also referenced through a custom edge or a different conventional
+role, return `QUANTAPDF_ERROR_UNSUPPORTED` before mutation and leave output
+NULL. This covers direct and indirect catalog Names descendants, JavaScript
+name-tree arrays/actions, AcroForm/XFA, `/AA`, `/Next`, `/Annots`, `/AF`, `/EF`,
+and action-owner keys. Multiple aliases with the same role remain supported; an
+unrelated policy that would not mutate the ambiguous container is not rejected.
 
 - [x] **Step 1: Add policy isolation and `ALL` RED tests**
 
@@ -267,8 +271,10 @@ rich-media annotation objects made unreachable by conventional removal are
 absent from the serialized output, not merely hidden from the public scanner.
 
 Add genuine JavaScript name-tree fixtures for safe GoTo, a representative
-active head, every continuation class, malformed nodes and containers, cycles,
-and a compressed charge-before-de-duplication budget case. Add mixed-role
+active head, every continuation class, malformed nodes and containers,
+repeated nodes, unordered or duplicate keys, inconsistent limits and child
+ranges, a valid limited multilevel tree, and a compressed
+charge-before-repeat-check budget case. Add mixed-role
 `/Annots`-`/Next` and conventional/custom aliases for every mutable container
 family; partial selected policies must return unsupported with NULL output,
 while existing same-role sharing and an unrelated policy remain successful.

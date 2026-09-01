@@ -397,19 +397,21 @@ static void pdf_security_javascript_name_tree_budget(
     QPDFObjectHandle root,
     int count)
 {
-    QPDFObjectHandle leaf = pdf.makeIndirectObject(
-        QPDFObjectHandle::newDictionary());
-    QPDFObjectHandle shared_kids = QPDFObjectHandle::newArray();
+    std::vector<QPDFObjectHandle> actions;
+    actions.reserve(static_cast<size_t>(count));
     for (int index = 0; index < count; ++index)
-        shared_kids.appendItem(leaf);
-    shared_kids = pdf.makeIndirectObject(shared_kids);
-    QPDFObjectHandle root_kids = QPDFObjectHandle::newArray();
-    for (int index = 0; index < count; ++index) {
-        root_kids.appendItem(pdf.makeIndirectObject(
-            QPDFObjectHandle::newDictionary({{"/Kids", shared_kids}})));
-    }
+        actions.push_back(pdf_security_action(pdf, "/GoTo"));
+    QPDFObjectHandle shared_next = QPDFObjectHandle::newArray();
+    for (QPDFObjectHandle action : actions)
+        shared_next.appendItem(action);
+    shared_next = pdf.makeIndirectObject(shared_next);
+    for (QPDFObjectHandle action : actions)
+        action.replaceKey("/Next", shared_next);
+    QPDFObjectHandle pairs = QPDFObjectHandle::newArray();
+    pairs.appendItem(QPDFObjectHandle::newString("entry"));
+    pairs.appendItem(actions[0]);
     QPDFObjectHandle tree = pdf.makeIndirectObject(
-        QPDFObjectHandle::newDictionary({{"/Kids", root_kids}}));
+        QPDFObjectHandle::newDictionary({{"/Names", pairs}}));
     root.replaceKey(
         "/Names", QPDFObjectHandle::newDictionary({
             {"/JavaScript", tree}}));
@@ -420,6 +422,30 @@ static void pdf_security_set_custom_alias(
     QPDFObjectHandle object)
 {
     root.replaceKey("/QuantaPDFAlias", object);
+}
+
+static QPDFObjectHandle pdf_security_name_tree_leaf(
+    QPDF& pdf,
+    std::initializer_list<char const *> keys)
+{
+    QPDFObjectHandle names = QPDFObjectHandle::newArray();
+    for (char const *key : keys) {
+        names.appendItem(QPDFObjectHandle::newString(key));
+        names.appendItem(pdf_security_action(pdf, "/GoTo"));
+    }
+    return pdf.makeIndirectObject(
+        QPDFObjectHandle::newDictionary({{"/Names", names}}));
+}
+
+static void pdf_security_set_name_tree_limits(
+    QPDFObjectHandle node,
+    char const *first,
+    char const *last)
+{
+    QPDFObjectHandle limits = QPDFObjectHandle::newArray();
+    limits.appendItem(QPDFObjectHandle::newString(first));
+    limits.appendItem(QPDFObjectHandle::newString(last));
+    node.replaceKey("/Limits", limits);
 }
 
 static void pdf_security_budget_tuner(
@@ -480,6 +506,43 @@ extern "C" int pdf_security_create_fixture(
         } else if (scenario == "name_tree_next_other") {
             pdf_security_javascript_name_tree_fixture(
                 *pdf, root, "/GoTo", "/Named");
+        } else if (scenario == "name_tree_valid_multilevel") {
+            QPDFObjectHandle left = pdf_security_name_tree_leaf(
+                *pdf, {"alpha", "bravo"});
+            QPDFObjectHandle right = pdf_security_name_tree_leaf(
+                *pdf, {"charlie", "delta"});
+            pdf_security_set_name_tree_limits(left, "alpha", "bravo");
+            pdf_security_set_name_tree_limits(right, "charlie", "delta");
+            QPDFObjectHandle kids = QPDFObjectHandle::newArray();
+            kids.appendItem(left);
+            kids.appendItem(right);
+            QPDFObjectHandle tree = pdf->makeIndirectObject(
+                QPDFObjectHandle::newDictionary({{"/Kids", kids}}));
+            pdf_security_set_name_tree_limits(tree, "alpha", "delta");
+            root.replaceKey(
+                "/Names", QPDFObjectHandle::newDictionary({
+                    {"/JavaScript", tree}}));
+        } else if (scenario == "name_tree_limited_head_launch") {
+            QPDFObjectHandle left_names = QPDFObjectHandle::newArray();
+            left_names.appendItem(QPDFObjectHandle::newString("alpha"));
+            left_names.appendItem(pdf_security_action(*pdf, "/Launch"));
+            left_names.appendItem(QPDFObjectHandle::newString("bravo"));
+            left_names.appendItem(pdf_security_action(*pdf, "/GoTo"));
+            QPDFObjectHandle left = pdf->makeIndirectObject(
+                QPDFObjectHandle::newDictionary({{"/Names", left_names}}));
+            QPDFObjectHandle right = pdf_security_name_tree_leaf(
+                *pdf, {"charlie", "delta"});
+            pdf_security_set_name_tree_limits(left, "alpha", "bravo");
+            pdf_security_set_name_tree_limits(right, "charlie", "delta");
+            QPDFObjectHandle kids = QPDFObjectHandle::newArray();
+            kids.appendItem(left);
+            kids.appendItem(right);
+            QPDFObjectHandle tree = pdf->makeIndirectObject(
+                QPDFObjectHandle::newDictionary({{"/Kids", kids}}));
+            pdf_security_set_name_tree_limits(tree, "alpha", "delta");
+            root.replaceKey(
+                "/Names", QPDFObjectHandle::newDictionary({
+                    {"/JavaScript", tree}}));
         } else if (scenario == "internal_goto") {
             pdf_security_set_open_action(*pdf, root, "/GoTo");
         } else if (scenario == "open_destination_array") {
@@ -694,6 +757,55 @@ extern "C" int pdf_security_create_fixture(
             root.replaceKey(
                 "/Names", QPDFObjectHandle::newDictionary({
                     {"/JavaScript", tree}}));
+        } else if (scenario == "name_tree_duplicate_child") {
+            QPDFObjectHandle leaf = pdf_security_name_tree_leaf(*pdf, {"a"});
+            QPDFObjectHandle kids = QPDFObjectHandle::newArray();
+            kids.appendItem(leaf);
+            kids.appendItem(leaf);
+            root.replaceKey(
+                "/Names", QPDFObjectHandle::newDictionary({
+                    {"/JavaScript", QPDFObjectHandle::newDictionary({
+                        {"/Kids", kids}})}}));
+        } else if (scenario == "name_tree_unordered_keys" ||
+                   scenario == "name_tree_duplicate_keys") {
+            QPDFObjectHandle names = QPDFObjectHandle::newArray();
+            names.appendItem(QPDFObjectHandle::newString(
+                scenario == "name_tree_unordered_keys" ? "b" : "a"));
+            names.appendItem(pdf_security_action(*pdf, "/GoTo"));
+            names.appendItem(QPDFObjectHandle::newString("a"));
+            names.appendItem(pdf_security_action(*pdf, "/GoTo"));
+            root.replaceKey(
+                "/Names", QPDFObjectHandle::newDictionary({
+                    {"/JavaScript", QPDFObjectHandle::newDictionary({
+                        {"/Names", names}})}}));
+        } else if (scenario == "name_tree_reversed_limits" ||
+                   scenario == "name_tree_inconsistent_limits") {
+            QPDFObjectHandle tree = pdf_security_name_tree_leaf(
+                *pdf, {"a", "b"});
+            pdf_security_set_name_tree_limits(
+                tree,
+                scenario == "name_tree_reversed_limits" ? "b" : "x",
+                scenario == "name_tree_reversed_limits" ? "a" : "z");
+            root.replaceKey(
+                "/Names", QPDFObjectHandle::newDictionary({
+                    {"/JavaScript", tree}}));
+        } else if (scenario == "name_tree_overlapping_kids" ||
+                   scenario == "name_tree_out_of_order_kids") {
+            QPDFObjectHandle first = pdf_security_name_tree_leaf(
+                *pdf, scenario == "name_tree_overlapping_kids"
+                    ? std::initializer_list<char const *>{"a", "c"}
+                    : std::initializer_list<char const *>{"c", "d"});
+            QPDFObjectHandle second = pdf_security_name_tree_leaf(
+                *pdf, scenario == "name_tree_overlapping_kids"
+                    ? std::initializer_list<char const *>{"b", "d"}
+                    : std::initializer_list<char const *>{"a", "b"});
+            QPDFObjectHandle kids = QPDFObjectHandle::newArray();
+            kids.appendItem(first);
+            kids.appendItem(second);
+            root.replaceKey(
+                "/Names", QPDFObjectHandle::newDictionary({
+                    {"/JavaScript", QPDFObjectHandle::newDictionary({
+                        {"/Kids", kids}})}}));
         } else if (scenario == "malformed_annots") {
             pages[0].replaceKey(
                 "/Annots", QPDFObjectHandle::newName("/Bad"));
@@ -818,6 +930,96 @@ extern "C" int pdf_security_create_fixture(
                 "/Next", pdf_security_action(*pdf, "/Launch"));
             root.replaceKey("/OpenAction", safe);
             pdf_security_set_custom_alias(root, safe);
+        } else if (scenario == "alias_direct_next_custom") {
+            QPDFObjectHandle owner = pdf_security_action(*pdf, "/GoTo");
+            QPDFObjectHandle next = QPDFObjectHandle::newArray();
+            next.appendItem(pdf_security_action(*pdf, "/Launch"));
+            next.appendItem(pdf_security_action(*pdf, "/GoTo"));
+            owner.replaceKey("/Next", next);
+            root.replaceKey("/OpenAction", owner);
+            pdf_security_set_custom_alias(root, owner);
+        } else if (scenario == "alias_direct_aa_custom") {
+            QPDFObjectHandle owner = pdf_security_action(*pdf, "/GoTo");
+            owner.replaceKey(
+                "/AA", QPDFObjectHandle::newDictionary({
+                    {"/E", pdf_security_action(*pdf, "/Launch")},
+                    {"/X", pdf_security_action(*pdf, "/GoTo")}}));
+            root.replaceKey("/OpenAction", owner);
+            pdf_security_set_custom_alias(root, owner);
+        } else if (scenario == "alias_direct_annots_custom") {
+            QPDFObjectHandle owner = pdf_security_action(*pdf, "/GoTo");
+            QPDFObjectHandle annots = QPDFObjectHandle::newArray();
+            annots.appendItem(QPDFObjectHandle::newDictionary({
+                {"/Subtype", QPDFObjectHandle::newName("/RichMedia")}}));
+            annots.appendItem(QPDFObjectHandle::newDictionary({
+                {"/Subtype", QPDFObjectHandle::newName("/Text")}}));
+            owner.replaceKey("/Annots", annots);
+            root.replaceKey("/OpenAction", owner);
+            pdf_security_set_custom_alias(root, owner);
+        } else if (scenario == "alias_direct_page_annots_custom") {
+            QPDFObjectHandle annots = QPDFObjectHandle::newArray();
+            annots.appendItem(QPDFObjectHandle::newDictionary({
+                {"/Subtype", QPDFObjectHandle::newName("/RichMedia")}}));
+            annots.appendItem(QPDFObjectHandle::newDictionary({
+                {"/Subtype", QPDFObjectHandle::newName("/Text")}}));
+            pages[0].replaceKey("/Annots", annots);
+            pdf_security_set_custom_alias(root, pages[0]);
+        } else if (scenario == "alias_direct_js_names_custom") {
+            QPDFObjectHandle pairs = QPDFObjectHandle::newArray();
+            pairs.appendItem(QPDFObjectHandle::newString("a"));
+            pairs.appendItem(pdf_security_action(*pdf, "/Launch"));
+            pairs.appendItem(QPDFObjectHandle::newString("b"));
+            pairs.appendItem(pdf_security_action(*pdf, "/GoTo"));
+            QPDFObjectHandle tree = pdf->makeIndirectObject(
+                QPDFObjectHandle::newDictionary({{"/Names", pairs}}));
+            root.replaceKey(
+                "/Names", QPDFObjectHandle::newDictionary({
+                    {"/JavaScript", tree}}));
+            pdf_security_set_custom_alias(root, tree);
+        } else if (scenario == "alias_direct_js_limits_custom") {
+            QPDFObjectHandle pairs = QPDFObjectHandle::newArray();
+            pairs.appendItem(QPDFObjectHandle::newString("alpha"));
+            pairs.appendItem(pdf_security_action(*pdf, "/Launch"));
+            pairs.appendItem(QPDFObjectHandle::newString("bravo"));
+            pairs.appendItem(pdf_security_action(*pdf, "/GoTo"));
+            QPDFObjectHandle leaf = pdf->makeIndirectObject(
+                QPDFObjectHandle::newDictionary({{"/Names", pairs}}));
+            pdf_security_set_name_tree_limits(leaf, "alpha", "bravo");
+            QPDFObjectHandle kids = QPDFObjectHandle::newArray();
+            kids.appendItem(leaf);
+            QPDFObjectHandle tree = pdf->makeIndirectObject(
+                QPDFObjectHandle::newDictionary({{"/Kids", kids}}));
+            pdf_security_set_name_tree_limits(tree, "alpha", "bravo");
+            root.replaceKey(
+                "/Names", QPDFObjectHandle::newDictionary({
+                    {"/JavaScript", tree}}));
+            pdf_security_set_custom_alias(root, tree);
+        } else if (scenario == "alias_direct_catalog_names_custom") {
+            root.replaceKey(
+                "/Names", QPDFObjectHandle::newDictionary({
+                    {"/JavaScript", QPDFObjectHandle::newDictionary()}}));
+            pdf_security_set_custom_alias(root, root);
+        } else if (scenario == "alias_direct_acroform_custom") {
+            root.replaceKey(
+                "/AcroForm", QPDFObjectHandle::newDictionary({
+                    {"/Fields", QPDFObjectHandle::newArray()},
+                    {"/XFA", QPDFObjectHandle::newString("xfa")}}));
+            pdf_security_set_custom_alias(root, root);
+        } else if (scenario == "alias_direct_af_ef_custom") {
+            QPDFObjectHandle owner = pdf_security_action(*pdf, "/GoTo");
+            owner.replaceKey(
+                "/QuantaPDFChild", QPDFObjectHandle::newDictionary({
+                    {"/AF", QPDFObjectHandle::newArray()},
+                    {"/EF", QPDFObjectHandle::newDictionary()}}));
+            root.replaceKey("/OpenAction", owner);
+            pdf_security_set_custom_alias(root, owner);
+        } else if (scenario == "alias_direct_action_owner_custom") {
+            QPDFObjectHandle owner = pdf_security_action(*pdf, "/GoTo");
+            owner.replaceKey(
+                "/QuantaPDFChild", QPDFObjectHandle::newDictionary({
+                    {"/A", pdf_security_action(*pdf, "/Launch")}}));
+            root.replaceKey("/OpenAction", owner);
+            pdf_security_set_custom_alias(root, owner);
         } else if (scenario == "alias_annots_custom") {
             QPDFObjectHandle annots = QPDFObjectHandle::newArray();
             annots.appendItem(QPDFObjectHandle::newDictionary({

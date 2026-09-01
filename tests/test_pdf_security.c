@@ -342,7 +342,10 @@ static void test_valid_audit_matrix(void)
                                     QUANTAPDF_AUDIT_EXTERNAL_ACTION},
         {"name_tree_next_other", QUANTAPDF_AUDIT_JAVASCRIPT_ACTION |
                                  QUANTAPDF_AUDIT_OTHER_ACTION},
-        {"name_tree_cycle", QUANTAPDF_AUDIT_JAVASCRIPT_ACTION},
+        {"name_tree_valid_multilevel", QUANTAPDF_AUDIT_JAVASCRIPT_ACTION},
+        {"name_tree_limited_head_launch",
+                                  QUANTAPDF_AUDIT_JAVASCRIPT_ACTION |
+                                  QUANTAPDF_AUDIT_LAUNCH_ACTION},
         {"action_launch", QUANTAPDF_AUDIT_LAUNCH_ACTION},
         {"external_uri", QUANTAPDF_AUDIT_EXTERNAL_ACTION},
         {"external_gotor", QUANTAPDF_AUDIT_EXTERNAL_ACTION},
@@ -408,6 +411,14 @@ static void test_malformed_and_budget_matrix(void)
         "malformed_js_tree_action",
         "malformed_js_tree_both",
         "malformed_js_tree_limits",
+        "name_tree_cycle",
+        "name_tree_duplicate_child",
+        "name_tree_unordered_keys",
+        "name_tree_duplicate_keys",
+        "name_tree_reversed_limits",
+        "name_tree_inconsistent_limits",
+        "name_tree_overlapping_kids",
+        "name_tree_out_of_order_kids",
         "malformed_annots",
         "malformed_annot_entry",
         "malformed_acroform",
@@ -832,6 +843,28 @@ static void test_sanitize_javascript_name_tree_actions(void)
     quantapdf_drop_output(output);
     quantapdf_close(document);
 
+    begin_case("sanitize_name_tree_updates_limits");
+    document = NULL;
+    output = NULL;
+    if (!create_fixture("name_tree_limited_head_launch", path, sizeof(path)))
+        return;
+    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    if (document == NULL)
+        return;
+    CHECK(quantapdf_sanitize(
+              document, QUANTAPDF_SANITIZE_LAUNCH_ACTIONS, &output) ==
+          QUANTAPDF_OK);
+    CHECK(output != NULL);
+    if (output != NULL && save_sanitized_output(
+            output, "name-tree-limits-output", output_path,
+            sizeof(output_path))) {
+        expect_document_audit(
+            output_path, NULL, QUANTAPDF_OK,
+            QUANTAPDF_AUDIT_JAVASCRIPT_ACTION);
+    }
+    quantapdf_drop_output(output);
+    quantapdf_close(document);
+
     begin_case("sanitize_name_tree_whole_javascript_policy");
     document = NULL;
     output = NULL;
@@ -878,6 +911,32 @@ static void test_sanitize_ambiguous_aliases(void)
                               QUANTAPDF_SANITIZE_LAUNCH_ACTIONS},
         {"alias_openaction_next_custom", QUANTAPDF_AUDIT_LAUNCH_ACTION,
                                          QUANTAPDF_SANITIZE_LAUNCH_ACTIONS},
+        {"alias_direct_next_custom", QUANTAPDF_AUDIT_LAUNCH_ACTION,
+                                     QUANTAPDF_SANITIZE_LAUNCH_ACTIONS},
+        {"alias_direct_aa_custom", QUANTAPDF_AUDIT_LAUNCH_ACTION,
+                                   QUANTAPDF_SANITIZE_LAUNCH_ACTIONS},
+        {"alias_direct_annots_custom", QUANTAPDF_AUDIT_RICH_MEDIA,
+                                       QUANTAPDF_SANITIZE_RICH_MEDIA},
+        {"alias_direct_page_annots_custom", QUANTAPDF_AUDIT_RICH_MEDIA,
+                                            QUANTAPDF_SANITIZE_RICH_MEDIA},
+        {"alias_direct_js_names_custom",
+                               QUANTAPDF_AUDIT_JAVASCRIPT_ACTION |
+                               QUANTAPDF_AUDIT_LAUNCH_ACTION,
+                               QUANTAPDF_SANITIZE_LAUNCH_ACTIONS},
+        {"alias_direct_js_limits_custom",
+                               QUANTAPDF_AUDIT_JAVASCRIPT_ACTION |
+                               QUANTAPDF_AUDIT_LAUNCH_ACTION,
+                               QUANTAPDF_SANITIZE_LAUNCH_ACTIONS},
+        {"alias_direct_catalog_names_custom",
+                               QUANTAPDF_AUDIT_JAVASCRIPT_ACTION,
+                               QUANTAPDF_SANITIZE_JAVASCRIPT_ACTIONS},
+        {"alias_direct_acroform_custom", QUANTAPDF_AUDIT_XFA,
+                                         QUANTAPDF_SANITIZE_XFA},
+        {"alias_direct_af_ef_custom", QUANTAPDF_AUDIT_EMBEDDED_FILE,
+                                       QUANTAPDF_SANITIZE_EMBEDDED_FILES},
+        {"alias_direct_action_owner_custom",
+                               QUANTAPDF_AUDIT_LAUNCH_ACTION,
+                               QUANTAPDF_SANITIZE_LAUNCH_ACTIONS},
         {"alias_annots_custom", QUANTAPDF_AUDIT_RICH_MEDIA,
                                 QUANTAPDF_SANITIZE_RICH_MEDIA},
         {"alias_af_custom", QUANTAPDF_AUDIT_EMBEDDED_FILE,
@@ -934,6 +993,14 @@ static void test_sanitize_strict_failures_and_arguments(void)
         "malformed_js_tree_action",
         "malformed_js_tree_both",
         "malformed_js_tree_limits",
+        "name_tree_cycle",
+        "name_tree_duplicate_child",
+        "name_tree_unordered_keys",
+        "name_tree_duplicate_keys",
+        "name_tree_reversed_limits",
+        "name_tree_inconsistent_limits",
+        "name_tree_overlapping_kids",
+        "name_tree_out_of_order_kids",
         "malformed_annots",
         "malformed_annot_entry",
         "malformed_acroform",
