@@ -574,14 +574,14 @@ expected unique names and no test hooks. On a shared ELF/Mach-O verification
 host, inspect dynamic symbols and prove no qpdf/PDFium/dependency symbol is
 exported.
 
-- [ ] **Step 4: Request an independent exact-range code/security review**
+- [x] **Step 4: Request an independent exact-range code/security review**
 
 Obtain base and head SHAs and dispatch the `requesting-code-review` template
 with this spec/plan. Resolve every Critical and Important finding with a RED
 test, minimal fix, focused GREEN, and renewed full verification. Record any
 accepted Minor item in the release note.
 
-- [ ] **Step 5: Verify final tree and commit review fixes**
+- [x] **Step 5: Verify final tree and commit review fixes**
 
 Run `git diff --check`, `git status --short`, the focused security CTest, and
 the full Release suite again at the exact final head. Commit only reviewed
