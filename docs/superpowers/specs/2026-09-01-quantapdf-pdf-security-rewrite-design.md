@@ -1,6 +1,6 @@
 # QuantaPDF PDF Security Rewrite V1 Design
 
-**Status:** Revised after committed-spec security review; pending re-review
+**Status:** Implemented and locally verified; pending branch integration
 
 ## Goal
 
@@ -152,9 +152,12 @@ because a full rewrite invalidates existing signatures. The dedicated
 preflight checks catalog `/Perms` (`/DocMDP`, `/UR`, `/UR3`), inherited
 AcroForm signature fields, document timestamps, and every object returned by
 `QPDF::getAllObjects()` for signature dictionaries, including objects not
-reachable from the catalog. Malformed signature fields and dictionaries
-return `QUANTAPDF_ERROR_FORMAT`. Signed incremental-update fixtures must be
-detected. Bytes from superseded historical revisions that are no longer
+reachable from the catalog. A `/ByteRange` signature shape with missing or
+wrong `/Type`, a missing/non-string `/Contents`, an invalid range array, and
+malformed signature fields return `QUANTAPDF_ERROR_FORMAT`. Structurally valid
+signature dictionaries return `QUANTAPDF_ERROR_UNSUPPORTED`. Signed
+incremental-update fixtures must be detected. Bytes from superseded historical
+revisions that are no longer
 represented in the current xref are not treated as an extant signature and
 are outside V1's structural contract.
 
@@ -197,33 +200,34 @@ QuantaPDF owns one narrow private `secure_random(bytes)` primitive backed by
 `BCryptGenRandom` on Windows, `getrandom` with a fail-closed `/dev/urandom`
 fallback on supported Unix systems, and `SecRandomCopyBytes` on Apple systems.
 It has no deterministic fallback and maps OS failure to a non-success status.
-A private qpdf `RandomDataProvider` adapter delegates every request to this
-primitive, so qpdf's R6 keys, salts, and IVs do not depend on ambient qpdf
-provider state.
+A process-lifetime qpdf `RandomDataProvider` adapter delegates every request
+to this primitive, so qpdf's R6 keys, salts, and IVs do not depend on its
+build-time fallback. It is installed once during library initialization,
+before QuantaPDF creates any QPDF object, and is intentionally never destroyed,
+reset, or transiently replaced. Concurrent QuantaPDF and co-resident qpdf
+callers can therefore consume the same thread-safe provider without observing
+a stack pointer or a restore/destruction window.
 
-qpdf 12.4 exposes its provider as process-global mutable state. A private mutex
-therefore serializes the complete install/configure/write/restore scope. The
-RAII provider guard stays active through `QPDFWriter::write()`, where stream
-IVs are requested, and restores the exact prior provider on every success or
-exception. Restoring the temporary `/Info` after writer configuration does not
-end the provider guard. No other QuantaPDF path changes it. Supported shared-
-library builds additionally hide
-all dependency symbols: Windows exports only `QUANTAPDF_API`; ELF uses an exact
+Per-operation fault attribution uses only a thread-local context spanning
+encryption configuration and `QPDFWriter::write()`; it never mutates qpdf's
+global provider pointer. Supported shared-library builds additionally hide all
+dependency symbols: Windows exports only `QUANTAPDF_API`; ELF uses an exact
 version script, archive exclusion, hidden default visibility, and local symbol
 binding; Mach-O uses an exact exported-symbol list and hidden dependency
-symbols. Thus a co-resident qpdf library cannot resolve or mutate QuantaPDF's
-private qpdf copy. Static archives are not a dynamic isolation boundary, but a
-provider installed before a QuantaPDF call is still overridden and restored;
-concurrent direct mutation of dependency-private qpdf globals by a static-link
-consumer is outside the public ABI contract.
+symbols. Thus a co-resident shared qpdf library cannot resolve or mutate
+QuantaPDF's private qpdf copy. In a static-link process, qpdf is a shared
+dependency boundary. If a consumer replaces the provider after initialization,
+encrypt and re-encrypt fail closed with `QUANTAPDF_ERROR_UNSUPPORTED` without
+overriding or restoring that ambient pointer. Concurrent provider mutation is
+outside qpdf's own contract, which requires mutation at program start.
 
 Under `QUANTAPDF_TESTING`, private non-exported counters and one-shot entropy
-faults observe provider entry, random requests during configuration and write,
-and restoration without exposing qpdf across a shared-library boundary. A
-separate static-link helper may install a sentinel provider and prove it is
-overridden and restored; that test is not used as evidence for shared-copy
-isolation. Shared-build symbol tests assert that the exact QuantaPDF C ABI is
-the only dynamic export.
+faults observe thread-local context entry/exit and random requests during
+configuration and write. A static co-resident test installs a sentinel,
+proves QuantaPDF does not override it, restores the process-lifetime provider,
+and drives direct qpdf random calls concurrently with repeated encryption
+under sanitizer builds. Shared-build symbol tests assert that the exact
+QuantaPDF C ABI is the only dynamic export.
 Test helpers may use qpdf's static-ID/static-IV facilities only in separate
 fixture processes and never while a public QuantaPDF operation is executing.
 
@@ -285,9 +289,9 @@ unbounded auxiliary collection is introduced beyond the existing bounded
 audit and qpdf's document graph.
 
 The operation is synchronous and adds no queue, callback, background task,
-shutdown phase, or cancellation state. Its one process-wide mutex protects the
-unavoidable transient qpdf provider swap and contains no PRNG state. As with
-the rest of ABI 2, callers serialize concurrent access to one document.
+shutdown phase, or cancellation state. It uses no provider mutex or transient
+global swap; operation-local entropy attribution is thread-local. As with the
+rest of ABI 2, callers serialize concurrent access to one document.
 
 ## Error semantics
 
@@ -300,8 +304,9 @@ the rest of ABI 2, callers serialize concurrent access to one document.
   `quantapdf_open()` or the strict private reparse.
 - `QUANTAPDF_ERROR_FORMAT`: malformed PDF/security structure or any strict
   parse warning needed to complete the rewrite.
-- `QUANTAPDF_ERROR_UNSUPPORTED`: reachable signature structure or a source
-  encryption feature qpdf cannot safely rewrite.
+- `QUANTAPDF_ERROR_UNSUPPORTED`: a valid current signature structure, a
+  static consumer replacement of qpdf's process-lifetime provider, or a
+  source encryption feature qpdf cannot safely rewrite.
 - `QUANTAPDF_ERROR_NOMEM`: public shell/copy allocation or qpdf allocation
   failure recognizable as `std::bad_alloc`.
 - `QUANTAPDF_ERROR_IO`: system I/O failure reported by qpdf.
@@ -331,8 +336,8 @@ semantics remain unchanged. Tests cover:
 9. source-state mismatch and source immutability;
 10. output validity after source close and failure-atomic ownership;
 11. reachable and orphan `/Sig`, DocMDP, document timestamp, malformed
-    signature field, signed incremental input, and malformed/unsupported
-    encrypted input mapping;
+    signature field, malformed orphan `/ByteRange` signature shapes, signed
+    incremental input, and malformed/unsupported encrypted input mapping;
 12. preservation of render pixels, text/search, image observations, links,
     metadata, outline, annotations, AcroForm values/widgets, named
     destinations, page boxes, page order, and ordinary stream data;
@@ -340,7 +345,9 @@ semantics remain unchanged. Tests cover:
     Composer behavior;
 14. authenticated semantic metadata checks plus unauthenticated raw metadata
     stream checks for both `encrypt_metadata` settings;
-15. Release and MSVC ASan builds, release install, exact dynamic export and
+15. shared and static provider-boundary tests, including sentinel conflict and
+    co-resident direct-qpdf randomness concurrent with encryption;
+16. Release and MSVC ASan builds, release install, exact dynamic export and
     dependency-symbol isolation inspection, and an installed-header C smoke
     consumer.
 
@@ -367,7 +374,7 @@ security behavior of any existing operation.
 - `src/backend/qpdf_document.cpp`: strict state/audit preflight and qpdf writer
   implementation.
 - `src/backend/secure_random.h` and `src/backend/secure_random.cpp`: private
-  OS CSPRNG and qpdf provider guard.
+  OS CSPRNG used by the process-lifetime qpdf provider.
 - `src/internal.h` and `src/document.c`: single password owner, explicit length,
   and secure erasure.
 - `cmake/QuantaPDFExports.cmake`: exact shared-library export isolation.
