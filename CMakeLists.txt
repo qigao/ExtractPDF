@@ -36,6 +36,7 @@ endif()
 
 add_library(quantapdf_backend STATIC
   src/backend/qpdf_document.cpp
+  src/backend/qpdf_composer.cpp
   src/backend/jpeg_encoder.cpp
   src/backend/pdfium_document.cpp
   src/backend/pdfium_runtime.cpp)
