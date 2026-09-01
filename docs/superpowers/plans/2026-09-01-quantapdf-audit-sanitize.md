@@ -245,6 +245,10 @@ NULL. This covers direct and indirect catalog Names descendants, JavaScript
 name-tree arrays/actions, AcroForm/XFA, `/AA`, `/Next`, `/Annots`, `/AF`, `/EF`,
 and action-owner keys. Multiple aliases with the same role remain supported; an
 unrelated policy that would not mutate the ambiguous container is not rejected.
+Treat structurally matching annotation `/P`, `/IRT`, `/Popup`, and popup
+`/Parent` backlinks as page/annotation roles rather than custom aliases. Do not
+grant that role solely by key spelling: require the referenced page type or
+annotation subtype so a custom edge to an arbitrary object remains ambiguous.
 
 - [x] **Step 1: Add policy isolation and `ALL` RED tests**
 

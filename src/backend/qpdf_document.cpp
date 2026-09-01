@@ -1856,6 +1856,26 @@ static quantapdf_status quantapdf_qpdf_preflight_aliases(
                         item.role == quantapdf_qpdf_alias_role::page_tree) &&
                        key == "/Parent") {
                 child_role = quantapdf_qpdf_alias_role::page_tree;
+            } else if (item.role == quantapdf_qpdf_alias_role::annotation &&
+                       key == "/P" && child.isDictionary() &&
+                       child.getKey("/Type").isName() &&
+                       child.getKey("/Type").getName() == "/Page") {
+                child_role = quantapdf_qpdf_alias_role::page;
+            } else if (item.role == quantapdf_qpdf_alias_role::annotation &&
+                       key == "/IRT" && child.isDictionary() &&
+                       child.getKey("/Subtype").isName()) {
+                child_role = quantapdf_qpdf_alias_role::annotation;
+            } else if (item.role == quantapdf_qpdf_alias_role::annotation &&
+                       key == "/Popup" && child.isDictionary() &&
+                       child.getKey("/Subtype").isName() &&
+                       child.getKey("/Subtype").getName() == "/Popup") {
+                child_role = quantapdf_qpdf_alias_role::annotation;
+            } else if (item.role == quantapdf_qpdf_alias_role::annotation &&
+                       key == "/Parent" && object.getKey("/Subtype").isName() &&
+                       object.getKey("/Subtype").getName() == "/Popup" &&
+                       child.isDictionary() &&
+                       child.getKey("/Subtype").isName()) {
+                child_role = quantapdf_qpdf_alias_role::annotation;
             } else if (item.role ==
                            quantapdf_qpdf_alias_role::additional_actions) {
                 child_role = quantapdf_qpdf_alias_role::action;

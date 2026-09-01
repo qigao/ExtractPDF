@@ -160,6 +160,11 @@ custom alias or a different conventional role. This covers direct `/Next`,
 AcroForm/XFA, `/AF`, `/EF`, and action-owner keys as well as indirect mutable
 containers. It prevents one in-place edit from silently changing an unselected
 interpretation, such as one array serving both `/Annots` and action `/Next`.
+Standard annotation backlinks retain conventional roles: a structurally valid
+annotation `/P` points to a page, `/IRT` and `/Popup` point to annotations, and
+a popup annotation `/Parent` points to its parent annotation. The preflight
+requires the expected page type or annotation subtype before assigning those
+roles; arbitrary objects reached through the same key names remain custom.
 Multiple aliases in the same semantic role remain supported, including shared
 `/AA` dictionaries and shared `/Next` arrays. Alias rejection happens after
 strict audit but before any mutation or output publication.

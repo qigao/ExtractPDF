@@ -919,6 +919,8 @@ static void test_sanitize_ambiguous_aliases(void)
                                        QUANTAPDF_SANITIZE_RICH_MEDIA},
         {"alias_direct_page_annots_custom", QUANTAPDF_AUDIT_RICH_MEDIA,
                                             QUANTAPDF_SANITIZE_RICH_MEDIA},
+        {"annotation_custom_alias", QUANTAPDF_AUDIT_LAUNCH_ACTION,
+                                    QUANTAPDF_SANITIZE_LAUNCH_ACTIONS},
         {"alias_direct_js_names_custom",
                                QUANTAPDF_AUDIT_JAVASCRIPT_ACTION |
                                QUANTAPDF_AUDIT_LAUNCH_ACTION,
@@ -972,6 +974,79 @@ static void test_sanitize_ambiguous_aliases(void)
             quantapdf_close(document);
         }
     }
+}
+
+static void test_sanitize_annotation_backlinks(void)
+{
+    static const struct backlink_case {
+        uint32_t flag;
+        uint32_t remaining;
+        const char *output_name;
+    } page_cases[] = {
+        {QUANTAPDF_SANITIZE_RICH_MEDIA,
+         QUANTAPDF_AUDIT_EMBEDDED_FILE,
+         "annotation-page-rich-output"},
+        {QUANTAPDF_SANITIZE_EMBEDDED_FILES,
+         QUANTAPDF_AUDIT_RICH_MEDIA,
+         "annotation-page-attachment-output"}
+    };
+    quantapdf_document *document = NULL;
+    quantapdf_output *output = NULL;
+    char path[512];
+    char output_path[512];
+    size_t index;
+
+    for (index = 0;
+         index < sizeof(page_cases) / sizeof(page_cases[0]);
+         ++index) {
+        begin_case(index == 0
+            ? "sanitize_rich_annotation_with_page_backlink"
+            : "sanitize_attachment_with_page_backlink");
+        if (!create_fixture("annotation_page_backlinks", path, sizeof(path)))
+            continue;
+        expect_document_audit(
+            path, NULL, QUANTAPDF_OK,
+            QUANTAPDF_AUDIT_EMBEDDED_FILE |
+                QUANTAPDF_AUDIT_RICH_MEDIA);
+        CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+        if (document == NULL)
+            continue;
+        CHECK(quantapdf_sanitize(
+                  document, page_cases[index].flag, &output) ==
+              QUANTAPDF_OK);
+        CHECK(output != NULL);
+        if (output != NULL && save_sanitized_output(
+                output, page_cases[index].output_name, output_path,
+                sizeof(output_path))) {
+            expect_document_audit(
+                output_path, NULL, QUANTAPDF_OK,
+                page_cases[index].remaining);
+        }
+        quantapdf_drop_output(output);
+        quantapdf_close(document);
+        output = NULL;
+        document = NULL;
+    }
+
+    begin_case("sanitize_actions_with_annotation_graph_backlinks");
+    if (!create_fixture("annotation_reply_popup_links", path, sizeof(path)))
+        return;
+    expect_document_audit(
+        path, NULL, QUANTAPDF_OK, QUANTAPDF_AUDIT_LAUNCH_ACTION);
+    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    if (document == NULL)
+        return;
+    CHECK(quantapdf_sanitize(
+              document, QUANTAPDF_SANITIZE_LAUNCH_ACTIONS, &output) ==
+          QUANTAPDF_OK);
+    CHECK(output != NULL);
+    if (output != NULL && save_sanitized_output(
+            output, "annotation-links-output", output_path,
+            sizeof(output_path))) {
+        expect_document_audit(output_path, NULL, QUANTAPDF_OK, 0);
+    }
+    quantapdf_drop_output(output);
+    quantapdf_close(document);
 }
 
 static void test_sanitize_strict_failures_and_arguments(void)
@@ -1099,6 +1174,7 @@ int main(void)
     test_sanitize_shared_selected_containers();
     test_sanitize_javascript_name_tree_actions();
     test_sanitize_ambiguous_aliases();
+    test_sanitize_annotation_backlinks();
     test_sanitize_strict_failures_and_arguments();
     if (failures != 0)
         fprintf(stderr, "pdf_security: %d checks failed\n", failures);

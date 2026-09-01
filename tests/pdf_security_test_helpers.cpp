@@ -964,6 +964,53 @@ extern "C" int pdf_security_create_fixture(
                 {"/Subtype", QPDFObjectHandle::newName("/Text")}}));
             pages[0].replaceKey("/Annots", annots);
             pdf_security_set_custom_alias(root, pages[0]);
+        } else if (scenario == "annotation_page_backlinks") {
+            QPDFObjectHandle rich = pdf->makeIndirectObject(
+                QPDFObjectHandle::newDictionary({
+                    {"/Subtype", QPDFObjectHandle::newName("/RichMedia")},
+                    {"/P", pages[0]}}));
+            QPDFObjectHandle attachment = pdf->makeIndirectObject(
+                QPDFObjectHandle::newDictionary({
+                    {"/Subtype", QPDFObjectHandle::newName("/FileAttachment")},
+                    {"/P", pages[0]}}));
+            QPDFObjectHandle annots = QPDFObjectHandle::newArray();
+            annots.appendItem(rich);
+            annots.appendItem(attachment);
+            pages[0].replaceKey("/Annots", annots);
+        } else if (scenario == "annotation_reply_popup_links") {
+            QPDFObjectHandle target = pdf->makeIndirectObject(
+                QPDFObjectHandle::newDictionary({
+                    {"/Subtype", QPDFObjectHandle::newName("/Text")},
+                    {"/A", pdf_security_action(*pdf, "/Launch")}}));
+            QPDFObjectHandle reply = pdf->makeIndirectObject(
+                QPDFObjectHandle::newDictionary({
+                    {"/Subtype", QPDFObjectHandle::newName("/Text")},
+                    {"/IRT", target}}));
+            QPDFObjectHandle parent = pdf->makeIndirectObject(
+                QPDFObjectHandle::newDictionary({
+                    {"/Subtype", QPDFObjectHandle::newName("/Text")},
+                    {"/A", pdf_security_action(*pdf, "/Launch")}}));
+            QPDFObjectHandle popup = pdf->makeIndirectObject(
+                QPDFObjectHandle::newDictionary({
+                    {"/Subtype", QPDFObjectHandle::newName("/Popup")},
+                    {"/Parent", parent},
+                    {"/A", pdf_security_action(*pdf, "/Launch")}}));
+            parent.replaceKey("/Popup", popup);
+            QPDFObjectHandle annots = QPDFObjectHandle::newArray();
+            annots.appendItem(target);
+            annots.appendItem(reply);
+            annots.appendItem(parent);
+            annots.appendItem(popup);
+            pages[0].replaceKey("/Annots", annots);
+        } else if (scenario == "annotation_custom_alias") {
+            QPDFObjectHandle annotation = pdf->makeIndirectObject(
+                QPDFObjectHandle::newDictionary({
+                    {"/Subtype", QPDFObjectHandle::newName("/Text")},
+                    {"/A", pdf_security_action(*pdf, "/Launch")}}));
+            QPDFObjectHandle annots = QPDFObjectHandle::newArray();
+            annots.appendItem(annotation);
+            pages[0].replaceKey("/Annots", annots);
+            pdf_security_set_custom_alias(root, annotation);
         } else if (scenario == "alias_direct_js_names_custom") {
             QPDFObjectHandle pairs = QPDFObjectHandle::newArray();
             pairs.appendItem(QPDFObjectHandle::newString("a"));
