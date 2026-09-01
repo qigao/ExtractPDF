@@ -39,7 +39,13 @@ target_compile_definitions(quantapdf_test_pdf_image_recompression PRIVATE
   QUANTAPDF_TESTING=1
   ONE_PAGE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
   POSITIVE_SOURCE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/poster-basic.pdf"
-  POSITIVE_FIXTURE_PDF="${CMAKE_CURRENT_BINARY_DIR}/image-recompression-positive.pdf")
+  POSITIVE_FIXTURE_PDF="${CMAKE_CURRENT_BINARY_DIR}/image-recompression-positive.pdf"
+  POSITIVE_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/image-recompression-positive-output.pdf"
+  POLICY_FIXTURE_PDF="${CMAKE_CURRENT_BINARY_DIR}/image-recompression-policy.pdf"
+  POLICY_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/image-recompression-policy-output.pdf"
+  MALFORMED_FIXTURE_PDF="${CMAKE_CURRENT_BINARY_DIR}/image-recompression-malformed.pdf"
+  SIGNED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotation-mutation-signed.pdf"
+  ENCRYPTED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/encrypted-one-page.pdf")
 add_test(NAME quantapdf.pdf_image_recompression
   COMMAND quantapdf_test_pdf_image_recompression)
 set_tests_properties(quantapdf.pdf_image_recompression PROPERTIES TIMEOUT 60)

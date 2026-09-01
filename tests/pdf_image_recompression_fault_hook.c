@@ -24,3 +24,16 @@ void quantapdf_test_image_recompression_get_stats(
     (void)document;
 #endif
 }
+
+void quantapdf_test_image_recompression_set_fault(
+    quantapdf_document *document,
+    quantapdf_test_image_recompression_fault fault)
+{
+#if defined(QUANTAPDF_TESTING)
+    if (document != NULL)
+        document->test_image_fault = (int)fault;
+#else
+    (void)document;
+    (void)fault;
+#endif
+}

@@ -111,6 +111,7 @@ quantapdf_status quantapdf_qpdf_recompress_images(
     quantapdf_qpdf_document *document,
     int jpeg_quality,
     size_t max_decoded_bytes_per_image,
+    int test_fault,
     quantapdf_qpdf_image_recompression_test_stats *test_stats,
     unsigned char **out_data,
     size_t *out_size);
