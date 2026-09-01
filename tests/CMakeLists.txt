@@ -125,6 +125,7 @@ set_tests_properties(quantapdf.pdf_security PROPERTIES TIMEOUT 60)
 
 add_executable(quantapdf_test_pdf_security_rewrite
   test_pdf_security_rewrite.c
+  test_pdf_security_rewrite_semantics.c
   pdf_security_rewrite_test_helpers.cpp
   pdf_security_rewrite_fault_hook.c)
 target_include_directories(quantapdf_test_pdf_security_rewrite PRIVATE
@@ -154,6 +155,16 @@ target_compile_definitions(quantapdf_test_pdf_security_rewrite PRIVATE
   SECURITY_SIGNATURE_FIXTURE="${CMAKE_CURRENT_BINARY_DIR}/security-rewrite-signature.pdf")
 target_compile_definitions(quantapdf_test_pdf_security_rewrite PRIVATE
   SECURITY_ID_FIXTURE="${CMAKE_CURRENT_BINARY_DIR}/security-rewrite-id.pdf")
+target_compile_definitions(quantapdf_test_pdf_security_rewrite PRIVATE
+  SECURITY_SEMANTIC_TEXT_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/text-one-page.pdf"
+  SECURITY_SEMANTIC_LINKS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/page-links.pdf"
+  SECURITY_SEMANTIC_IMAGES_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/page-images.pdf"
+  SECURITY_SEMANTIC_FORM_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-choice.pdf"
+  SECURITY_SEMANTIC_OUTLINE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/outline-tree.pdf"
+  SECURITY_SEMANTIC_METADATA_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/metadata-info.pdf"
+  SECURITY_SEMANTIC_ANNOTATIONS_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotations-mixed.pdf")
+target_compile_definitions(quantapdf_test_pdf_security_rewrite PRIVATE
+  SECURITY_SEMANTIC_CANONICAL="${CMAKE_CURRENT_BINARY_DIR}/security-rewrite-semantic-canonical.pdf")
 add_test(NAME quantapdf.pdf_security_rewrite
   COMMAND quantapdf_test_pdf_security_rewrite)
 set_tests_properties(quantapdf.pdf_security_rewrite PROPERTIES TIMEOUT 60)

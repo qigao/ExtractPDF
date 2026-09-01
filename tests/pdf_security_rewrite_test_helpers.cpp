@@ -236,4 +236,40 @@ int quantapdf_security_create_id_fixture(
     }
 }
 
+int quantapdf_security_canonicalize_fixture(
+    char const *source_path,
+    char const *output_path)
+{
+    if (source_path == nullptr || output_path == nullptr)
+        return 0;
+    try {
+        auto pdf = QPDF::create();
+        pdf->setSuppressWarnings(true);
+        pdf->processFile(source_path);
+        for (QPDFObjectHandle page : pdf->getAllPages()) {
+            if (page.getKey("/Resources").isNull())
+                page.replaceKey(
+                    "/Resources", QPDFObjectHandle::newDictionary());
+            QPDFObjectHandle annotations = page.getKey("/Annots");
+            if (annotations.isArray()) {
+                QPDFObjectHandle normalized = QPDFObjectHandle::newArray();
+                for (QPDFObjectHandle annotation :
+                     annotations.getArrayAsVector()) {
+                    if (annotation.isDictionary())
+                        normalized.appendItem(annotation);
+                }
+                page.replaceKey("/Annots", normalized);
+            }
+        }
+        QPDFWriter writer(*pdf, output_path);
+        writer.setDeterministicID(true);
+        writer.setObjectStreamMode(qpdf_o_disable);
+        writer.setStreamDataMode(qpdf_s_preserve);
+        writer.write();
+        return 1;
+    } catch (...) {
+        return 0;
+    }
+}
+
 }

@@ -60,6 +60,8 @@ int quantapdf_security_create_id_fixture(
     const char *output_path,
     int malformed);
 
+void quantapdf_security_check_public_semantics(void);
+
 _Static_assert(
     QUANTAPDF_ENCRYPTION_AES_256 == 1,
     "stable encryption method value");
@@ -841,5 +843,7 @@ int main(void)
     CHECK(test_entropy_and_publication_faults() == 0);
     CHECK(test_metadata_encryption_observability() == 0);
     CHECK(test_text_and_render_semantics() == 0);
-    return test_file_identifier_policy();
+    CHECK(test_file_identifier_policy() == 0);
+    quantapdf_security_check_public_semantics();
+    return 0;
 }
