@@ -646,7 +646,8 @@ Local evidence recorded on 2026-09-01, atop implementation commit
 
 Documentation and the local release evidence were committed as `a590b04`.
 
-Whole-branch review hardening was committed as `3c3fcf4`. The decoded-byte
+Whole-branch review hardening was committed as `3c3fcf4` and its complete
+matrix/render-order execution fix as `cc63420`. The decoded-byte
 preflight now stops at the first byte beyond the declared sample count; a
 valid 1 MiB Flate payload declared as a one-byte image proves the stop at two
 observed bytes. The malformed matrix now includes `/Annots`, `/AP`, non-stream
@@ -655,7 +656,8 @@ and work-budget multiplication/exhaustion cases. Preservation evidence now
 compares page and Form content streams, image dimensions and placement quads,
 occurrence counts, public text/search/link/annotation/form/outline/metadata
 snapshots, and source render observations before and after injected failures.
-Quality 40 and 90 compare marked JPEG payloads and total encoded size.
+Quality 40 and 90 compare marked JPEG payloads, total encoded size, and
+PDFium render-error ordering against the source.
 
 Post-hardening local verification on 2026-09-01:
 
