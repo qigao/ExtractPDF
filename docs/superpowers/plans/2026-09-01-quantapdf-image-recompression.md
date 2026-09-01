@@ -628,7 +628,7 @@ Expected: 33/33 CTests, version 2.4.0, ABI/SOVERSION 2, exactly 88 exports,
 the public C target linked successfully, and all three dependency notice trees
 present.
 
-- [ ] **Step 5: Update completion evidence and commit**
+- [x] **Step 5: Update completion evidence and commit**
 
 Local evidence recorded on 2026-09-01, atop implementation commit
 `8be35ebf286faa381cfab02351ab848f24e0b5be`:
@@ -643,6 +643,25 @@ Local evidence recorded on 2026-09-01, atop implementation commit
 - the quality-90 test compares every output byte against the checked complete
   Base64 fixture. PR, multi-platform Phase B CI, merge, and release remain
   unclaimed until they occur.
+
+Documentation and the local release evidence were committed as `a590b04`.
+
+Whole-branch review hardening was committed as `3c3fcf4`. The decoded-byte
+preflight now stops at the first byte beyond the declared sample count; a
+valid 1 MiB Flate payload declared as a one-byte image proves the stop at two
+observed bytes. The malformed matrix now includes `/Annots`, `/AP`, non-stream
+Form, corrupt Flate, decoded-size mismatch, direct image-size multiplication,
+and work-budget multiplication/exhaustion cases. Preservation evidence now
+compares page and Form content streams, image dimensions and placement quads,
+occurrence counts, public text/search/link/annotation/form/outline/metadata
+snapshots, and source render observations before and after injected failures.
+Quality 40 and 90 compare marked JPEG payloads and total encoded size.
+
+Post-hardening local verification on 2026-09-01:
+
+- `ctest --preset win-release-user --output-on-failure`: 33/33 passed.
+- `ctest --preset win-dev-user --output-on-failure`: 33/33 passed under MSVC
+  AddressSanitizer.
 
 Mark only locally proven checklist items complete and record exact command
 outputs/commit SHAs. Do not claim PR, full CI, merge, or release before those
