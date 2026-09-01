@@ -8,6 +8,10 @@ extern "C" {
 #endif
 
 int quantapdf_test_make_jpeg(unsigned char **out_data, size_t *out_size);
+int quantapdf_test_make_png(
+    int alpha,
+    unsigned char **out_data,
+    size_t *out_size);
 
 #ifdef __cplusplus
 }

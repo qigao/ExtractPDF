@@ -83,6 +83,8 @@ typedef enum quantapdf_composer_image_format_internal {
 typedef struct quantapdf_composer_image_state {
     unsigned char *data;
     size_t size;
+    unsigned char *alpha_data;
+    size_t alpha_size;
     uint32_t width;
     uint32_t height;
     int components;

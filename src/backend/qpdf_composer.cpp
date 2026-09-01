@@ -6,6 +6,7 @@
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFObjectHandle.hh>
 #include <qpdf/QPDFWriter.hh>
+#include <zlib.h>
 
 #include <algorithm>
 #include <cmath>
@@ -13,12 +14,37 @@
 #include <cstdlib>
 #include <cstring>
 #include <iomanip>
+#include <limits>
 #include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
 
 namespace {
+
+uint32_t read_be32(unsigned char const* data)
+{
+    return (static_cast<uint32_t>(data[0]) << 24u) |
+        (static_cast<uint32_t>(data[1]) << 16u) |
+        (static_cast<uint32_t>(data[2]) << 8u) |
+        static_cast<uint32_t>(data[3]);
+}
+
+unsigned char paeth_predictor(
+    unsigned char left,
+    unsigned char up,
+    unsigned char upper_left)
+{
+    int const prediction = static_cast<int>(left) + static_cast<int>(up) -
+        static_cast<int>(upper_left);
+    int const left_distance = std::abs(prediction - static_cast<int>(left));
+    int const up_distance = std::abs(prediction - static_cast<int>(up));
+    int const diagonal_distance =
+        std::abs(prediction - static_cast<int>(upper_left));
+    if (left_distance <= up_distance && left_distance <= diagonal_distance)
+        return left;
+    return up_distance <= diagonal_distance ? up : upper_left;
+}
 
 std::string number(double value)
 {
@@ -283,6 +309,190 @@ std::string page_content(
 
 } // namespace
 
+extern "C" quantapdf_status quantapdf_png_decode(
+    unsigned char const* data,
+    size_t size,
+    size_t max_decoded_bytes,
+    unsigned char** out_rgb,
+    size_t* out_rgb_size,
+    unsigned char** out_alpha,
+    size_t* out_alpha_size,
+    uint32_t* out_width,
+    uint32_t* out_height)
+{
+    static unsigned char const signature[] = {
+        0x89u, 'P', 'N', 'G', 0x0du, 0x0au, 0x1au, 0x0au};
+    uint32_t width = 0u;
+    uint32_t height = 0u;
+    unsigned int color_type = 0u;
+    bool have_header = false;
+    bool have_data = false;
+    bool have_end = false;
+    std::vector<unsigned char> compressed;
+
+    if (out_rgb == nullptr || out_rgb_size == nullptr ||
+        out_alpha == nullptr || out_alpha_size == nullptr ||
+        out_width == nullptr || out_height == nullptr)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    *out_rgb = nullptr;
+    *out_rgb_size = 0u;
+    *out_alpha = nullptr;
+    *out_alpha_size = 0u;
+    *out_width = 0u;
+    *out_height = 0u;
+    if (data == nullptr || size < sizeof(signature) ||
+        std::memcmp(data, signature, sizeof(signature)) != 0)
+        return QUANTAPDF_ERROR_FORMAT;
+
+    try {
+        size_t offset = sizeof(signature);
+        while (!have_end && offset <= size && size - offset >= 12u) {
+            uint32_t const chunk_size = read_be32(data + offset);
+            offset += 4u;
+            if (static_cast<size_t>(chunk_size) > size - offset - 8u)
+                return QUANTAPDF_ERROR_FORMAT;
+            unsigned char const* type = data + offset;
+            unsigned char const* payload = type + 4u;
+            uint32_t const expected_crc = read_be32(payload + chunk_size);
+            if (chunk_size > std::numeric_limits<uInt>::max() - 4u)
+                return QUANTAPDF_ERROR_UNSUPPORTED;
+            uLong crc = crc32(0L, Z_NULL, 0);
+            crc = crc32(crc, type, static_cast<uInt>(chunk_size + 4u));
+            if (static_cast<uint32_t>(crc) != expected_crc)
+                return QUANTAPDF_ERROR_FORMAT;
+
+            if (std::memcmp(type, "IHDR", 4u) == 0) {
+                if (have_header || have_data || chunk_size != 13u)
+                    return QUANTAPDF_ERROR_FORMAT;
+                width = read_be32(payload);
+                height = read_be32(payload + 4u);
+                color_type = payload[9u];
+                if (width == 0u || height == 0u || payload[8u] != 8u ||
+                    (color_type != 2u && color_type != 6u) ||
+                    payload[10u] != 0u || payload[11u] != 0u ||
+                    payload[12u] != 0u)
+                    return QUANTAPDF_ERROR_UNSUPPORTED;
+                have_header = true;
+            } else if (std::memcmp(type, "IDAT", 4u) == 0) {
+                if (!have_header || have_end ||
+                    static_cast<size_t>(chunk_size) >
+                        std::numeric_limits<size_t>::max() - compressed.size())
+                    return QUANTAPDF_ERROR_FORMAT;
+                compressed.insert(
+                    compressed.end(), payload, payload + chunk_size);
+                have_data = true;
+            } else if (std::memcmp(type, "IEND", 4u) == 0) {
+                if (!have_header || !have_data || chunk_size != 0u)
+                    return QUANTAPDF_ERROR_FORMAT;
+                have_end = true;
+            } else if ((type[0] & 0x20u) == 0u &&
+                       std::memcmp(type, "PLTE", 4u) != 0) {
+                return QUANTAPDF_ERROR_UNSUPPORTED;
+            }
+            offset += 4u + static_cast<size_t>(chunk_size) + 4u;
+        }
+        if (!have_end || offset != size || compressed.empty())
+            return QUANTAPDF_ERROR_FORMAT;
+
+        size_t const components = color_type == 6u ? 4u : 3u;
+        if (static_cast<size_t>(width) >
+            (std::numeric_limits<size_t>::max() - 1u) / components)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        size_t const row_size = static_cast<size_t>(width) * components;
+        if (static_cast<size_t>(height) >
+            std::numeric_limits<size_t>::max() / (row_size + 1u))
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        size_t const inflated_size = (row_size + 1u) * height;
+        if (static_cast<size_t>(height) >
+            std::numeric_limits<size_t>::max() / row_size)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        size_t const sample_size = row_size * height;
+        if (inflated_size > std::numeric_limits<uLongf>::max() ||
+            compressed.size() > std::numeric_limits<uLong>::max())
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        std::vector<unsigned char> inflated(inflated_size);
+        uLongf actual_size = static_cast<uLongf>(inflated_size);
+        if (uncompress(
+                inflated.data(), &actual_size, compressed.data(),
+                static_cast<uLong>(compressed.size())) != Z_OK ||
+            actual_size != inflated_size)
+            return QUANTAPDF_ERROR_FORMAT;
+
+        std::vector<unsigned char> samples(sample_size);
+        for (size_t row = 0u; row < height; ++row) {
+            unsigned int const filter = inflated[row * (row_size + 1u)];
+            if (filter > 4u)
+                return QUANTAPDF_ERROR_FORMAT;
+            unsigned char const* source =
+                inflated.data() + row * (row_size + 1u) + 1u;
+            unsigned char* target = samples.data() + row * row_size;
+            unsigned char const* previous =
+                row == 0u ? nullptr : target - row_size;
+            for (size_t column = 0u; column < row_size; ++column) {
+                unsigned char const left =
+                    column < components ? 0u : target[column - components];
+                unsigned char const up = previous == nullptr
+                    ? 0u
+                    : previous[column];
+                unsigned char const upper_left =
+                    previous == nullptr || column < components
+                    ? 0u
+                    : previous[column - components];
+                unsigned int predictor = 0u;
+                if (filter == 1u)
+                    predictor = left;
+                else if (filter == 2u)
+                    predictor = up;
+                else if (filter == 3u)
+                    predictor = (static_cast<unsigned int>(left) + up) / 2u;
+                else if (filter == 4u)
+                    predictor = paeth_predictor(left, up, upper_left);
+                target[column] = static_cast<unsigned char>(
+                    source[column] + predictor);
+            }
+        }
+
+        size_t const pixels = static_cast<size_t>(width) * height;
+        if (pixels > std::numeric_limits<size_t>::max() / 3u)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        size_t const rgb_size = pixels * 3u;
+        size_t const alpha_size = color_type == 6u ? pixels : 0u;
+        if (rgb_size > max_decoded_bytes ||
+            alpha_size > max_decoded_bytes - rgb_size)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        auto* rgb = static_cast<unsigned char*>(std::malloc(rgb_size));
+        auto* alpha = alpha_size == 0u
+            ? nullptr
+            : static_cast<unsigned char*>(std::malloc(alpha_size));
+        if (rgb == nullptr || (alpha_size != 0u && alpha == nullptr)) {
+            std::free(alpha);
+            std::free(rgb);
+            return QUANTAPDF_ERROR_NOMEM;
+        }
+        if (color_type == 2u) {
+            std::memcpy(rgb, samples.data(), rgb_size);
+        } else {
+            for (size_t pixel = 0u; pixel < pixels; ++pixel) {
+                rgb[pixel * 3u] = samples[pixel * 4u];
+                rgb[pixel * 3u + 1u] = samples[pixel * 4u + 1u];
+                rgb[pixel * 3u + 2u] = samples[pixel * 4u + 2u];
+                alpha[pixel] = samples[pixel * 4u + 3u];
+            }
+        }
+        *out_rgb = rgb;
+        *out_rgb_size = rgb_size;
+        *out_alpha = alpha;
+        *out_alpha_size = alpha_size;
+        *out_width = width;
+        *out_height = height;
+        return QUANTAPDF_OK;
+    } catch (std::bad_alloc const&) {
+        return QUANTAPDF_ERROR_NOMEM;
+    } catch (...) {
+        return QUANTAPDF_ERROR_BACKEND;
+    }
+}
+
 extern "C" quantapdf_status quantapdf_qpdf_compose(
     quantapdf_composer const* composer,
     unsigned char** out_data,
@@ -317,8 +527,28 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                 "/ColorSpace",
                 QPDFObjectHandle::newName(
                     image.components == 1 ? "/DeviceGray" : "/DeviceRGB"));
-            dictionary.replaceKey(
-                "/Filter", QPDFObjectHandle::newName("/DCTDecode"));
+            if (image.format == QUANTAPDF_COMPOSER_IMAGE_FORMAT_JPEG) {
+                dictionary.replaceKey(
+                    "/Filter", QPDFObjectHandle::newName("/DCTDecode"));
+            } else if (image.has_alpha) {
+                auto alpha_stream = pdf.newStream(std::string(
+                    reinterpret_cast<char const*>(image.alpha_data),
+                    image.alpha_size));
+                auto alpha_dictionary = alpha_stream.getDict();
+                alpha_dictionary.replaceKey(
+                    "/Type", QPDFObjectHandle::newName("/XObject"));
+                alpha_dictionary.replaceKey(
+                    "/Subtype", QPDFObjectHandle::newName("/Image"));
+                alpha_dictionary.replaceKey(
+                    "/Width", QPDFObjectHandle::newInteger(image.width));
+                alpha_dictionary.replaceKey(
+                    "/Height", QPDFObjectHandle::newInteger(image.height));
+                alpha_dictionary.replaceKey(
+                    "/BitsPerComponent", QPDFObjectHandle::newInteger(8));
+                alpha_dictionary.replaceKey(
+                    "/ColorSpace", QPDFObjectHandle::newName("/DeviceGray"));
+                dictionary.replaceKey("/SMask", alpha_stream);
+            }
             image_objects.push_back(stream);
         }
         for (std::size_t page_index = 0; page_index < composer->page_count;

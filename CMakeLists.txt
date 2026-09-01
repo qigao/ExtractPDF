@@ -46,7 +46,8 @@ target_include_directories(quantapdf_backend PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(quantapdf_backend PRIVATE
   QuantaPDF::PDFium
-  qpdf::libqpdf)
+  qpdf::libqpdf
+  ZLIB::ZLIB)
 set_target_properties(quantapdf_backend PROPERTIES
   POSITION_INDEPENDENT_CODE ON)
 

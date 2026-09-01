@@ -16,6 +16,17 @@ quantapdf_status quantapdf_qpdf_compose(
     unsigned char **out_data,
     size_t *out_size);
 
+quantapdf_status quantapdf_png_decode(
+    const unsigned char *data,
+    size_t size,
+    size_t max_decoded_bytes,
+    unsigned char **out_rgb,
+    size_t *out_rgb_size,
+    unsigned char **out_alpha,
+    size_t *out_alpha_size,
+    uint32_t *out_width,
+    uint32_t *out_height);
+
 #ifdef __cplusplus
 }
 #endif

@@ -271,6 +271,7 @@ quantapdf_status quantapdf_composer_add_image(
 {
     quantapdf_composer_image_state image;
     quantapdf_status status;
+    int is_png;
 
     if (out_image_id != NULL)
         *out_image_id = 0u;
@@ -278,24 +279,49 @@ quantapdf_status quantapdf_composer_add_image(
         out_image_id == NULL)
         return QUANTAPDF_ERROR_ARGUMENT;
     memset(&image, 0, sizeof(image));
-    if (!quantapdf_composer_probe_jpeg(
-            data, size, &image.width, &image.height, &image.components))
-        return QUANTAPDF_ERROR_FORMAT;
-    image.format = QUANTAPDF_COMPOSER_IMAGE_FORMAT_JPEG;
-    if (composer->resource_bytes > composer->max_resource_bytes ||
-        size > composer->max_resource_bytes - composer->resource_bytes)
+    if (composer->resource_bytes > composer->max_resource_bytes)
         return QUANTAPDF_ERROR_UNSUPPORTED;
+    is_png = size >= 8u && data[0] == 0x89u && data[1] == 'P' &&
+        data[2] == 'N' && data[3] == 'G' && data[4] == 0x0du &&
+        data[5] == 0x0au && data[6] == 0x1au && data[7] == 0x0au;
+    if (is_png) {
+        status = quantapdf_png_decode(
+            data,
+            size,
+            composer->max_resource_bytes - composer->resource_bytes,
+            &image.data,
+            &image.size,
+            &image.alpha_data,
+            &image.alpha_size,
+            &image.width,
+            &image.height);
+        if (status != QUANTAPDF_OK)
+            return status;
+        image.format = QUANTAPDF_COMPOSER_IMAGE_FORMAT_PNG;
+        image.components = 3;
+        image.has_alpha = image.alpha_data != NULL;
+    } else {
+        if (!quantapdf_composer_probe_jpeg(
+                data, size, &image.width, &image.height, &image.components))
+            return QUANTAPDF_ERROR_FORMAT;
+        if (size > composer->max_resource_bytes - composer->resource_bytes)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        image.data = (unsigned char *)malloc(size);
+        if (image.data == NULL)
+            return QUANTAPDF_ERROR_NOMEM;
+        memcpy(image.data, data, size);
+        image.size = size;
+        image.format = QUANTAPDF_COMPOSER_IMAGE_FORMAT_JPEG;
+    }
     status = quantapdf_composer_reserve_image(composer);
-    if (status != QUANTAPDF_OK)
+    if (status != QUANTAPDF_OK) {
+        free(image.alpha_data);
+        free(image.data);
         return status;
-    image.data = (unsigned char *)malloc(size);
-    if (image.data == NULL)
-        return QUANTAPDF_ERROR_NOMEM;
-    memcpy(image.data, data, size);
-    image.size = size;
+    }
     composer->images[composer->image_count] = image;
     ++composer->image_count;
-    composer->resource_bytes += size;
+    composer->resource_bytes += image.size + image.alpha_size;
     *out_image_id = (quantapdf_composer_image_id)composer->image_count;
     return QUANTAPDF_OK;
 }
@@ -418,6 +444,8 @@ void quantapdf_drop_composer(quantapdf_composer *composer)
         if (composer->operations[i].kind == QUANTAPDF_COMPOSER_OPERATION_TEXT)
             free(composer->operations[i].value.text.text_utf8);
     }
+    for (i = 0u; i < composer->image_count; ++i)
+        free(composer->images[i].alpha_data);
     for (i = 0u; i < composer->image_count; ++i)
         free(composer->images[i].data);
     free(composer->images);

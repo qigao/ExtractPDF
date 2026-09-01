@@ -24,7 +24,8 @@ target_include_directories(quantapdf_test_composer PRIVATE
 target_link_libraries(quantapdf_test_composer PRIVATE
   QuantaPDF::QuantaPDF
   quantapdf_backend
-  qpdf::libqpdf)
+  qpdf::libqpdf
+  ZLIB::ZLIB)
 target_compile_features(quantapdf_test_composer PRIVATE cxx_std_20)
 target_compile_definitions(quantapdf_test_composer PRIVATE
   COMPOSER_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/composer-output.pdf")
