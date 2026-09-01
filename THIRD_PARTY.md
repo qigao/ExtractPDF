@@ -39,10 +39,10 @@ and unverified system PDFium installations are not accepted.
 - Direct behavior boundary: the private JPEG qualification target configures
   the libjpeg API through qpdf `Pl_DCT`; no second JPEG implementation is
   added
-- Redistribution requirement: before this adapter enters the production
-  library, binary packages must install the vcpkg-provided
-  `share/libjpeg-turbo/copyright` notice and include the required IJG
-  acknowledgement
+- Redistribution: binary installs copy the vcpkg-provided
+  `share/libjpeg-turbo/copyright` notice to
+  `share/quantapdf/licenses/libjpeg-turbo/copyright`, including the required
+  IJG acknowledgement
 
 The qpdf package's installed copyright file and PDFium's root `LICENSE` plus
 complete `licenses/` directory are the authoritative redistribution notices.

@@ -66,7 +66,7 @@ The current supported surface includes:
 - page export/range export, output merging, and file saving
 - catalog-reachable document security audit and immutable policy sanitization
 - immutable CropBox crop, MediaBox trim, poster-split, interactive-content
-  flattening, and lossless rewrite/GC transforms
+  flattening, lossless rewrite/GC, and selective image recompression transforms
 - stable status strings and one allocator-matched `quantapdf_free()` entry point
 
 ## API contract
@@ -269,6 +269,44 @@ encryption: encrypted input is rejected with `QUANTAPDF_ERROR_UNSUPPORTED`.
 Inputs requiring structural recovery return `QUANTAPDF_ERROR_FORMAT`, and
 already signed inputs return `QUANTAPDF_ERROR_UNSUPPORTED`. The returned
 output owns its bytes independently of the source document.
+
+## Image recompression
+
+Image recompression is an explicit lossy transform that returns a new owning
+output and leaves the opened document unchanged:
+
+```c
+quantapdf_image_recompression_options options = {
+    .struct_size = sizeof(quantapdf_image_recompression_options),
+    .jpeg_quality = 90,
+    .max_decoded_bytes_per_image =
+        QUANTAPDF_IMAGE_RECOMPRESSION_DEFAULT_MAX_DECODED_BYTES
+};
+quantapdf_output *recompressed = NULL;
+
+if (quantapdf_recompress_images(doc, &options, &recompressed) ==
+    QUANTAPDF_OK) {
+    quantapdf_output_save_file(recompressed, "recompressed.pdf");
+    quantapdf_close(doc);
+    doc = NULL;
+    /* recompressed remains valid after its source document is closed. */
+    quantapdf_drop_output(recompressed);
+}
+```
+
+V1 rewrites only reachable, opaque, indirect 8-bit `DeviceGray` and
+`DeviceRGB` Image XObjects whose decoded byte count fits the caller's cap.
+The default cap is 64 MiB per image. Shared images keep one object identity
+and are encoded once; nested Form resources and annotation/Widget appearance
+resources are included. Valid unsupported images—including CMYK, ICCBased,
+Indexed, masked, non-8-bit, and non-identity-Decode images—are preserved.
+
+`jpeg_quality` accepts 1 through 100. Quality 100 still performs JPEG
+encoding and is not a no-op. This API does not resize or downsample images,
+rewrite inline images, flatten alpha, convert color spaces, preserve digital
+signatures, or retain encryption. Signed and encrypted inputs fail with
+`QUANTAPDF_ERROR_UNSUPPORTED`; malformed consumed image/resource structures
+fail closed without publishing output.
 
 ## Flatten interactive content
 

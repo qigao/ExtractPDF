@@ -30,6 +30,12 @@ struct quantapdf_document {
     char *password;
 #if defined(QUANTAPDF_TESTING)
     int test_poster_fault;
+    size_t test_image_unique_count;
+    size_t test_image_provider_registrations;
+    size_t test_image_provider_invocations;
+    size_t test_image_decoded_preflight_bytes;
+    int test_image_every_provider_once;
+    int test_image_fault;
 #endif
 };
 

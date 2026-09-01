@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(QuantaPDF VERSION 2.3.0 LANGUAGES C CXX)
+project(QuantaPDF VERSION 2.4.0 LANGUAGES C CXX)
 
 include(GNUInstallDirs)
 
@@ -24,9 +24,19 @@ if(NOT EXISTS "${QUANTAPDF_QPDF_COPYRIGHT}")
   message(FATAL_ERROR
     "qpdf package copyright notice is missing: ${QUANTAPDF_QPDF_COPYRIGHT}")
 endif()
+get_filename_component(
+  QUANTAPDF_VCPKG_SHARE_ROOT "${qpdf_DIR}" DIRECTORY)
+set(QUANTAPDF_LIBJPEG_TURBO_COPYRIGHT
+  "${QUANTAPDF_VCPKG_SHARE_ROOT}/libjpeg-turbo/copyright")
+if(NOT EXISTS "${QUANTAPDF_LIBJPEG_TURBO_COPYRIGHT}")
+  message(FATAL_ERROR
+    "libjpeg-turbo package copyright notice is missing: "
+    "${QUANTAPDF_LIBJPEG_TURBO_COPYRIGHT}")
+endif()
 
 add_library(quantapdf_backend STATIC
   src/backend/qpdf_document.cpp
+  src/backend/jpeg_encoder.cpp
   src/backend/pdfium_document.cpp
   src/backend/pdfium_runtime.cpp)
 target_compile_features(quantapdf_backend PRIVATE cxx_std_20)
@@ -54,6 +64,7 @@ add_library(quantapdf
   src/pdf_crop.c
   src/pdf_trim.c
   src/pdf_poster.c
+  src/pdf_image_recompression.c
   src/pdf_rewrite.c
   src/pdf_export.c
   src/pdf_range.c
@@ -116,6 +127,8 @@ install(DIRECTORY "${QUANTAPDF_PDFIUM_LICENSE_DIR}/"
   DESTINATION "${CMAKE_INSTALL_DATADIR}/quantapdf/licenses/pdfium/licenses")
 install(FILES "${QUANTAPDF_QPDF_COPYRIGHT}"
   DESTINATION "${CMAKE_INSTALL_DATADIR}/quantapdf/licenses/qpdf")
+install(FILES "${QUANTAPDF_LIBJPEG_TURBO_COPYRIGHT}"
+  DESTINATION "${CMAKE_INSTALL_DATADIR}/quantapdf/licenses/libjpeg-turbo")
 install(FILES
   "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE"
   "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY.md"

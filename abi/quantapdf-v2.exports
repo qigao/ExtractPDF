@@ -85,3 +85,4 @@ quantapdf_text_span_text
 quantapdf_trim_pages
 quantapdf_document_audit
 quantapdf_sanitize
+quantapdf_recompress_images

@@ -37,7 +37,7 @@
 - `tests/test_pdf_image_recompression.c`: public C ABI, ownership, determinism, policy, and error tests.
 - `tests/image_recompression_test_helpers.h`: test-only C bridge declarations.
 - `tests/image_recompression_test_helpers.cpp`: qpdf fixture generation and structural inspection without exposing qpdf publicly.
-- `tests/fixtures/image-recompression-expected-q90.pdf`: checked complete output bytes for the controlled cross-platform quality-90 case.
+- `tests/fixtures/image-recompression-expected-q90.pdf.base64`: checked complete output bytes, text-encoded for patch-safe storage, for the controlled cross-platform quality-90 case.
 - `tests/CMakeLists.txt`: two CTest targets and fixture/output definitions.
 - `CMakeLists.txt`: 2.4.0 version, production sources, private JPEG linkage/notice installation.
 - `abi/quantapdf-v2.exports`: one appended symbol.
@@ -315,7 +315,7 @@ quantapdf_status quantapdf_qpdf_recompress_images(
     size_t *out_size);
 ```
 
-- [ ] **Step 1: Write compile-red public contract tests**
+- [x] **Step 1: Write compile-red public contract tests**
 
 Create `test_pdf_image_recompression.c`. Compile references to
 `quantapdf_image_recompression_options`, both size macros, the 64 MiB default,
@@ -324,7 +324,7 @@ null options, null output, undersized struct, and qualities 0/101 return
 `QUANTAPDF_ERROR_ARGUMENT`; use a non-NULL sentinel and assert every reachable
 failure sets output to NULL.
 
-- [ ] **Step 2: Register the public target and verify compile RED**
+- [x] **Step 2: Register the public target and verify compile RED**
 
 ```cmake
 add_executable(quantapdf_test_pdf_image_recompression
@@ -339,7 +339,7 @@ set_tests_properties(quantapdf.pdf_image_recompression PROPERTIES TIMEOUT 60)
 Run the target build. Expected: compilation fails on the missing public type,
 macros, and function.
 
-- [ ] **Step 3: Append the header and facade**
+- [x] **Step 3: Append the header and facade**
 
 Append the exact spec declarations to the sole public header. Implement the C
 facade with the established output-shell pattern:
@@ -357,7 +357,7 @@ Read only fields covered by `struct_size`, normalize a missing/zero cap to
 `quantapdf_output`, call the backend, free shell/data on failure, and publish
 only on success.
 
-- [ ] **Step 4: Add a temporary backend stub and make contract tests GREEN**
+- [x] **Step 4: Add a temporary backend stub and make contract tests GREEN**
 
 Declare the private bridge and return `QUANTAPDF_ERROR_UNSUPPORTED` from a
 temporary backend body after validating/zeroing its raw outputs. Add the C
@@ -376,7 +376,7 @@ ctest --preset win-release-user --output-on-failure
 Expected: 33/33 CTests pass; the new public test passes argument cases and
 expects UNSUPPORTED only for valid calls until Task 3 replaces the stub.
 
-- [ ] **Step 5: Commit the ABI slice**
+- [x] **Step 5: Commit the ABI slice**
 
 ```powershell
 git add include/quantapdf/quantapdf.h src/pdf_image_recompression.c src/internal.h src/backend/qpdf_document.h src/backend/qpdf_document.cpp CMakeLists.txt abi/quantapdf-v2.exports tests/test_version.c tests/test_pdf_image_recompression.c tests/CMakeLists.txt
@@ -398,7 +398,7 @@ git commit -m "feat: add image recompression ABI"
 - Produces: the complete successful implementation of
   `quantapdf_qpdf_recompress_images()` for eligible images.
 
-- [ ] **Step 1: Generate positive fixtures and write runtime RED tests**
+- [x] **Step 1: Generate positive fixtures and write runtime RED tests**
 
 In the C++ helper, generate one PDF containing:
 
@@ -419,14 +419,14 @@ returns OK, output reopens, all eligible unique identities use DCTDecode, the
 shared object is still unique, and both of its counters equal one. Expected
 before implementation: the stub returns UNSUPPORTED.
 
-- [ ] **Step 2: Implement strict fresh-graph and security preflight**
+- [x] **Step 2: Implement strict fresh-graph and security preflight**
 
 Mirror the lossless/sanitize strict open sequence: create a new QPDF, suppress
 warnings, disable recovery, process the original bytes/password, force pages
 and objects, reject warnings, run the existing audit, and reject signature or
 encryption findings before discovery.
 
-- [ ] **Step 3: Implement iterative reachable-resource discovery**
+- [x] **Step 3: Implement iterative reachable-resource discovery**
 
 Reuse `quantapdf_qpdf_work_budget` and its overflow-checked initializer. Seed
 every page effective resource owner plus appearance streams from strict
@@ -435,7 +435,7 @@ owners and images. For every `/Resources /XObject` entry, collect Image streams
 and queue Form streams. Return FORMAT for consumed wrong container/stream
 types, and UNSUPPORTED when the budget is exhausted.
 
-- [ ] **Step 4: Implement exact eligibility and decode preflight**
+- [x] **Step 4: Implement exact eligibility and decode preflight**
 
 For each unique image, validate keys in the spec's order, use checked
 multiplication for expected bytes, preserve valid ineligible classes, and run
@@ -447,7 +447,7 @@ counting pipeline; only plan the image when decode succeeds and the count
 equals the expected bytes. Candidate decode failure or a new qpdf warning is
 FORMAT.
 
-- [ ] **Step 5: Register providers and rewrite each identity once**
+- [x] **Step 5: Register providers and rewrite each identity once**
 
 Before replacement, store `image.copyStream()` keyed by `QPDFObjGen`. Register
 one retry-capable provider that constructs the fixed encoder over the supplied
@@ -462,7 +462,7 @@ aborting the writer. The outer writer catch returns the latch when non-OK.
 Install `/DCTDecode`; install `/ColorTransform 0` only for RGB; call
 `setFilterOnWrite(false)`. Preserve all non-filter image dictionary keys.
 
-- [ ] **Step 6: Serialize and verify positive GREEN**
+- [x] **Step 6: Serialize and verify positive GREEN**
 
 Use the existing deterministic memory writer. After write, reject new warnings
 and publish only the complete buffer. Extend tests to render controlled source
@@ -481,18 +481,18 @@ ctest --test-dir build/Msvc-Release -R '^quantapdf\.(jpeg_encoder|pdf_image_reco
 
 Expected: 2/2 selected tests pass.
 
-- [ ] **Step 7: Add determinism, lifetime, and quality cases**
+- [x] **Step 7: Add determinism, lifetime, and quality cases**
 
 Call the transform twice at quality 90 and require byte equality. Close the
 source before reading/reopening output. Require quality 40 and 90 image stream
 bytes to differ and record controlled fixture size/error ordering. Require
 quality 100 to replace the eligible stream rather than copy its original
 bytes. Save the reviewed quality-90 controlled output as
-`tests/fixtures/image-recompression-expected-q90.pdf`, then compare every test
+`tests/fixtures/image-recompression-expected-q90.pdf.base64`, then compare every test
 run's complete output bytes with that file so Linux, macOS, and Windows prove
 the same serialization.
 
-- [ ] **Step 8: Commit the successful transform**
+- [x] **Step 8: Commit the successful transform**
 
 ```powershell
 git add src/backend/qpdf_document.cpp tests/image_recompression_test_helpers.h tests/image_recompression_test_helpers.cpp tests/test_pdf_image_recompression.c tests/CMakeLists.txt
@@ -513,7 +513,7 @@ git commit -m "feat: recompress eligible PDF images"
 - Consumes: Task 3 discovery/eligibility/provider flow.
 - Produces: complete fail-closed and preservation matrix.
 
-- [ ] **Step 1: Write RED preservation and cap-boundary tests**
+- [x] **Step 1: Write RED preservation and cap-boundary tests**
 
 Generate valid images covering CMYK, ICCBased, Indexed, soft mask, explicit
 mask, color-key mask, stencil, 1/16-bpc, non-identity Decode, unsupported
@@ -521,13 +521,13 @@ filter, inline content, and an XObject/Form cycle. Snapshot each raw ineligible
 stream before and after. For a 2x1 RGB image, require cap 5 to preserve and cap
 6 to rewrite. Expected: any missing classifier or cap rule fails.
 
-- [ ] **Step 2: Make the preservation matrix GREEN**
+- [x] **Step 2: Make the preservation matrix GREEN**
 
 Refine classification so valid unsupported classes return a preserve decision
 without decoding or mutation. Ensure the image and owner identity sets stop
 cycles and that classification order handles ImageMask before ColorSpace/BPC.
 
-- [ ] **Step 3: Write RED malformed and security tests**
+- [x] **Step 3: Write RED malformed and security tests**
 
 Generate malformed resources, XObject containers, appearance state values,
 width/height/BPC/ImageMask/Decode scalars, wrong-length/nonnumeric/non-finite
@@ -536,7 +536,7 @@ stream data. Separately force source-derived traversal-budget overflow and
 exhaustion. Reuse the repository's signed and encrypted fixtures. Require
 exact FORMAT or UNSUPPORTED outcomes and NULL output.
 
-- [ ] **Step 4: Make malformed/security behavior GREEN**
+- [x] **Step 4: Make malformed/security behavior GREEN**
 
 Map consumed structural violations, image dimension/product overflow, and
 candidate decode failure to FORMAT. Map only source-derived traversal-budget
@@ -545,7 +545,7 @@ per-image cap remains valid/ineligible and is preserved. Reuse audit
 signature/encryption findings. Check `pdf->anyWarnings()` after preflight and
 write.
 
-- [ ] **Step 5: Add deterministic fault injection**
+- [x] **Step 5: Add deterministic fault injection**
 
 Follow existing transform hooks: the test-only C hook exposes integer fault
 points immediately before provider registration, during provider encode, and
@@ -555,7 +555,7 @@ leave source observations unchanged and output NULL; only observable C/C++
 allocation failures return NOMEM, while simulated codec/provider runtime and
 backend invariant failures return BACKEND.
 
-- [ ] **Step 6: Run sanitizers and commit**
+- [x] **Step 6: Run sanitizers and commit**
 
 ```powershell
 ctest --preset win-release-user --output-on-failure
@@ -592,21 +592,21 @@ git commit -m "test: harden image recompression policy"
 - Produces: documented/installable QuantaPDF 2.4.0 candidate with exact
   completion evidence.
 
-- [ ] **Step 1: Document the public call and limits**
+- [x] **Step 1: Document the public call and limits**
 
 Add a README example initializing the full options structure, calling the
 transform, saving/dropping output, and explaining explicit loss, strict
 eligibility, 64 MiB default cap, quality 100 behavior, immutable ownership,
 signed/encrypted failures, and the absence of resizing/inline-image rewriting.
 
-- [ ] **Step 2: Install the libjpeg-turbo notice**
+- [x] **Step 2: Install the libjpeg-turbo notice**
 
 Derive the package share root as the parent of `qpdf_DIR`, require
 `${share_root}/libjpeg-turbo/copyright`, and install it under
 `${CMAKE_INSTALL_DATADIR}/quantapdf/licenses/libjpeg-turbo`. Keep qpdf and
 PDFium notice installation unchanged.
 
-- [ ] **Step 3: Verify the public C and export surfaces**
+- [x] **Step 3: Verify the public C and export surfaces**
 
 Keep the public transform test as C, compile its options initializer against
 the sole public header, verify the 2.4.0/ABI 2 macros, and extend the existing
@@ -615,7 +615,7 @@ CMake package or standalone static installed-consumer test: the project does
 not yet ship package configuration for its private static dependencies, and
 that packaging work is separate from #57.
 
-- [ ] **Step 4: Run the complete local release gate**
+- [x] **Step 4: Run the complete local release gate**
 
 ```powershell
 cmake --fresh --preset win-release-user
@@ -628,7 +628,42 @@ Expected: 33/33 CTests, version 2.4.0, ABI/SOVERSION 2, exactly 88 exports,
 the public C target linked successfully, and all three dependency notice trees
 present.
 
-- [ ] **Step 5: Update completion evidence and commit**
+- [x] **Step 5: Update completion evidence and commit**
+
+Local evidence recorded on 2026-09-01, atop implementation commit
+`8be35ebf286faa381cfab02351ab848f24e0b5be`:
+
+- `cmake --fresh --preset win-release-user` configured with qpdf 12.4.0 and
+  libjpeg-turbo 3.2.0 from pinned vcpkg;
+- `cmake --build --preset win-release-user` completed with `/W4 /WX`;
+- `ctest --preset win-release-user --output-on-failure` passed 33/33;
+- the same 33/33 suite passed with the `win-dev-user` MSVC ASan preset;
+- version 2.4.0, ABI/SOVERSION 2, and exactly 88 exports passed their tests;
+- the install tree contains PDFium, qpdf, and libjpeg-turbo notices;
+- the quality-90 test compares every output byte against the checked complete
+  Base64 fixture. PR, multi-platform Phase B CI, merge, and release remain
+  unclaimed until they occur.
+
+Documentation and the local release evidence were committed as `a590b04`.
+
+Whole-branch review hardening was committed as `3c3fcf4` and its complete
+matrix/render-order execution fix as `cc63420`. The decoded-byte
+preflight now stops at the first byte beyond the declared sample count; a
+valid 1 MiB Flate payload declared as a one-byte image proves the stop at two
+observed bytes. The malformed matrix now includes `/Annots`, `/AP`, non-stream
+Form, corrupt Flate, decoded-size mismatch, direct image-size multiplication,
+and work-budget multiplication/exhaustion cases. Preservation evidence now
+compares page and Form content streams, image dimensions and placement quads,
+occurrence counts, public text/search/link/annotation/form/outline/metadata
+snapshots, and source render observations before and after injected failures.
+Quality 40 and 90 compare marked JPEG payloads, total encoded size, and
+PDFium render-error ordering against the source.
+
+Post-hardening local verification on 2026-09-01:
+
+- `ctest --preset win-release-user --output-on-failure`: 33/33 passed.
+- `ctest --preset win-dev-user --output-on-failure`: 33/33 passed under MSVC
+  AddressSanitizer.
 
 Mark only locally proven checklist items complete and record exact command
 outputs/commit SHAs. Do not claim PR, full CI, merge, or release before those
