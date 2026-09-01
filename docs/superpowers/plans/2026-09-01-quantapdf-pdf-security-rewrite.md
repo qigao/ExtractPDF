@@ -587,7 +587,7 @@ Run `git diff --check`, `git status --short`, the focused security CTest, and
 the full Release suite again at the exact final head. Commit only reviewed
 source/test/doc changes; keep ignored build products out of Git.
 
-- [ ] **Step 6: Finish the development branch**
+- [x] **Step 6: Finish the development branch**
 
 Use `superpowers:finishing-a-development-branch`. Re-run the full suite,
 confirm base branch `master`, and present exactly the three integration options
