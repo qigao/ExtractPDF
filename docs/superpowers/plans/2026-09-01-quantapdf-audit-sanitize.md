@@ -132,6 +132,17 @@ an array of such dictionaries. Catalog `/OpenAction` also permits a
 destination array, name, or string and those forms are not actions. Scan
 `/Next` even for safe `/GoTo` actions.
 
+The catalog `/Names /JavaScript` entry is walked as a strict iterative PDF name
+tree. Nodes are dictionaries; `/Kids` is an array of dictionary nodes;
+`/Names` is an even array of alternating string keys and action dictionaries;
+`/Kids` and `/Names` are mutually exclusive; and optional `/Limits` is exactly
+two strings. Empty roots are accepted. Feed every action value and recursive
+`/Next` continuation through the shared classifier, charge every enqueue and
+inspected pair before indirect de-duplication, and terminate safely on indirect
+cycles. Malformed trees return FORMAT and exhausted traversal returns
+UNSUPPORTED. Tree presence still contributes the JavaScript finding in
+addition to every action class found in its values.
+
 The ordinary graph walk flags any `/AF` or `/EF` reference, embedded-file
 stream, or `/FileAttachment` annotation as embedded content. It flags
 `/RichMedia`, `/3D`, `/Movie`, `/Sound`, and `/Screen` annotation subtypes as
@@ -207,7 +218,9 @@ Apply these exact mutations on the fresh private graph:
   sanitize continuation chains even when their head is safe or unselected.
 - catalog `/Names`: remove `/JavaScript` and/or `/EmbeddedFiles` only when its
   matching policy is selected; remove catalog `/Names` if the dictionary then
-  has no keys.
+  has no keys. When JavaScript itself is unselected, walk retained name-tree
+  actions: remove a selected head as its complete key/value pair and sanitize
+  selected continuation classes from safe or unselected heads.
 - embedded-file policy: remove every dictionary `/AF` and `/EF` key and filter
   `/FileAttachment` annotations from every validated `/Annots` array.
 - XFA policy: remove only catalog `/AcroForm /XFA`.
@@ -218,6 +231,16 @@ Preserve array order and all unselected keys/objects. If conventional removal
 leaves a selected finding reachable (for example a custom edge directly to an
 embedded-file stream), return `QUANTAPDF_ERROR_UNSUPPORTED` without output;
 do not relabel or retain payload bytes merely to make the bit disappear.
+
+Before mutation, run an independent iterative, overflow-checked, source-bounded
+ownership/role preflight. Record every incoming semantic role for reachable
+indirect containers, charging before role-aware de-duplication. If a container
+that the selected policy would mutate is also referenced through a custom edge
+or a different conventional role, return `QUANTAPDF_ERROR_UNSUPPORTED` before
+mutation and leave output NULL. This covers catalog Names, JavaScript name-tree
+arrays/actions, AcroForm/XFA, `/AA`, `/Next`, `/Annots`, `/AF`, and `/EF` owner
+containers. Multiple aliases with the same role remain supported; an unrelated
+policy that would not mutate the ambiguous container is not rejected.
 
 - [x] **Step 1: Add policy isolation and `ALL` RED tests**
 
@@ -242,6 +265,13 @@ Use the C++ helper to inspect all written indirect objects and prove selected
 actions, name-tree entries, file specifications/embedded streams, XFA, and
 rich-media annotation objects made unreachable by conventional removal are
 absent from the serialized output, not merely hidden from the public scanner.
+
+Add genuine JavaScript name-tree fixtures for safe GoTo, a representative
+active head, every continuation class, malformed nodes and containers, cycles,
+and a compressed charge-before-de-duplication budget case. Add mixed-role
+`/Annots`-`/Next` and conventional/custom aliases for every mutable container
+family; partial selected policies must return unsupported with NULL output,
+while existing same-role sharing and an unrelated policy remain successful.
 
 - [x] **Step 3: Run and witness runtime RED**
 

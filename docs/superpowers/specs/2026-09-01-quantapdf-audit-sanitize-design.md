@@ -83,6 +83,18 @@ tree. Internal `/GoTo` actions and destination arrays are navigation, not
 findings. Malformed action containers return `QUANTAPDF_ERROR_FORMAT` instead
 of being silently skipped.
 
+The catalog `/Names /JavaScript` value is a strict PDF name tree, not merely a
+presence marker. Its iterative walker accepts an empty root, otherwise validates
+dictionary nodes, mutually exclusive `/Kids` and `/Names`, two-string
+`/Limits`, dictionary children, even alternating string/action pairs, and every
+action dictionary through the shared classifier. It follows every action
+`/Next` chain, so a JavaScript tree can report launch, external, or other action
+bits in addition to the JavaScript-tree presence bit. Indirect nodes and actions
+are cycle-safe, and every enqueue or inspected name-tree item is charged before
+de-duplication against the shared audit budget. Malformed trees return
+`QUANTAPDF_ERROR_FORMAT`; exhausted traversal returns
+`QUANTAPDF_ERROR_UNSUPPORTED`.
+
 Embedded-file detection covers the catalog `/Names /EmbeddedFiles` tree,
 associated-file `/AF` references, file specifications with `/EF`, embedded-file
 streams, and file-attachment annotations. XFA is detected at
@@ -116,7 +128,10 @@ The sanitizer opens a fresh private graph, completes audit/preflight before
 mutation, and then removes selected references:
 
 - selected actions from `/OpenAction`, `/A`, `/AA`, and `/Next`;
-- `/Names /JavaScript` or `/Names /EmbeddedFiles` as selected;
+- `/Names /JavaScript` or `/Names /EmbeddedFiles` as selected; when the
+  JavaScript policy is unselected, selected non-JavaScript action heads are
+  removed as complete name/value pairs and selected `/Next` continuations are
+  still pruned from retained safe or unselected name-tree actions;
 - `/AF` and `/EF` references plus file-attachment annotations for embedded-file
   removal;
 - `/AcroForm /XFA` for XFA removal;
@@ -127,6 +142,18 @@ bit is absent before bytes are published. Unselected categories remain
 unchanged. The writer uses deterministic IDs, disables object streams,
 preserves stream data, and discards objects made unreachable by sanitization.
 Repeated identical calls and reopen-then-sanitize are byte-idempotent.
+
+Before mutation, a second bounded role/ownership preflight records every
+reachable indirect container reference by semantic role, charging before
+role-aware de-duplication. A container that the selected policy would mutate is
+rejected with `QUANTAPDF_ERROR_UNSUPPORTED` if it also has an incoming custom
+alias or a different conventional role. This prevents one in-place edit from
+silently changing an unselected interpretation, such as one array serving both
+`/Annots` and action `/Next`. Multiple aliases in the same semantic role remain
+supported, including shared `/AA` dictionaries and shared `/Next` arrays. Direct
+containers cannot be shared by a serialized PDF and retain normal mutation
+behavior. Alias rejection happens after strict audit but before any mutation or
+output publication.
 
 ## Ownership and failure atomicity
 
@@ -152,8 +179,13 @@ Tests prove:
 - safe internal navigation is not reported or removed;
 - unreferenced dangerous-looking garbage is ignored;
 - malformed action/name/annotation structures fail closed;
+- JavaScript name-tree heads and all continuation classes, malformed nodes,
+  cycles, and charge-before-de-duplication budget exhaustion;
 - every sanitize flag is isolated and `ALL` clears every sanitizable finding;
 - partial sanitize preserves unselected findings;
+- selected mutation of cross-role or conventional/custom indirect aliases is
+  unsupported with NULL output, while same-role sharing and unrelated policies
+  remain supported;
 - source immutability, output lifetime, determinism, and idempotence;
 - encrypted and signature-bearing inputs audit correctly and sanitize as
   unsupported;

@@ -331,6 +331,18 @@ static void test_valid_audit_matrix(void)
         {"open_destination_string", 0},
         {"action_javascript", QUANTAPDF_AUDIT_JAVASCRIPT_ACTION},
         {"names_javascript", QUANTAPDF_AUDIT_JAVASCRIPT_ACTION},
+        {"name_tree_safe", QUANTAPDF_AUDIT_JAVASCRIPT_ACTION},
+        {"name_tree_head_launch", QUANTAPDF_AUDIT_JAVASCRIPT_ACTION |
+                                  QUANTAPDF_AUDIT_LAUNCH_ACTION},
+        {"name_tree_next_javascript", QUANTAPDF_AUDIT_JAVASCRIPT_ACTION |
+                                      QUANTAPDF_AUDIT_LAUNCH_ACTION},
+        {"name_tree_next_launch", QUANTAPDF_AUDIT_JAVASCRIPT_ACTION |
+                                  QUANTAPDF_AUDIT_LAUNCH_ACTION},
+        {"name_tree_next_external", QUANTAPDF_AUDIT_JAVASCRIPT_ACTION |
+                                    QUANTAPDF_AUDIT_EXTERNAL_ACTION},
+        {"name_tree_next_other", QUANTAPDF_AUDIT_JAVASCRIPT_ACTION |
+                                 QUANTAPDF_AUDIT_OTHER_ACTION},
+        {"name_tree_cycle", QUANTAPDF_AUDIT_JAVASCRIPT_ACTION},
         {"action_launch", QUANTAPDF_AUDIT_LAUNCH_ACTION},
         {"external_uri", QUANTAPDF_AUDIT_EXTERNAL_ACTION},
         {"external_gotor", QUANTAPDF_AUDIT_EXTERNAL_ACTION},
@@ -386,6 +398,16 @@ static void test_malformed_and_budget_matrix(void)
         "malformed_aa_entry",
         "malformed_next",
         "malformed_names",
+        "malformed_js_tree_node",
+        "malformed_js_tree_kids",
+        "malformed_js_tree_kid",
+        "malformed_js_tree_names",
+        "malformed_js_tree_odd_names",
+        "malformed_js_tree_key",
+        "malformed_js_tree_value",
+        "malformed_js_tree_action",
+        "malformed_js_tree_both",
+        "malformed_js_tree_limits",
         "malformed_annots",
         "malformed_annot_entry",
         "malformed_acroform",
@@ -401,7 +423,8 @@ static void test_malformed_and_budget_matrix(void)
     static const char *budget[] = {
         "budget_shared_next",
         "budget_shared_aa",
-        "budget_shared_annots"
+        "budget_shared_annots",
+        "budget_js_name_tree"
     };
     size_t index;
 
@@ -749,6 +772,149 @@ static void expect_sanitize_failure(
     quantapdf_close(document);
 }
 
+static void test_sanitize_javascript_name_tree_actions(void)
+{
+    quantapdf_audit_result audit = {0};
+    quantapdf_document *document = NULL;
+    quantapdf_output *output = NULL;
+    char path[512];
+    char output_path[512];
+    uint32_t markers;
+    int has_object_stream = -1;
+
+    begin_case("sanitize_name_tree_launch_continuation");
+    if (!create_fixture("name_tree_next_launch", path, sizeof(path)))
+        return;
+    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    if (document == NULL)
+        return;
+    audit.struct_size = sizeof(audit);
+    CHECK(quantapdf_document_audit(document, &audit) == QUANTAPDF_OK);
+    CHECK(audit.findings == (QUANTAPDF_AUDIT_JAVASCRIPT_ACTION |
+                             QUANTAPDF_AUDIT_LAUNCH_ACTION));
+    CHECK(quantapdf_sanitize(
+              document, QUANTAPDF_SANITIZE_LAUNCH_ACTIONS, &output) ==
+          QUANTAPDF_OK);
+    CHECK(output != NULL);
+    if (output != NULL) {
+        markers = inspect_sanitized_output(output, &has_object_stream);
+        CHECK(markers == PDF_SECURITY_SAFE_GOTO_MARKER);
+        if (save_sanitized_output(
+                output, "name-tree-launch-output", output_path,
+                sizeof(output_path))) {
+            expect_document_audit(
+                output_path, NULL, QUANTAPDF_OK,
+                QUANTAPDF_AUDIT_JAVASCRIPT_ACTION);
+        }
+    }
+    quantapdf_drop_output(output);
+    quantapdf_close(document);
+
+    begin_case("sanitize_name_tree_selected_head");
+    document = NULL;
+    output = NULL;
+    if (!create_fixture("name_tree_head_launch", path, sizeof(path)))
+        return;
+    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    if (document == NULL)
+        return;
+    CHECK(quantapdf_sanitize(
+              document, QUANTAPDF_SANITIZE_LAUNCH_ACTIONS, &output) ==
+          QUANTAPDF_OK);
+    CHECK(output != NULL);
+    if (output != NULL && save_sanitized_output(
+            output, "name-tree-head-output", output_path,
+            sizeof(output_path))) {
+        expect_document_audit(
+            output_path, NULL, QUANTAPDF_OK,
+            QUANTAPDF_AUDIT_JAVASCRIPT_ACTION);
+    }
+    quantapdf_drop_output(output);
+    quantapdf_close(document);
+
+    begin_case("sanitize_name_tree_whole_javascript_policy");
+    document = NULL;
+    output = NULL;
+    CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+    if (document != NULL) {
+        CHECK(quantapdf_sanitize(
+                  document, QUANTAPDF_SANITIZE_JAVASCRIPT_ACTIONS,
+                  &output) == QUANTAPDF_OK);
+        CHECK(output != NULL);
+        if (output != NULL && save_sanitized_output(
+                output, "name-tree-javascript-output", output_path,
+                sizeof(output_path))) {
+            expect_document_audit(output_path, NULL, QUANTAPDF_OK, 0);
+        }
+        quantapdf_drop_output(output);
+        quantapdf_close(document);
+    }
+}
+
+static void test_sanitize_ambiguous_aliases(void)
+{
+    static const struct alias_case {
+        const char *scenario;
+        uint32_t findings;
+        uint32_t flag;
+    } cases[] = {
+        {"alias_annots_next", QUANTAPDF_AUDIT_LAUNCH_ACTION |
+                              QUANTAPDF_AUDIT_RICH_MEDIA,
+                              QUANTAPDF_SANITIZE_LAUNCH_ACTIONS},
+        {"alias_annots_next", QUANTAPDF_AUDIT_LAUNCH_ACTION |
+                              QUANTAPDF_AUDIT_RICH_MEDIA,
+                              QUANTAPDF_SANITIZE_RICH_MEDIA},
+        {"alias_names_custom", QUANTAPDF_AUDIT_JAVASCRIPT_ACTION,
+                               QUANTAPDF_SANITIZE_JAVASCRIPT_ACTIONS},
+        {"alias_js_names_array_custom",
+                               QUANTAPDF_AUDIT_JAVASCRIPT_ACTION |
+                               QUANTAPDF_AUDIT_LAUNCH_ACTION,
+                               QUANTAPDF_SANITIZE_LAUNCH_ACTIONS},
+        {"alias_acroform_custom", QUANTAPDF_AUDIT_XFA,
+                                  QUANTAPDF_SANITIZE_XFA},
+        {"alias_aa_custom", QUANTAPDF_AUDIT_LAUNCH_ACTION,
+                            QUANTAPDF_SANITIZE_LAUNCH_ACTIONS},
+        {"alias_next_custom", QUANTAPDF_AUDIT_LAUNCH_ACTION,
+                              QUANTAPDF_SANITIZE_LAUNCH_ACTIONS},
+        {"alias_openaction_next_custom", QUANTAPDF_AUDIT_LAUNCH_ACTION,
+                                         QUANTAPDF_SANITIZE_LAUNCH_ACTIONS},
+        {"alias_annots_custom", QUANTAPDF_AUDIT_RICH_MEDIA,
+                                QUANTAPDF_SANITIZE_RICH_MEDIA},
+        {"alias_af_custom", QUANTAPDF_AUDIT_EMBEDDED_FILE,
+                            QUANTAPDF_SANITIZE_EMBEDDED_FILES},
+        {"alias_ef_custom", QUANTAPDF_AUDIT_EMBEDDED_FILE,
+                            QUANTAPDF_SANITIZE_EMBEDDED_FILES}
+    };
+    char path[512];
+    size_t index;
+
+    for (index = 0; index < sizeof(cases) / sizeof(cases[0]); ++index) {
+        begin_case(cases[index].scenario);
+        if (!create_fixture(cases[index].scenario, path, sizeof(path)))
+            continue;
+        expect_document_audit(
+            path, NULL, QUANTAPDF_OK, cases[index].findings);
+        expect_sanitize_failure(
+            path, NULL, cases[index].flag,
+            QUANTAPDF_ERROR_UNSUPPORTED);
+    }
+
+    begin_case("alias_unselected_policy_is_allowed");
+    if (create_fixture("alias_annots_next", path, sizeof(path))) {
+        quantapdf_document *document = NULL;
+        quantapdf_output *output = NULL;
+        CHECK(quantapdf_open(path, NULL, &document) == QUANTAPDF_OK);
+        if (document != NULL) {
+            CHECK(quantapdf_sanitize(
+                      document, QUANTAPDF_SANITIZE_XFA, &output) ==
+                  QUANTAPDF_OK);
+            CHECK(output != NULL);
+            quantapdf_drop_output(output);
+            quantapdf_close(document);
+        }
+    }
+}
+
 static void test_sanitize_strict_failures_and_arguments(void)
 {
     static const char *malformed[] = {
@@ -758,6 +924,16 @@ static void test_sanitize_strict_failures_and_arguments(void)
         "malformed_aa_entry",
         "malformed_next",
         "malformed_names",
+        "malformed_js_tree_node",
+        "malformed_js_tree_kids",
+        "malformed_js_tree_kid",
+        "malformed_js_tree_names",
+        "malformed_js_tree_odd_names",
+        "malformed_js_tree_key",
+        "malformed_js_tree_value",
+        "malformed_js_tree_action",
+        "malformed_js_tree_both",
+        "malformed_js_tree_limits",
         "malformed_annots",
         "malformed_annot_entry",
         "malformed_acroform",
@@ -773,7 +949,8 @@ static void test_sanitize_strict_failures_and_arguments(void)
     static const char *budget[] = {
         "budget_shared_next",
         "budget_shared_aa",
-        "budget_shared_annots"
+        "budget_shared_annots",
+        "budget_js_name_tree"
     };
     quantapdf_document *document = NULL;
     quantapdf_output *output;
@@ -853,6 +1030,8 @@ int main(void)
     test_sanitize_empty_container_policy_isolation();
     test_sanitize_mutation_budget_exhaustion();
     test_sanitize_shared_selected_containers();
+    test_sanitize_javascript_name_tree_actions();
+    test_sanitize_ambiguous_aliases();
     test_sanitize_strict_failures_and_arguments();
     if (failures != 0)
         fprintf(stderr, "pdf_security: %d checks failed\n", failures);

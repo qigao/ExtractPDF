@@ -352,6 +352,76 @@ static void pdf_security_shared_selected_next_fixture(
     root.replaceKey("/QuantaPDFSharedNextOwners", owners);
 }
 
+static void pdf_security_javascript_name_tree_fixture(
+    QPDF& pdf,
+    QPDFObjectHandle root,
+    char const *head_name,
+    char const *next_name)
+{
+    QPDFObjectHandle head = pdf_security_marked_action(
+        pdf, head_name, head_name == std::string("/GoTo") ?
+            "safe-goto-name-tree" : "launch-name-tree");
+    if (next_name != nullptr) {
+        char const *marker = "other-action";
+        if (std::string(next_name) == "/JavaScript")
+            marker = "javascript-name-tree-next";
+        else if (std::string(next_name) == "/Launch")
+            marker = "launch-name-tree-next";
+        else if (std::string(next_name) == "/URI")
+            marker = "external-action";
+        QPDFObjectHandle continuation =
+            pdf_security_marked_action(pdf, next_name, marker);
+        if (std::string(next_name) == "/JavaScript") {
+            continuation.replaceKey(
+                "/Next", pdf_security_marked_action(
+                    pdf, "/Launch", "launch-name-tree-after-javascript"));
+        }
+        head.replaceKey("/Next", continuation);
+    }
+    QPDFObjectHandle names = QPDFObjectHandle::newArray();
+    names.appendItem(QPDFObjectHandle::newString("entry"));
+    names.appendItem(head);
+    QPDFObjectHandle leaf = pdf.makeIndirectObject(
+        QPDFObjectHandle::newDictionary({{"/Names", names}}));
+    QPDFObjectHandle kids = QPDFObjectHandle::newArray();
+    kids.appendItem(leaf);
+    QPDFObjectHandle tree = pdf.makeIndirectObject(
+        QPDFObjectHandle::newDictionary({{"/Kids", kids}}));
+    root.replaceKey(
+        "/Names", QPDFObjectHandle::newDictionary({
+            {"/JavaScript", tree}}));
+}
+
+static void pdf_security_javascript_name_tree_budget(
+    QPDF& pdf,
+    QPDFObjectHandle root,
+    int count)
+{
+    QPDFObjectHandle leaf = pdf.makeIndirectObject(
+        QPDFObjectHandle::newDictionary());
+    QPDFObjectHandle shared_kids = QPDFObjectHandle::newArray();
+    for (int index = 0; index < count; ++index)
+        shared_kids.appendItem(leaf);
+    shared_kids = pdf.makeIndirectObject(shared_kids);
+    QPDFObjectHandle root_kids = QPDFObjectHandle::newArray();
+    for (int index = 0; index < count; ++index) {
+        root_kids.appendItem(pdf.makeIndirectObject(
+            QPDFObjectHandle::newDictionary({{"/Kids", shared_kids}})));
+    }
+    QPDFObjectHandle tree = pdf.makeIndirectObject(
+        QPDFObjectHandle::newDictionary({{"/Kids", root_kids}}));
+    root.replaceKey(
+        "/Names", QPDFObjectHandle::newDictionary({
+            {"/JavaScript", tree}}));
+}
+
+static void pdf_security_set_custom_alias(
+    QPDFObjectHandle root,
+    QPDFObjectHandle object)
+{
+    root.replaceKey("/QuantaPDFAlias", object);
+}
+
 static void pdf_security_budget_tuner(
     QPDF& pdf,
     QPDFObjectHandle root,
@@ -392,6 +462,24 @@ extern "C" int pdf_security_create_fixture(
             pdf_security_shared_selected_aa_fixture(*pdf, root);
         } else if (scenario == "sanitize_shared_selected_next") {
             pdf_security_shared_selected_next_fixture(*pdf, root);
+        } else if (scenario == "name_tree_safe") {
+            pdf_security_javascript_name_tree_fixture(
+                *pdf, root, "/GoTo", nullptr);
+        } else if (scenario == "name_tree_head_launch") {
+            pdf_security_javascript_name_tree_fixture(
+                *pdf, root, "/Launch", nullptr);
+        } else if (scenario == "name_tree_next_javascript") {
+            pdf_security_javascript_name_tree_fixture(
+                *pdf, root, "/GoTo", "/JavaScript");
+        } else if (scenario == "name_tree_next_launch") {
+            pdf_security_javascript_name_tree_fixture(
+                *pdf, root, "/GoTo", "/Launch");
+        } else if (scenario == "name_tree_next_external") {
+            pdf_security_javascript_name_tree_fixture(
+                *pdf, root, "/GoTo", "/URI");
+        } else if (scenario == "name_tree_next_other") {
+            pdf_security_javascript_name_tree_fixture(
+                *pdf, root, "/GoTo", "/Named");
         } else if (scenario == "internal_goto") {
             pdf_security_set_open_action(*pdf, root, "/GoTo");
         } else if (scenario == "open_destination_array") {
@@ -532,6 +620,80 @@ extern "C" int pdf_security_create_fixture(
             root.replaceKey("/OpenAction", action);
         } else if (scenario == "malformed_names") {
             root.replaceKey("/Names", QPDFObjectHandle::newName("/Bad"));
+        } else if (scenario == "malformed_js_tree_node") {
+            root.replaceKey(
+                "/Names", QPDFObjectHandle::newDictionary({
+                    {"/JavaScript", QPDFObjectHandle::newName("/Bad")}}));
+        } else if (scenario == "malformed_js_tree_kids") {
+            root.replaceKey(
+                "/Names", QPDFObjectHandle::newDictionary({
+                    {"/JavaScript", QPDFObjectHandle::newDictionary({
+                        {"/Kids", QPDFObjectHandle::newName("/Bad")}})}}));
+        } else if (scenario == "malformed_js_tree_kid") {
+            QPDFObjectHandle kids = QPDFObjectHandle::newArray();
+            kids.appendItem(QPDFObjectHandle::newName("/Bad"));
+            root.replaceKey(
+                "/Names", QPDFObjectHandle::newDictionary({
+                    {"/JavaScript", QPDFObjectHandle::newDictionary({
+                        {"/Kids", kids}})}}));
+        } else if (scenario == "malformed_js_tree_names") {
+            root.replaceKey(
+                "/Names", QPDFObjectHandle::newDictionary({
+                    {"/JavaScript", QPDFObjectHandle::newDictionary({
+                        {"/Names", QPDFObjectHandle::newName("/Bad")}})}}));
+        } else if (scenario == "malformed_js_tree_odd_names") {
+            QPDFObjectHandle names = QPDFObjectHandle::newArray();
+            names.appendItem(QPDFObjectHandle::newString("key"));
+            root.replaceKey(
+                "/Names", QPDFObjectHandle::newDictionary({
+                    {"/JavaScript", QPDFObjectHandle::newDictionary({
+                        {"/Names", names}})}}));
+        } else if (scenario == "malformed_js_tree_key") {
+            QPDFObjectHandle names = QPDFObjectHandle::newArray();
+            names.appendItem(QPDFObjectHandle::newName("/Bad"));
+            names.appendItem(pdf_security_action(*pdf, "/GoTo"));
+            root.replaceKey(
+                "/Names", QPDFObjectHandle::newDictionary({
+                    {"/JavaScript", QPDFObjectHandle::newDictionary({
+                        {"/Names", names}})}}));
+        } else if (scenario == "malformed_js_tree_value") {
+            QPDFObjectHandle names = QPDFObjectHandle::newArray();
+            names.appendItem(QPDFObjectHandle::newString("key"));
+            names.appendItem(QPDFObjectHandle::newName("/Bad"));
+            root.replaceKey(
+                "/Names", QPDFObjectHandle::newDictionary({
+                    {"/JavaScript", QPDFObjectHandle::newDictionary({
+                        {"/Names", names}})}}));
+        } else if (scenario == "malformed_js_tree_action") {
+            QPDFObjectHandle names = QPDFObjectHandle::newArray();
+            names.appendItem(QPDFObjectHandle::newString("key"));
+            names.appendItem(QPDFObjectHandle::newDictionary());
+            root.replaceKey(
+                "/Names", QPDFObjectHandle::newDictionary({
+                    {"/JavaScript", QPDFObjectHandle::newDictionary({
+                        {"/Names", names}})}}));
+        } else if (scenario == "malformed_js_tree_both") {
+            root.replaceKey(
+                "/Names", QPDFObjectHandle::newDictionary({
+                    {"/JavaScript", QPDFObjectHandle::newDictionary({
+                        {"/Kids", QPDFObjectHandle::newArray()},
+                        {"/Names", QPDFObjectHandle::newArray()}})}}));
+        } else if (scenario == "malformed_js_tree_limits") {
+            QPDFObjectHandle limits = QPDFObjectHandle::newArray();
+            limits.appendItem(QPDFObjectHandle::newString("only-one"));
+            root.replaceKey(
+                "/Names", QPDFObjectHandle::newDictionary({
+                    {"/JavaScript", QPDFObjectHandle::newDictionary({
+                        {"/Limits", limits}})}}));
+        } else if (scenario == "name_tree_cycle") {
+            QPDFObjectHandle tree = pdf->makeIndirectObject(
+                QPDFObjectHandle::newDictionary());
+            QPDFObjectHandle kids = QPDFObjectHandle::newArray();
+            kids.appendItem(tree);
+            tree.replaceKey("/Kids", kids);
+            root.replaceKey(
+                "/Names", QPDFObjectHandle::newDictionary({
+                    {"/JavaScript", tree}}));
         } else if (scenario == "malformed_annots") {
             pages[0].replaceKey(
                 "/Annots", QPDFObjectHandle::newName("/Bad"));
@@ -591,6 +753,92 @@ extern "C" int pdf_security_create_fixture(
         } else if (scenario == "budget_shared_annots") {
             pdf_security_stress_shared_annots(*pdf, root, 2048);
             compressed_objects = true;
+        } else if (scenario == "budget_js_name_tree") {
+            pdf_security_javascript_name_tree_budget(*pdf, root, 1024);
+            compressed_objects = true;
+        } else if (scenario == "alias_annots_next") {
+            QPDFObjectHandle item = pdf->makeIndirectObject(
+                QPDFObjectHandle::newDictionary({
+                    {"/S", QPDFObjectHandle::newName("/Launch")},
+                    {"/Subtype", QPDFObjectHandle::newName("/RichMedia")}}));
+            QPDFObjectHandle shared = QPDFObjectHandle::newArray();
+            shared.appendItem(item);
+            shared = pdf->makeIndirectObject(shared);
+            pages[0].replaceKey("/Annots", shared);
+            QPDFObjectHandle safe = pdf_security_action(*pdf, "/GoTo");
+            safe.replaceKey("/Next", shared);
+            root.replaceKey(
+                "/QuantaPDFActionOwner",
+                QPDFObjectHandle::newDictionary({{"/A", safe}}));
+        } else if (scenario == "alias_names_custom") {
+            QPDFObjectHandle names = pdf->makeIndirectObject(
+                QPDFObjectHandle::newDictionary({
+                    {"/JavaScript", QPDFObjectHandle::newDictionary()}}));
+            root.replaceKey("/Names", names);
+            pdf_security_set_custom_alias(root, names);
+        } else if (scenario == "alias_js_names_array_custom") {
+            QPDFObjectHandle pairs = QPDFObjectHandle::newArray();
+            pairs.appendItem(QPDFObjectHandle::newString("entry"));
+            pairs.appendItem(pdf_security_action(*pdf, "/Launch"));
+            pairs = pdf->makeIndirectObject(pairs);
+            QPDFObjectHandle tree = pdf->makeIndirectObject(
+                QPDFObjectHandle::newDictionary({{"/Names", pairs}}));
+            root.replaceKey(
+                "/Names", QPDFObjectHandle::newDictionary({
+                    {"/JavaScript", tree}}));
+            pdf_security_set_custom_alias(root, pairs);
+        } else if (scenario == "alias_acroform_custom") {
+            QPDFObjectHandle acroform = pdf->makeIndirectObject(
+                QPDFObjectHandle::newDictionary({
+                    {"/Fields", QPDFObjectHandle::newArray()},
+                    {"/XFA", QPDFObjectHandle::newString("xfa")}}));
+            root.replaceKey("/AcroForm", acroform);
+            pdf_security_set_custom_alias(root, acroform);
+        } else if (scenario == "alias_aa_custom") {
+            QPDFObjectHandle additional = pdf->makeIndirectObject(
+                QPDFObjectHandle::newDictionary({
+                    {"/E", pdf_security_action(*pdf, "/Launch")}}));
+            root.replaceKey(
+                "/QuantaPDFOwner",
+                QPDFObjectHandle::newDictionary({{"/AA", additional}}));
+            pdf_security_set_custom_alias(root, additional);
+        } else if (scenario == "alias_next_custom") {
+            QPDFObjectHandle next = QPDFObjectHandle::newArray();
+            next.appendItem(pdf_security_action(*pdf, "/Launch"));
+            next = pdf->makeIndirectObject(next);
+            QPDFObjectHandle safe = pdf_security_action(*pdf, "/GoTo");
+            safe.replaceKey("/Next", next);
+            root.replaceKey(
+                "/QuantaPDFOwner",
+                QPDFObjectHandle::newDictionary({{"/A", safe}}));
+            pdf_security_set_custom_alias(root, next);
+        } else if (scenario == "alias_openaction_next_custom") {
+            QPDFObjectHandle safe = pdf_security_action(*pdf, "/GoTo");
+            safe.replaceKey(
+                "/Next", pdf_security_action(*pdf, "/Launch"));
+            root.replaceKey("/OpenAction", safe);
+            pdf_security_set_custom_alias(root, safe);
+        } else if (scenario == "alias_annots_custom") {
+            QPDFObjectHandle annots = QPDFObjectHandle::newArray();
+            annots.appendItem(QPDFObjectHandle::newDictionary({
+                {"/Subtype", QPDFObjectHandle::newName("/RichMedia")}}));
+            annots = pdf->makeIndirectObject(annots);
+            pages[0].replaceKey("/Annots", annots);
+            pdf_security_set_custom_alias(root, annots);
+        } else if (scenario == "alias_af_custom") {
+            QPDFObjectHandle holder = pdf->makeIndirectObject(
+                QPDFObjectHandle::newDictionary({
+                    {"/AF", QPDFObjectHandle::newArray()}}));
+            QPDFObjectHandle associated = QPDFObjectHandle::newArray();
+            associated.appendItem(holder);
+            root.replaceKey("/AF", associated);
+            pdf_security_set_custom_alias(root, holder);
+        } else if (scenario == "alias_ef_custom") {
+            QPDFObjectHandle holder = pdf->makeIndirectObject(
+                QPDFObjectHandle::newDictionary({
+                    {"/EF", QPDFObjectHandle::newDictionary()}}));
+            root.replaceKey("/EF", holder);
+            pdf_security_set_custom_alias(root, holder);
         } else if (scenario == "mutation_budget_shared_next") {
             pdf_security_stress_shared_next(*pdf, root, 590);
             pdf_security_budget_tuner(*pdf, root, 212);
