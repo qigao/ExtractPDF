@@ -14,6 +14,14 @@ typedef struct quantapdf_security_inspection {
     int file_aesv3;
     int extension_level;
     int encrypt_metadata;
+    int allow_accessibility;
+    int allow_copy;
+    int allow_assemble;
+    int allow_fill_forms;
+    int allow_annotate_and_fill_forms;
+    int allow_modify_other;
+    int allow_print_low_resolution;
+    int allow_print_high_quality;
 } quantapdf_security_inspection;
 
 int quantapdf_security_inspect_pdf(
@@ -55,6 +63,15 @@ int quantapdf_security_inspect_pdf(
             QPDFObjectHandle value = encrypt.getKey("/EncryptMetadata");
             if (value.isBool())
                 out->encrypt_metadata = value.getBoolValue() ? 1 : 0;
+            out->allow_accessibility = pdf->allowAccessibility();
+            out->allow_copy = pdf->allowExtractAll();
+            out->allow_assemble = pdf->allowModifyAssembly();
+            out->allow_fill_forms = pdf->allowModifyForm();
+            out->allow_annotate_and_fill_forms =
+                pdf->allowModifyAnnotation();
+            out->allow_modify_other = pdf->allowModifyOther();
+            out->allow_print_low_resolution = pdf->allowPrintLowRes();
+            out->allow_print_high_quality = pdf->allowPrintHighRes();
         }
         return pdf->anyWarnings() ? 0 : 1;
     } catch (...) {

@@ -2,6 +2,7 @@
 #include "backend/qpdf_document.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 typedef enum quantapdf_security_operation_internal {
     QUANTAPDF_SECURITY_ENCRYPT_INTERNAL = 1,
@@ -9,9 +10,32 @@ typedef enum quantapdf_security_operation_internal {
     QUANTAPDF_SECURITY_REENCRYPT_INTERNAL = 3
 } quantapdf_security_operation_internal;
 
+static quantapdf_status quantapdf_validate_password_ascii(
+    const char *password,
+    size_t *out_size)
+{
+    size_t size;
+
+    if (password == NULL || out_size == NULL)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    for (size = 0; size <= 127u; ++size) {
+        unsigned char const value = (unsigned char)password[size];
+        if (value == 0u) {
+            *out_size = size;
+            return QUANTAPDF_OK;
+        }
+        if (value < 0x20u || value > 0x7eu)
+            return QUANTAPDF_ERROR_ARGUMENT;
+    }
+    return QUANTAPDF_ERROR_ARGUMENT;
+}
+
 static quantapdf_status quantapdf_validate_encryption_options(
     const quantapdf_encryption_options *options)
 {
+    size_t user_size;
+    size_t owner_size;
+
     if (options == NULL ||
         options->struct_size < QUANTAPDF_ENCRYPTION_OPTIONS_V1_MIN_SIZE ||
         options->method != QUANTAPDF_ENCRYPTION_AES_256 ||
@@ -23,6 +47,16 @@ static quantapdf_status quantapdf_validate_encryption_options(
           QUANTAPDF_PERMISSION_PRINT_HIGH_QUALITY) != 0u &&
          (options->permissions &
           QUANTAPDF_PERMISSION_PRINT_LOW_RESOLUTION) == 0u))
+        return QUANTAPDF_ERROR_ARGUMENT;
+    if (quantapdf_validate_password_ascii(
+            options->user_password_utf8, &user_size) != QUANTAPDF_OK ||
+        quantapdf_validate_password_ascii(
+            options->owner_password_utf8, &owner_size) != QUANTAPDF_OK ||
+        owner_size == 0u ||
+        (user_size == owner_size &&
+         memcmp(options->user_password_utf8,
+                options->owner_password_utf8,
+                user_size) == 0))
         return QUANTAPDF_ERROR_ARGUMENT;
     return QUANTAPDF_OK;
 }
