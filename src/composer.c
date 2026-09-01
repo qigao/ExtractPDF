@@ -89,6 +89,90 @@ static quantapdf_status quantapdf_composer_reserve_operation(
     return QUANTAPDF_OK;
 }
 
+static quantapdf_status quantapdf_composer_reserve_image(
+    quantapdf_composer *composer)
+{
+    quantapdf_composer_image_state *grown;
+    size_t new_capacity;
+
+    if (composer->image_count >= (size_t)UINT32_MAX)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    if (composer->image_count < composer->image_capacity)
+        return QUANTAPDF_OK;
+    new_capacity = composer->image_capacity == 0u
+        ? 8u
+        : composer->image_capacity * 2u;
+    if (new_capacity < composer->image_capacity ||
+        new_capacity > (size_t)UINT32_MAX ||
+        new_capacity > SIZE_MAX / sizeof(*grown))
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    grown = (quantapdf_composer_image_state *)realloc(
+        composer->images, new_capacity * sizeof(*grown));
+    if (grown == NULL)
+        return QUANTAPDF_ERROR_NOMEM;
+    composer->images = grown;
+    composer->image_capacity = new_capacity;
+    return QUANTAPDF_OK;
+}
+
+static int quantapdf_composer_probe_jpeg(
+    const unsigned char *data,
+    size_t size,
+    uint32_t *out_width,
+    uint32_t *out_height,
+    int *out_components)
+{
+    size_t offset = 2u;
+
+    if (size < 4u || data[0] != 0xffu || data[1] != 0xd8u ||
+        data[size - 2u] != 0xffu || data[size - 1u] != 0xd9u)
+        return 0;
+    while (offset + 1u < size) {
+        unsigned int marker;
+        size_t segment_size;
+
+        while (offset < size && data[offset] == 0xffu)
+            ++offset;
+        if (offset >= size)
+            return 0;
+        marker = data[offset++];
+        if (marker == 0x00u || marker == 0xd8u || marker == 0xd9u ||
+            (marker >= 0xd0u && marker <= 0xd7u))
+            continue;
+        if (offset + 2u > size)
+            return 0;
+        segment_size = ((size_t)data[offset] << 8u) | data[offset + 1u];
+        if (segment_size < 2u || segment_size > size - offset)
+            return 0;
+        if ((marker >= 0xc0u && marker <= 0xc3u) ||
+            (marker >= 0xc5u && marker <= 0xc7u) ||
+            (marker >= 0xc9u && marker <= 0xcbu) ||
+            (marker >= 0xcdu && marker <= 0xcfu)) {
+            unsigned int components;
+            unsigned int width;
+            unsigned int height;
+            if (segment_size < 8u || data[offset + 2u] != 8u)
+                return 0;
+            height = ((unsigned int)data[offset + 3u] << 8u) |
+                data[offset + 4u];
+            width = ((unsigned int)data[offset + 5u] << 8u) |
+                data[offset + 6u];
+            components = data[offset + 7u];
+            if (width == 0u || height == 0u ||
+                (components != 1u && components != 3u))
+                return 0;
+            *out_width = (uint32_t)width;
+            *out_height = (uint32_t)height;
+            *out_components = (int)components;
+            return 1;
+        }
+        if (marker == 0xdau)
+            return 0;
+        offset += segment_size;
+    }
+    return 0;
+}
+
 static size_t quantapdf_composer_limit_or_default(
     size_t configured,
     size_t default_value)
@@ -185,12 +269,35 @@ quantapdf_status quantapdf_composer_add_image(
     size_t size,
     quantapdf_composer_image_id *out_image_id)
 {
-    (void)composer;
-    (void)data;
-    (void)size;
+    quantapdf_composer_image_state image;
+    quantapdf_status status;
+
     if (out_image_id != NULL)
         *out_image_id = 0u;
-    return QUANTAPDF_ERROR_UNSUPPORTED;
+    if (composer == NULL || data == NULL || size == 0u ||
+        out_image_id == NULL)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    memset(&image, 0, sizeof(image));
+    if (!quantapdf_composer_probe_jpeg(
+            data, size, &image.width, &image.height, &image.components))
+        return QUANTAPDF_ERROR_FORMAT;
+    image.format = QUANTAPDF_COMPOSER_IMAGE_FORMAT_JPEG;
+    if (composer->resource_bytes > composer->max_resource_bytes ||
+        size > composer->max_resource_bytes - composer->resource_bytes)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    status = quantapdf_composer_reserve_image(composer);
+    if (status != QUANTAPDF_OK)
+        return status;
+    image.data = (unsigned char *)malloc(size);
+    if (image.data == NULL)
+        return QUANTAPDF_ERROR_NOMEM;
+    memcpy(image.data, data, size);
+    image.size = size;
+    composer->images[composer->image_count] = image;
+    ++composer->image_count;
+    composer->resource_bytes += size;
+    *out_image_id = (quantapdf_composer_image_id)composer->image_count;
+    return QUANTAPDF_OK;
 }
 
 quantapdf_status quantapdf_composer_draw_text(
@@ -249,12 +356,28 @@ quantapdf_status quantapdf_composer_draw_image(
     const quantapdf_rect *bounds,
     const quantapdf_composer_image_options *options)
 {
-    (void)composer;
-    (void)page_index;
-    (void)image_id;
-    (void)bounds;
-    (void)options;
-    return QUANTAPDF_ERROR_UNSUPPORTED;
+    quantapdf_composer_operation operation;
+    quantapdf_status status;
+
+    if (composer == NULL || page_index >= composer->page_count ||
+        image_id == 0u || (size_t)image_id > composer->image_count ||
+        !quantapdf_composer_rect_valid(bounds) || options == NULL ||
+        options->struct_size < QUANTAPDF_COMPOSER_IMAGE_OPTIONS_V1_MIN_SIZE ||
+        options->fit < QUANTAPDF_COMPOSER_IMAGE_FIT_CONTAIN ||
+        options->fit > QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    status = quantapdf_composer_reserve_operation(composer);
+    if (status != QUANTAPDF_OK)
+        return status;
+    memset(&operation, 0, sizeof(operation));
+    operation.kind = QUANTAPDF_COMPOSER_OPERATION_IMAGE;
+    operation.page_index = page_index;
+    operation.bounds = *bounds;
+    operation.value.image.image_id = image_id;
+    operation.value.image.options = *options;
+    composer->operations[composer->operation_count] = operation;
+    ++composer->operation_count;
+    return QUANTAPDF_OK;
 }
 
 quantapdf_status quantapdf_composer_finish(
@@ -295,6 +418,9 @@ void quantapdf_drop_composer(quantapdf_composer *composer)
         if (composer->operations[i].kind == QUANTAPDF_COMPOSER_OPERATION_TEXT)
             free(composer->operations[i].value.text.text_utf8);
     }
+    for (i = 0u; i < composer->image_count; ++i)
+        free(composer->images[i].data);
+    free(composer->images);
     free(composer->operations);
     free(composer->pages);
     free(composer);

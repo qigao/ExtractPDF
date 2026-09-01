@@ -239,6 +239,45 @@ std::string page_content(
             y -= line_height;
         }
     }
+    for (std::size_t i = 0; i < composer->operation_count; ++i) {
+        auto const& operation = composer->operations[i];
+        if (operation.page_index != page_index ||
+            operation.kind != QUANTAPDF_COMPOSER_OPERATION_IMAGE)
+            continue;
+        auto const& image =
+            composer->images[operation.value.image.image_id - 1u];
+        double box_width = operation.bounds.x1 - operation.bounds.x0;
+        double box_height = operation.bounds.y1 - operation.bounds.y0;
+        double draw_width = box_width;
+        double draw_height = box_height;
+        double draw_x = operation.bounds.x0;
+        double draw_top = operation.bounds.y0;
+        bool clip = operation.value.image.options.fit ==
+            QUANTAPDF_COMPOSER_IMAGE_FIT_COVER;
+        if (operation.value.image.options.fit !=
+            QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH) {
+            double scale_x = box_width / image.width;
+            double scale_y = box_height / image.height;
+            double scale = operation.value.image.options.fit ==
+                    QUANTAPDF_COMPOSER_IMAGE_FIT_CONTAIN
+                ? std::min(scale_x, scale_y)
+                : std::max(scale_x, scale_y);
+            draw_width = image.width * scale;
+            draw_height = image.height * scale;
+            draw_x += (box_width - draw_width) / 2.0;
+            draw_top += (box_height - draw_height) / 2.0;
+        }
+        content += "q ";
+        if (clip) {
+            content += number(operation.bounds.x0) + " " +
+                number(page.height_points - operation.bounds.y1) + " " +
+                number(box_width) + " " + number(box_height) + " re W n ";
+        }
+        content += number(draw_width) + " 0 0 " + number(draw_height) + " " +
+            number(draw_x) + " " +
+            number(page.height_points - draw_top - draw_height) + " cm /Im" +
+            std::to_string(operation.value.image.image_id) + " Do Q\n";
+    }
     return content;
 }
 
@@ -259,12 +298,36 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
     try {
         QPDF pdf;
         pdf.emptyPDF();
+        std::vector<QPDFObjectHandle> image_objects;
+        image_objects.reserve(composer->image_count);
+        for (std::size_t i = 0; i < composer->image_count; ++i) {
+            auto const& image = composer->images[i];
+            auto stream = pdf.newStream(std::string(
+                reinterpret_cast<char const*>(image.data), image.size));
+            auto dictionary = stream.getDict();
+            dictionary.replaceKey("/Type", QPDFObjectHandle::newName("/XObject"));
+            dictionary.replaceKey("/Subtype", QPDFObjectHandle::newName("/Image"));
+            dictionary.replaceKey(
+                "/Width", QPDFObjectHandle::newInteger(image.width));
+            dictionary.replaceKey(
+                "/Height", QPDFObjectHandle::newInteger(image.height));
+            dictionary.replaceKey(
+                "/BitsPerComponent", QPDFObjectHandle::newInteger(8));
+            dictionary.replaceKey(
+                "/ColorSpace",
+                QPDFObjectHandle::newName(
+                    image.components == 1 ? "/DeviceGray" : "/DeviceRGB"));
+            dictionary.replaceKey(
+                "/Filter", QPDFObjectHandle::newName("/DCTDecode"));
+            image_objects.push_back(stream);
+        }
         for (std::size_t page_index = 0; page_index < composer->page_count;
              ++page_index) {
             auto page = QPDFObjectHandle::newDictionary();
             auto media_box = QPDFObjectHandle::newArray();
             auto resources = QPDFObjectHandle::newDictionary();
             auto fonts = QPDFObjectHandle::newDictionary();
+            auto xobjects = QPDFObjectHandle::newDictionary();
             bool used_fonts[12] = {};
 
             for (std::size_t i = 0; i < composer->operation_count; ++i) {
@@ -280,6 +343,16 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
                         make_font(static_cast<quantapdf_composer_font>(font)));
             }
             resources.replaceKey("/Font", fonts);
+            for (std::size_t i = 0; i < composer->operation_count; ++i) {
+                auto const& operation = composer->operations[i];
+                if (operation.page_index == page_index &&
+                    operation.kind == QUANTAPDF_COMPOSER_OPERATION_IMAGE) {
+                    auto id = operation.value.image.image_id;
+                    xobjects.replaceKey(
+                        "/Im" + std::to_string(id), image_objects[id - 1u]);
+                }
+            }
+            resources.replaceKey("/XObject", xobjects);
             media_box.appendItem(QPDFObjectHandle::newInteger(0));
             media_box.appendItem(QPDFObjectHandle::newInteger(0));
             media_box.appendItem(QPDFObjectHandle::newReal(

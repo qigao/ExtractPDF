@@ -16,8 +16,16 @@ add_executable(quantapdf_test_status test_status.c)
 target_link_libraries(quantapdf_test_status PRIVATE QuantaPDF::QuantaPDF)
 add_test(NAME quantapdf.status COMMAND quantapdf_test_status)
 
-add_executable(quantapdf_test_composer test_composer.c)
-target_link_libraries(quantapdf_test_composer PRIVATE QuantaPDF::QuantaPDF)
+add_executable(quantapdf_test_composer
+  test_composer.c
+  composer_test_helpers.cpp)
+target_include_directories(quantapdf_test_composer PRIVATE
+  "${PROJECT_SOURCE_DIR}/src")
+target_link_libraries(quantapdf_test_composer PRIVATE
+  QuantaPDF::QuantaPDF
+  quantapdf_backend
+  qpdf::libqpdf)
+target_compile_features(quantapdf_test_composer PRIVATE cxx_std_20)
 target_compile_definitions(quantapdf_test_composer PRIVATE
   COMPOSER_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/composer-output.pdf")
 add_test(NAME quantapdf.composer COMMAND quantapdf_test_composer)

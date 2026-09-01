@@ -75,12 +75,33 @@ typedef struct quantapdf_composer_text_operation {
     quantapdf_composer_text_options options;
 } quantapdf_composer_text_operation;
 
+typedef enum quantapdf_composer_image_format_internal {
+    QUANTAPDF_COMPOSER_IMAGE_FORMAT_JPEG = 1,
+    QUANTAPDF_COMPOSER_IMAGE_FORMAT_PNG = 2
+} quantapdf_composer_image_format_internal;
+
+typedef struct quantapdf_composer_image_state {
+    unsigned char *data;
+    size_t size;
+    uint32_t width;
+    uint32_t height;
+    int components;
+    int has_alpha;
+    quantapdf_composer_image_format_internal format;
+} quantapdf_composer_image_state;
+
+typedef struct quantapdf_composer_image_operation {
+    quantapdf_composer_image_id image_id;
+    quantapdf_composer_image_options options;
+} quantapdf_composer_image_operation;
+
 typedef struct quantapdf_composer_operation {
     quantapdf_composer_operation_kind kind;
     size_t page_index;
     quantapdf_rect bounds;
     union {
         quantapdf_composer_text_operation text;
+        quantapdf_composer_image_operation image;
     } value;
 } quantapdf_composer_operation;
 
@@ -94,6 +115,9 @@ struct quantapdf_composer {
     quantapdf_composer_operation *operations;
     size_t operation_count;
     size_t operation_capacity;
+    quantapdf_composer_image_state *images;
+    size_t image_count;
+    size_t image_capacity;
     size_t resource_bytes;
 };
 
