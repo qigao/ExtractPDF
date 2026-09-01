@@ -208,9 +208,15 @@ Tests prove:
 - NULL, short-structure, zero-flag, unknown-flag, and sentinel-output behavior;
 - exact v2 exports, installed header version, and full local Windows tests.
 
-Before merge, the exact reviewed head must also pass Linux release/sanitizer,
-macOS, and Windows CI. That cross-platform evidence is a pending branch
-integration gate, not evidence supplied by the local Task 4 verification.
+The exact reviewed feature head
+`75f0f3466ed9e8e374a495855dd261fb17bff2f4` passed Linux release and
+ASan/UBSan, macOS, and Windows CI before merge in
+[PR #63](https://github.com/qigao/QuantaPDF/pull/63). PR #63 was integrated as
+`67d0e0a6c8685e13d524752dd1c1627a05ed7464`; the
+[integrated-master workflow run](https://github.com/qigao/QuantaPDF/actions/runs/33461905426)
+repeated that matrix successfully. Its Windows job completed all 31 CTests,
+including the Windows-only ABI export checks; the Linux and macOS jobs
+completed their respective platform test suites.
 
 ## Non-goals
 

@@ -335,8 +335,17 @@ Inspect the diff, search for implementation placeholders and forbidden legacy
 backend/license references, and confirm no generated build/vcpkg files are
 tracked.
 
-- [ ] **Step 5: Complete branch workflow**
+- [x] **Step 5: Complete branch workflow**
 
 Use the finishing-development-branch process, push the reviewed branch, open a
 PR, and require Linux release/sanitizer, macOS, and Windows success on the exact
 head before merge.
+
+Completed by [PR #63](https://github.com/qigao/QuantaPDF/pull/63). Feature head
+`75f0f3466ed9e8e374a495855dd261fb17bff2f4` passed Linux release and
+ASan/UBSan, macOS, and Windows CI before merge. Merge commit
+`67d0e0a6c8685e13d524752dd1c1627a05ed7464` then passed the same integrated
+master matrix in
+[workflow run 33461905426](https://github.com/qigao/QuantaPDF/actions/runs/33461905426).
+The Windows job completed all 31 CTests, including its Windows-only ABI export
+checks; Linux and macOS completed their respective platform test suites.
