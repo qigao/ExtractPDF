@@ -1043,6 +1043,38 @@ static quantapdf_status quantapdf_qpdf_audit_javascript_name_tree(
     return QUANTAPDF_OK;
 }
 
+static quantapdf_status quantapdf_qpdf_security_signature_dictionary(
+    QPDFObjectHandle object,
+    bool *out_is_signature)
+{
+    *out_is_signature = false;
+    if (!object.isDictionary())
+        return QUANTAPDF_OK;
+
+    QPDFObjectHandle type = object.getKey("/Type");
+    bool const tagged = type.isName() &&
+        (type.getName() == "/Sig" || type.getName() == "/DocTimeStamp");
+    bool const signature_shaped = object.hasKey("/ByteRange");
+    if (!tagged && !signature_shaped)
+        return QUANTAPDF_OK;
+    *out_is_signature = true;
+    if (!tagged || !object.hasKey("/ByteRange") ||
+        !object.hasKey("/Contents"))
+        return QUANTAPDF_ERROR_FORMAT;
+
+    QPDFObjectHandle byte_range = object.getKey("/ByteRange");
+    QPDFObjectHandle contents = object.getKey("/Contents");
+    if (!byte_range.isArray() || byte_range.getArrayNItems() < 4 ||
+        (byte_range.getArrayNItems() % 2) != 0 || !contents.isString())
+        return QUANTAPDF_ERROR_FORMAT;
+    for (int index = 0; index < byte_range.getArrayNItems(); ++index) {
+        QPDFObjectHandle value = byte_range.getArrayItem(index);
+        if (!value.isInteger() || value.getIntValue() < 0)
+            return QUANTAPDF_ERROR_FORMAT;
+    }
+    return QUANTAPDF_ERROR_UNSUPPORTED;
+}
+
 static quantapdf_status quantapdf_qpdf_audit_signature_fields(
     QPDFObjectHandle acroform,
     quantapdf_qpdf_work_budget *budget,
@@ -1094,10 +1126,11 @@ static quantapdf_status quantapdf_qpdf_audit_signature_fields(
         if (field_type == "/Sig" && !value.isNull()) {
             if (!value.isDictionary())
                 return QUANTAPDF_ERROR_FORMAT;
-            QPDFObjectHandle signature_type = value.getKey("/Type");
-            if (!signature_type.isNull() &&
-                (!signature_type.isName() ||
-                 signature_type.getName() != "/Sig"))
+            bool is_signature = false;
+            quantapdf_status const status =
+                quantapdf_qpdf_security_signature_dictionary(
+                    value, &is_signature);
+            if (status != QUANTAPDF_ERROR_UNSUPPORTED || !is_signature)
                 return QUANTAPDF_ERROR_FORMAT;
             *findings |= QUANTAPDF_AUDIT_SIGNATURE;
         }
@@ -1140,9 +1173,11 @@ static quantapdf_status quantapdf_qpdf_audit_catalog_signatures(
         QPDFObjectHandle signature = permissions.getKey(key);
         if (!signature.isDictionary())
             return QUANTAPDF_ERROR_FORMAT;
-        QPDFObjectHandle type = signature.getKey("/Type");
-        if (!type.isNull() &&
-            (!type.isName() || type.getName() != "/Sig"))
+        bool is_signature = false;
+        quantapdf_status const status =
+            quantapdf_qpdf_security_signature_dictionary(
+                signature, &is_signature);
+        if (status != QUANTAPDF_ERROR_UNSUPPORTED || !is_signature)
             return QUANTAPDF_ERROR_FORMAT;
         *findings |= QUANTAPDF_AUDIT_SIGNATURE;
     }
@@ -7458,38 +7493,6 @@ class quantapdf_qpdf_random_context_guard final
     quantapdf_qpdf_random_context *previous;
     quantapdf_qpdf_security_test_stats *test_stats;
 };
-
-quantapdf_status quantapdf_qpdf_security_signature_dictionary(
-    QPDFObjectHandle object,
-    bool *out_is_signature)
-{
-    *out_is_signature = false;
-    if (!object.isDictionary())
-        return QUANTAPDF_OK;
-
-    QPDFObjectHandle type = object.getKey("/Type");
-    bool const tagged = type.isName() &&
-        (type.getName() == "/Sig" || type.getName() == "/DocTimeStamp");
-    bool const signature_shaped = object.hasKey("/ByteRange");
-    if (!tagged && !signature_shaped)
-        return QUANTAPDF_OK;
-    *out_is_signature = true;
-    if (!tagged || !object.hasKey("/ByteRange") ||
-        !object.hasKey("/Contents"))
-        return QUANTAPDF_ERROR_FORMAT;
-
-    QPDFObjectHandle byte_range = object.getKey("/ByteRange");
-    QPDFObjectHandle contents = object.getKey("/Contents");
-    if (!byte_range.isArray() || byte_range.getArrayNItems() < 4 ||
-        (byte_range.getArrayNItems() % 2) != 0 || !contents.isString())
-        return QUANTAPDF_ERROR_FORMAT;
-    for (int index = 0; index < byte_range.getArrayNItems(); ++index) {
-        QPDFObjectHandle value = byte_range.getArrayItem(index);
-        if (!value.isInteger() || value.getIntValue() < 0)
-            return QUANTAPDF_ERROR_FORMAT;
-    }
-    return QUANTAPDF_ERROR_UNSUPPORTED;
-}
 
 quantapdf_status quantapdf_qpdf_security_signature_preflight(
     QPDF& pdf,

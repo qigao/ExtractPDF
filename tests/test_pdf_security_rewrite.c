@@ -501,7 +501,7 @@ static int test_signed_and_legacy_policy(void)
     CHECK(output == NULL);
     quantapdf_close(signed_document);
 
-    for (kind = 1; kind <= 6; ++kind) {
+    for (kind = 1; kind <= 8; ++kind) {
         quantapdf_status const expected = kind >= 4
             ? QUANTAPDF_ERROR_FORMAT
             : QUANTAPDF_ERROR_UNSUPPORTED;

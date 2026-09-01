@@ -166,7 +166,7 @@ int quantapdf_security_create_signature_fixture(
     int encrypt)
 {
     if (source_path == nullptr || output_path == nullptr ||
-        kind < 1 || kind > 6)
+        kind < 1 || kind > 8)
         return 0;
     try {
         auto pdf = QPDF::create();
@@ -182,7 +182,7 @@ int quantapdf_security_create_signature_fixture(
                         kind == 2 ? "/DocTimeStamp" : "/Sig")},
                     {"/ByteRange", byte_range},
                     {"/Contents", QPDFObjectHandle::newString("signed")}}));
-        } else if (kind >= 5) {
+        } else if (kind >= 5 && kind <= 6) {
             QPDFObjectHandle byte_range = QPDFObjectHandle::newArray();
             for (int index = 0; index < 4; ++index)
                 byte_range.appendItem(QPDFObjectHandle::newInteger(0));
@@ -193,6 +193,9 @@ int quantapdf_security_create_signature_fixture(
                 malformed.replaceKey(
                     "/Type", QPDFObjectHandle::newName("/NotSignature"));
             signature = pdf->makeIndirectObject(malformed);
+        } else if (kind >= 7) {
+            signature = QPDFObjectHandle::newDictionary({
+                {"/Type", QPDFObjectHandle::newName("/Sig")}});
         }
         if (kind == 1) {
             pdf->getRoot().replaceKey(
@@ -211,6 +214,20 @@ int quantapdf_security_create_signature_fixture(
             pdf->getRoot().replaceKey(
                 "/AcroForm", QPDFObjectHandle::newDictionary({
                     {"/Fields", fields}}));
+        } else if (kind == 7) {
+            QPDFObjectHandle field = pdf->makeIndirectObject(
+                QPDFObjectHandle::newDictionary({
+                    {"/FT", QPDFObjectHandle::newName("/Sig")},
+                    {"/V", signature}}));
+            QPDFObjectHandle fields = QPDFObjectHandle::newArray();
+            fields.appendItem(field);
+            pdf->getRoot().replaceKey(
+                "/AcroForm", QPDFObjectHandle::newDictionary({
+                    {"/Fields", fields}}));
+        } else if (kind == 8) {
+            pdf->getRoot().replaceKey(
+                "/Perms", QPDFObjectHandle::newDictionary({
+                    {"/DocMDP", signature}}));
         }
 
         QPDFWriter writer(*pdf, output_path);
