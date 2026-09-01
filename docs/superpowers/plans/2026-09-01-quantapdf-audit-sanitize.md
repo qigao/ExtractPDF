@@ -265,6 +265,7 @@ Commit as `feat: sanitize active PDF content`.
 ### Task 4: Documentation and complete verification
 
 **Files:**
+- Modify: `CMakeLists.txt`
 - Modify: `README.md`
 - Add: `docs/superpowers/specs/2026-09-01-quantapdf-audit-sanitize-design.md`
 - Modify: `docs/superpowers/plans/2026-09-01-quantapdf-audit-sanitize.md`

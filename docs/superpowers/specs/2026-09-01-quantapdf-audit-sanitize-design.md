@@ -158,8 +158,11 @@ Tests prove:
 - encrypted and signature-bearing inputs audit correctly and sanitize as
   unsupported;
 - NULL, short-structure, zero-flag, unknown-flag, and sentinel-output behavior;
-- exact v2 exports, installed header version, full Windows tests, and CI on
-  Linux release/sanitizer, macOS, and Windows.
+- exact v2 exports, installed header version, and full local Windows tests.
+
+Before merge, the exact reviewed head must also pass Linux release/sanitizer,
+macOS, and Windows CI. That cross-platform evidence is a pending branch
+integration gate, not evidence supplied by the local Task 4 verification.
 
 ## Non-goals
 
