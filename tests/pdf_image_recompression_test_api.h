@@ -9,6 +9,7 @@ typedef struct quantapdf_test_image_recompression_stats {
     size_t unique_images;
     size_t provider_registrations;
     size_t provider_invocations;
+    size_t decoded_preflight_bytes;
     int every_provider_once;
 } quantapdf_test_image_recompression_stats;
 

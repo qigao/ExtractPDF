@@ -29,11 +29,15 @@ set_tests_properties(quantapdf.jpeg_encoder PROPERTIES TIMEOUT 10)
 
 add_executable(quantapdf_test_pdf_image_recompression
   test_pdf_image_recompression.c
+  test_pdf_image_recompression_semantics.c
   image_recompression_test_helpers.cpp
   pdf_image_recompression_fault_hook.c)
 target_link_libraries(quantapdf_test_pdf_image_recompression PRIVATE
   QuantaPDF::QuantaPDF
-  qpdf::libqpdf)
+  qpdf::libqpdf
+  ZLIB::ZLIB)
+target_include_directories(quantapdf_test_pdf_image_recompression PRIVATE
+  "${PROJECT_SOURCE_DIR}/src")
 target_compile_features(quantapdf_test_pdf_image_recompression PRIVATE cxx_std_20)
 target_compile_definitions(quantapdf_test_pdf_image_recompression PRIVATE
   QUANTAPDF_TESTING=1
@@ -47,6 +51,18 @@ target_compile_definitions(quantapdf_test_pdf_image_recompression PRIVATE
   MALFORMED_FIXTURE_PDF="${CMAKE_CURRENT_BINARY_DIR}/image-recompression-malformed.pdf"
   SIGNED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotation-mutation-signed.pdf"
   ENCRYPTED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/encrypted-one-page.pdf")
+target_compile_definitions(quantapdf_test_pdf_image_recompression PRIVATE
+  SEMANTIC_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/image-recompression-semantic-output.pdf"
+  SEMANTIC_TEXT_SOURCE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/text-one-page.pdf"
+  SEMANTIC_TEXT_PDF="${CMAKE_CURRENT_BINARY_DIR}/image-recompression-semantic-text.pdf"
+  SEMANTIC_LINKS_SOURCE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/page-links.pdf"
+  SEMANTIC_LINKS_PDF="${CMAKE_CURRENT_BINARY_DIR}/image-recompression-semantic-links.pdf"
+  SEMANTIC_FORM_SOURCE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/acroform-choice.pdf"
+  SEMANTIC_FORM_PDF="${CMAKE_CURRENT_BINARY_DIR}/image-recompression-semantic-form.pdf"
+  SEMANTIC_OUTLINE_SOURCE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/outline-tree.pdf"
+  SEMANTIC_OUTLINE_PDF="${CMAKE_CURRENT_BINARY_DIR}/image-recompression-semantic-outline.pdf"
+  SEMANTIC_METADATA_SOURCE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/metadata-info.pdf"
+  SEMANTIC_METADATA_PDF="${CMAKE_CURRENT_BINARY_DIR}/image-recompression-semantic-metadata.pdf")
 add_test(NAME quantapdf.pdf_image_recompression
   COMMAND quantapdf_test_pdf_image_recompression)
 set_tests_properties(quantapdf.pdf_image_recompression PROPERTIES TIMEOUT 60)

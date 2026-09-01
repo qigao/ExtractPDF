@@ -793,9 +793,11 @@ static quantapdf_status quantapdf_qpdf_init_work_budget(
     size_t source_size,
     quantapdf_qpdf_work_budget *budget)
 {
-    if (source_size > std::numeric_limits<size_t>::max() / 64u)
-        return QUANTAPDF_ERROR_UNSUPPORTED;
-    budget->limit = std::max<size_t>(4096u, source_size * 64u);
+    quantapdf_status const status =
+        quantapdf_qpdf_compute_work_budget_limit(
+            source_size, &budget->limit);
+    if (status != QUANTAPDF_OK)
+        return status;
     budget->used = 0;
     return QUANTAPDF_OK;
 }
@@ -4274,22 +4276,28 @@ extern "C" quantapdf_status quantapdf_qpdf_rewrite_lossless(
     }
 }
 
+class quantapdf_qpdf_decoded_size_mismatch final {};
+
 class quantapdf_qpdf_counting_pipeline final : public Pipeline {
   public:
-    explicit quantapdf_qpdf_counting_pipeline(size_t expected) :
+    quantapdf_qpdf_counting_pipeline(size_t expected, size_t *observed) :
         Pipeline("quantapdf decoded-byte counter", nullptr),
-        expected_(expected)
+        expected_(expected),
+        observed_(observed)
     {
     }
 
     void write(unsigned char const *, size_t length) override
     {
-        if (length > expected_ - std::min(expected_, count_)) {
-            overflow_ = true;
+        if (length > expected_ - count_) {
             count_ = expected_;
-        } else {
-            count_ += length;
+            if (observed_ != nullptr)
+                *observed_ = std::max(*observed_, expected_ + 1u);
+            throw quantapdf_qpdf_decoded_size_mismatch();
         }
+        count_ += length;
+        if (observed_ != nullptr)
+            *observed_ = std::max(*observed_, count_);
     }
 
     void finish() override
@@ -4299,13 +4307,13 @@ class quantapdf_qpdf_counting_pipeline final : public Pipeline {
 
     bool exact() const noexcept
     {
-        return finished_ && !overflow_ && count_ == expected_;
+        return finished_ && count_ == expected_;
     }
 
   private:
     size_t expected_;
+    size_t *observed_;
     size_t count_ = 0;
-    bool overflow_ = false;
     bool finished_ = false;
 };
 
@@ -4353,10 +4361,10 @@ static quantapdf_status quantapdf_qpdf_queue_resources(
     std::set<QPDFObjGen> *seen,
     quantapdf_qpdf_work_budget *budget)
 {
-    if (!budget->take())
-        return QUANTAPDF_ERROR_UNSUPPORTED;
     if (owner.isIndirect() && !seen->insert(owner.getObjGen()).second)
         return QUANTAPDF_OK;
+    if (!budget->take())
+        return QUANTAPDF_ERROR_UNSUPPORTED;
     quantapdf_qpdf_resource_item item;
     item.owner = owner;
     item.resources = resources;
@@ -4394,8 +4402,6 @@ static quantapdf_status quantapdf_qpdf_queue_page_appearances(
 
     int const annotation_count = annotations.getArrayNItems();
     for (int index = 0; index < annotation_count; ++index) {
-        if (!budget->take())
-            return QUANTAPDF_ERROR_UNSUPPORTED;
         QPDFObjectHandle annotation = annotations.getArrayItem(index);
         if (!annotation.isDictionary())
             return QUANTAPDF_ERROR_FORMAT;
@@ -4409,6 +4415,8 @@ static quantapdf_status quantapdf_qpdf_queue_page_appearances(
             QPDFObjectHandle appearance = appearances.getKey(key);
             if (appearance.isNull())
                 continue;
+            if (!budget->take())
+                return QUANTAPDF_ERROR_UNSUPPORTED;
             if (appearance.isStream()) {
                 quantapdf_status const status =
                     quantapdf_qpdf_queue_appearance(
@@ -4454,6 +4462,8 @@ static quantapdf_status quantapdf_qpdf_discover_images(
     std::set<QPDFObjGen> owner_seen;
     std::set<QPDFObjGen> image_seen;
     for (QPDFObjectHandle page : pdf.getAllPages()) {
+        if (!budget.take())
+            return QUANTAPDF_ERROR_UNSUPPORTED;
         QPDFObjectHandle resources =
             QPDFPageObjectHelper(page).getAttribute("/Resources", false);
         status = quantapdf_qpdf_queue_resources(
@@ -4574,6 +4584,7 @@ static quantapdf_status quantapdf_qpdf_classify_image(
     QPDFObjectHandle image,
     int jpeg_quality,
     size_t max_decoded_bytes_per_image,
+    size_t *decoded_preflight_bytes,
     bool *eligible,
     quantapdf::detail::jpeg_image_spec *spec)
 {
@@ -4650,15 +4661,21 @@ static quantapdf_status quantapdf_qpdf_classify_image(
             true))
         return QUANTAPDF_OK;
 
-    quantapdf_qpdf_counting_pipeline counter(expected);
+    quantapdf_qpdf_counting_pipeline counter(
+        expected, decoded_preflight_bytes);
     filtering_attempted = false;
-    bool const decoded = image.pipeStreamData(
-        &counter,
-        &filtering_attempted,
-        0,
-        qpdf_dl_all,
-        true,
-        true);
+    bool decoded = false;
+    try {
+        decoded = image.pipeStreamData(
+            &counter,
+            &filtering_attempted,
+            0,
+            qpdf_dl_all,
+            true,
+            true);
+    } catch (quantapdf_qpdf_decoded_size_mismatch const&) {
+        return QUANTAPDF_ERROR_FORMAT;
+    }
     if (!decoded || !counter.exact() || pdf.anyWarnings())
         return QUANTAPDF_ERROR_FORMAT;
 
@@ -4812,6 +4829,9 @@ extern "C" quantapdf_status quantapdf_qpdf_recompress_images(
                 image,
                 jpeg_quality,
                 max_decoded_bytes_per_image,
+                test_stats == nullptr
+                    ? nullptr
+                    : &test_stats->decoded_preflight_bytes,
                 &eligible,
                 &plan.spec);
             if (status != QUANTAPDF_OK)

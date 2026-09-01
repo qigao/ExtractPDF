@@ -32,6 +32,8 @@ static void check_impl(int ok, const char *expression, int line)
 }
 #define CHECK(expression) check_impl((expression), #expression, __LINE__)
 
+void image_recompression_check_public_semantics(void);
+
 static quantapdf_output *output_sentinel(void)
 {
     return (quantapdf_output *)(uintptr_t)1;
@@ -68,7 +70,7 @@ static void check_policy_cap(
     quantapdf_image_recompression_options options = {
         sizeof(options), 90, cap};
     quantapdf_output *output = NULL;
-    quantapdf_test_image_recompression_stats stats = {0, 0, 0, 0};
+    quantapdf_test_image_recompression_stats stats = {0};
     const unsigned char *data = NULL;
     size_t size = 0;
 
@@ -112,6 +114,11 @@ static void check_malformed_inputs(void)
             QUANTAPDF_OK);
         CHECK(document != NULL);
         expect_failure(document, &options, QUANTAPDF_ERROR_FORMAT);
+        if (fixture == IMAGE_RECOMPRESSION_MALFORMED_DECODED_OVERSIZE) {
+            quantapdf_test_image_recompression_stats stats = {0};
+            quantapdf_test_image_recompression_get_stats(document, &stats);
+            CHECK(stats.decoded_preflight_bytes == 2);
+        }
         quantapdf_close(document);
     }
 }
@@ -136,6 +143,53 @@ static void check_security_fail_closed(void)
     quantapdf_close(document);
 }
 
+static uint64_t observation_hash_bytes(
+    uint64_t hash,
+    const void *data,
+    size_t size)
+{
+    const unsigned char *bytes = (const unsigned char *)data;
+    size_t index;
+    for (index = 0; index < size; ++index) {
+        hash ^= bytes[index];
+        hash *= UINT64_C(1099511628211);
+    }
+    return hash;
+}
+
+static uint64_t document_observation_hash(quantapdf_document *document)
+{
+    uint64_t hash = UINT64_C(1469598103934665603);
+    int page_count = 0;
+    int page_index;
+    CHECK(quantapdf_page_count(document, &page_count) == QUANTAPDF_OK);
+    hash = observation_hash_bytes(hash, &page_count, sizeof(page_count));
+    for (page_index = 0; page_index < page_count; ++page_index) {
+        quantapdf_page *page = NULL;
+        quantapdf_bitmap *bitmap = NULL;
+        quantapdf_rect bounds = {0};
+        const unsigned char *data = NULL;
+        size_t size = 0;
+        int dimensions[4] = {0};
+        CHECK(quantapdf_load_page(document, page_index, &page) == QUANTAPDF_OK);
+        CHECK(quantapdf_page_bounds(page, &bounds) == QUANTAPDF_OK);
+        CHECK(quantapdf_render_page(page, &bitmap) == QUANTAPDF_OK);
+        CHECK(quantapdf_bitmap_dimensions(
+            bitmap,
+            &dimensions[0],
+            &dimensions[1],
+            &dimensions[2],
+            &dimensions[3]) == QUANTAPDF_OK);
+        CHECK(quantapdf_bitmap_data(bitmap, &data, &size) == QUANTAPDF_OK);
+        hash = observation_hash_bytes(hash, &bounds, sizeof(bounds));
+        hash = observation_hash_bytes(hash, dimensions, sizeof(dimensions));
+        hash = observation_hash_bytes(hash, data, size);
+        quantapdf_drop_bitmap(bitmap);
+        quantapdf_drop_page(page);
+    }
+    return hash;
+}
+
 static void check_fault_atomicity(void)
 {
     static const struct {
@@ -157,14 +211,18 @@ static void check_fault_atomicity(void)
         90,
         QUANTAPDF_IMAGE_RECOMPRESSION_DEFAULT_MAX_DECODED_BYTES};
     quantapdf_document *document = NULL;
+    uint64_t baseline;
     size_t index;
 
     CHECK(quantapdf_open(POSITIVE_FIXTURE_PDF, NULL, &document) == QUANTAPDF_OK);
+    baseline = document_observation_hash(document);
     for (index = 0; index < sizeof(cases) / sizeof(cases[0]); ++index) {
         quantapdf_test_image_recompression_set_fault(
             document, cases[index].fault);
         expect_failure(document, &options, cases[index].expected);
+        CHECK(document_observation_hash(document) == baseline);
         expect_success(document, &options);
+        CHECK(document_observation_hash(document) == baseline);
     }
     quantapdf_close(document);
 }
@@ -282,9 +340,11 @@ int main(void)
     quantapdf_image_recompression_options minimum_options = {
         QUANTAPDF_IMAGE_RECOMPRESSION_OPTIONS_V1_MIN_SIZE,
         90,
-        0};
-    quantapdf_test_image_recompression_stats stats = {0, 0, 0, 0};
+        1};
+    quantapdf_test_image_recompression_stats stats = {0};
     int positive_page_count = 0;
+
+    CHECK(image_recompression_check_work_budget_arithmetic());
 
     CHECK(
         quantapdf_recompress_images(NULL, &options, NULL) ==
@@ -317,6 +377,9 @@ int main(void)
     CHECK(
         quantapdf_page_count(document, &positive_page_count) ==
         QUANTAPDF_OK);
+    expect_success(document, &minimum_options);
+    quantapdf_test_image_recompression_get_stats(document, &stats);
+    CHECK(stats.unique_images == 8);
     options.struct_size = sizeof(options);
     options.jpeg_quality = 90;
     options.max_decoded_bytes_per_image = 0;
@@ -343,6 +406,8 @@ int main(void)
         CHECK(data != NULL && size != 0);
         CHECK(image_recompression_matches_expected_base64(
             data, size, EXPECTED_Q90_BASE64));
+        CHECK(image_recompression_check_structural_preservation(
+            POSITIVE_FIXTURE_PDF, data, size));
 
         CHECK(
             quantapdf_recompress_images(document, &options, &repeated_output) ==
@@ -367,6 +432,8 @@ int main(void)
         CHECK(
             quality_size != size ||
             memcmp(data, quality_data, size) != 0);
+        CHECK(image_recompression_compare_quality_outputs(
+            quality_data, quality_size, data, size, 8));
         quantapdf_drop_output(quality_output);
         quality_output = NULL;
         quality_data = NULL;
@@ -413,5 +480,6 @@ int main(void)
     check_malformed_inputs();
     check_security_fail_closed();
     check_fault_atomicity();
+    image_recompression_check_public_semantics();
     return 0;
 }

@@ -11,10 +11,28 @@ int image_recompression_create_positive_fixture(
     const char *source_path,
     const char *output_path);
 
+int image_recompression_canonicalize_fixture(
+    const char *source_path,
+    const char *output_path);
+
 int image_recompression_check_positive_output(
     const unsigned char *data,
     size_t size,
     size_t expected_image_count);
+
+int image_recompression_check_structural_preservation(
+    const char *source_path,
+    const unsigned char *data,
+    size_t size);
+
+int image_recompression_compare_quality_outputs(
+    const unsigned char *lower_quality_data,
+    size_t lower_quality_size,
+    const unsigned char *higher_quality_data,
+    size_t higher_quality_size,
+    size_t expected_image_count);
+
+int image_recompression_check_work_budget_arithmetic(void);
 
 int image_recompression_matches_expected_base64(
     const unsigned char *data,
@@ -45,7 +63,12 @@ typedef enum image_recompression_malformed_fixture {
     IMAGE_RECOMPRESSION_MALFORMED_DECODE_ENTRY = 11,
     IMAGE_RECOMPRESSION_MALFORMED_DECODE_NONFINITE = 12,
     IMAGE_RECOMPRESSION_MALFORMED_DIMENSION_RANGE = 13,
-    IMAGE_RECOMPRESSION_MALFORMED_SAMPLE_COUNT = 14
+    IMAGE_RECOMPRESSION_MALFORMED_SAMPLE_COUNT = 14,
+    IMAGE_RECOMPRESSION_MALFORMED_ANNOTS = 15,
+    IMAGE_RECOMPRESSION_MALFORMED_AP = 16,
+    IMAGE_RECOMPRESSION_MALFORMED_NONSTREAM_FORM = 17,
+    IMAGE_RECOMPRESSION_MALFORMED_CORRUPT_FILTER = 18,
+    IMAGE_RECOMPRESSION_MALFORMED_DECODED_OVERSIZE = 19
 } image_recompression_malformed_fixture;
 
 int image_recompression_create_malformed_fixture(

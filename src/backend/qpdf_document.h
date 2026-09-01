@@ -14,10 +14,25 @@ typedef struct quantapdf_annotation_page quantapdf_annotation_page;
 typedef struct quantapdf_pdf_form_model quantapdf_pdf_form_model;
 typedef struct quantapdf_outline quantapdf_outline;
 
+static inline quantapdf_status quantapdf_qpdf_compute_work_budget_limit(
+    size_t source_size,
+    size_t *out_limit)
+{
+    if (out_limit == NULL)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    if (source_size > SIZE_MAX / 64u)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    *out_limit = source_size * 64u < 4096u
+        ? 4096u
+        : source_size * 64u;
+    return QUANTAPDF_OK;
+}
+
 typedef struct quantapdf_qpdf_image_recompression_test_stats {
     size_t unique_images;
     size_t provider_registrations;
     size_t provider_invocations;
+    size_t decoded_preflight_bytes;
     int every_provider_once;
 } quantapdf_qpdf_image_recompression_test_stats;
 

@@ -17,6 +17,8 @@ void quantapdf_test_image_recompression_get_stats(
             document->test_image_provider_registrations;
         out_stats->provider_invocations =
             document->test_image_provider_invocations;
+        out_stats->decoded_preflight_bytes =
+            document->test_image_decoded_preflight_bytes;
         out_stats->every_provider_once =
             document->test_image_every_provider_once;
     }

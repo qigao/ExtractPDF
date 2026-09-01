@@ -1,8 +1,12 @@
 #include "image_recompression_test_helpers.h"
 
+#include "backend/qpdf_document.h"
+
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFObjectHandle.hh>
 #include <qpdf/QPDFWriter.hh>
+
+#include <zlib.h>
 
 #include <map>
 #include <set>
@@ -11,6 +15,7 @@
 #include <cctype>
 #include <fstream>
 #include <iterator>
+#include <stdexcept>
 
 namespace {
 
@@ -189,7 +194,36 @@ std::string base64_encode(unsigned char const *data, size_t size)
     return result;
 }
 
+std::string flate_compress(std::string const& input)
+{
+    uLongf compressed_size = compressBound(
+        static_cast<uLong>(input.size()));
+    std::string compressed(compressed_size, '\0');
+    int const status = compress2(
+        reinterpret_cast<Bytef *>(compressed.data()),
+        &compressed_size,
+        reinterpret_cast<Bytef const *>(input.data()),
+        static_cast<uLong>(input.size()),
+        Z_BEST_COMPRESSION);
+    if (status != Z_OK)
+        throw std::runtime_error("zlib compression failed");
+    compressed.resize(static_cast<size_t>(compressed_size));
+    return compressed;
+}
+
 } // namespace
+
+extern "C" int image_recompression_check_work_budget_arithmetic(void)
+{
+    size_t limit = 0;
+    size_t const largest = SIZE_MAX / 64u;
+    if (quantapdf_qpdf_compute_work_budget_limit(largest, &limit) !=
+            QUANTAPDF_OK ||
+        limit != largest * 64u)
+        return 0;
+    return quantapdf_qpdf_compute_work_budget_limit(
+               largest + 1u, &limit) == QUANTAPDF_ERROR_UNSUPPORTED;
+}
 
 extern "C" int image_recompression_create_positive_fixture(
     const char *source_path,
@@ -279,6 +313,26 @@ extern "C" int image_recompression_create_positive_fixture(
     }
 }
 
+extern "C" int image_recompression_canonicalize_fixture(
+    const char *source_path,
+    const char *output_path)
+{
+    try {
+        auto pdf = QPDF::create();
+        pdf->setAttemptRecovery(false);
+        pdf->processFile(source_path);
+        for (QPDFObjectHandle page : pdf->getAllPages()) {
+            if (page.getKey("/Resources").isNull())
+                page.replaceKey(
+                    "/Resources", QPDFObjectHandle::newDictionary());
+        }
+        write_fixture(*pdf, output_path);
+        return 1;
+    } catch (...) {
+        return 0;
+    }
+}
+
 extern "C" int image_recompression_check_positive_output(
     const unsigned char *data,
     size_t size,
@@ -323,6 +377,159 @@ extern "C" int image_recompression_check_positive_output(
             seen.insert(object.getObjGen());
         }
         return seen.size() == expected_image_count;
+    } catch (...) {
+        return 0;
+    }
+}
+
+extern "C" int image_recompression_check_structural_preservation(
+    const char *source_path,
+    const unsigned char *data,
+    size_t size)
+{
+    try {
+        auto source = QPDF::create();
+        source->setAttemptRecovery(false);
+        source->processFile(source_path);
+        auto output = QPDF::create();
+        output->setAttemptRecovery(false);
+        output->processMemoryFile(
+            "image-recompression-structural-output",
+            reinterpret_cast<char const *>(data),
+            size);
+
+        auto stream_data_equal = [](QPDFObjectHandle left,
+                                    QPDFObjectHandle right) {
+            if (!left.isStream() || !right.isStream())
+                return false;
+            return left.getRawStreamData()->view() ==
+                right.getRawStreamData()->view();
+        };
+        auto content_equal = [&](auto const& self,
+                                 QPDFObjectHandle left,
+                                 QPDFObjectHandle right) -> bool {
+            if (left.isNull() || right.isNull())
+                return left.isNull() && right.isNull();
+            if (left.isStream() || right.isStream())
+                return stream_data_equal(left, right);
+            if (!left.isArray() || !right.isArray() ||
+                left.getArrayNItems() != right.getArrayNItems())
+                return false;
+            for (int index = 0; index < left.getArrayNItems(); ++index) {
+                if (!self(
+                        self,
+                        left.getArrayItem(index),
+                        right.getArrayItem(index)))
+                    return false;
+            }
+            return true;
+        };
+
+        auto const& source_pages = source->getAllPages();
+        auto const& output_pages = output->getAllPages();
+        if (source_pages.size() != output_pages.size())
+            return 0;
+        for (size_t index = 0; index < source_pages.size(); ++index) {
+            if (!content_equal(
+                    content_equal,
+                    source_pages[index].getKey("/Contents"),
+                    output_pages[index].getKey("/Contents")))
+                return 0;
+        }
+
+        for (QPDFObjectHandle object : source->getAllObjects()) {
+            if (!object.isStream() ||
+                !object.getDict().getKey("/Subtype").isNameAndEquals("/Form"))
+                continue;
+            QPDFObjectHandle counterpart =
+                output->getObjectByObjGen(object.getObjGen());
+            if (!counterpart.isStream() ||
+                !counterpart.getDict().getKey("/Subtype").isNameAndEquals(
+                    "/Form") ||
+                !stream_data_equal(object, counterpart))
+                return 0;
+        }
+
+        std::map<long long, QPDFObjectHandle> source_images;
+        std::map<long long, QPDFObjectHandle> output_images;
+        for (QPDFObjectHandle object : source->getAllObjects()) {
+            if (!object.isStream())
+                continue;
+            QPDFObjectHandle marker =
+                object.getDict().getKey("/QuantaPDFImageId");
+            if (marker.isInteger())
+                source_images.emplace(marker.getIntValue(), object);
+        }
+        for (QPDFObjectHandle object : output->getAllObjects()) {
+            if (!object.isStream())
+                continue;
+            QPDFObjectHandle marker =
+                object.getDict().getKey("/QuantaPDFImageId");
+            if (marker.isInteger())
+                output_images.emplace(marker.getIntValue(), object);
+        }
+        if (source_images.size() != output_images.size())
+            return 0;
+        for (auto const& entry : source_images) {
+            auto const counterpart = output_images.find(entry.first);
+            if (counterpart == output_images.end())
+                return 0;
+            QPDFObjectHandle left = entry.second.getDict();
+            QPDFObjectHandle right = counterpart->second.getDict();
+            for (char const *key : {
+                     "/Width", "/Height", "/ColorSpace",
+                     "/BitsPerComponent", "/ImageMask", "/Decode"}) {
+                if (left.getKey(key).unparseResolved() !=
+                    right.getKey(key).unparseResolved())
+                    return 0;
+            }
+        }
+        return 1;
+    } catch (std::exception const& error) {
+        std::fprintf(
+            stderr, "structural preservation exception: %s\n", error.what());
+        return 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
+extern "C" int image_recompression_compare_quality_outputs(
+    const unsigned char *lower_quality_data,
+    size_t lower_quality_size,
+    const unsigned char *higher_quality_data,
+    size_t higher_quality_size,
+    size_t expected_image_count)
+{
+    try {
+        auto lower = QPDF::create();
+        lower->setAttemptRecovery(false);
+        lower->processMemoryFile(
+            "image-recompression-lower-quality",
+            reinterpret_cast<char const *>(lower_quality_data),
+            lower_quality_size);
+        auto higher = QPDF::create();
+        higher->setAttemptRecovery(false);
+        higher->processMemoryFile(
+            "image-recompression-higher-quality",
+            reinterpret_cast<char const *>(higher_quality_data),
+            higher_quality_size);
+        auto const lower_streams = marked_raw_streams(*lower);
+        auto const higher_streams = marked_raw_streams(*higher);
+        if (lower_streams.size() != expected_image_count ||
+            higher_streams.size() != expected_image_count)
+            return 0;
+        size_t lower_total = 0;
+        size_t higher_total = 0;
+        for (auto const& entry : lower_streams) {
+            auto const counterpart = higher_streams.find(entry.first);
+            if (counterpart == higher_streams.end() ||
+                counterpart->second == entry.second)
+                return 0;
+            lower_total += entry.second.size();
+            higher_total += counterpart->second.size();
+        }
+        return lower_total <= higher_total;
     } catch (...) {
         return 0;
     }
@@ -596,6 +803,24 @@ extern "C" int image_recompression_create_malformed_fixture(
         if (pages.empty())
             return 0;
         QPDFObjectHandle page = pages[0];
+        if (fixture == IMAGE_RECOMPRESSION_MALFORMED_ANNOTS) {
+            page.replaceKey("/Annots", QPDFObjectHandle::newInteger(7));
+            write_fixture(*pdf, output_path);
+            return 1;
+        }
+        if (fixture == IMAGE_RECOMPRESSION_MALFORMED_AP) {
+            QPDFObjectHandle annotation = pdf->makeIndirectObject(
+                QPDFObjectHandle::newDictionary({
+                    {"/Type", QPDFObjectHandle::newName("/Annot")},
+                    {"/Subtype", QPDFObjectHandle::newName("/Widget")},
+                    {"/Rect", QPDFObjectHandle::parse("[0 0 10 10]")},
+                    {"/AP", QPDFObjectHandle::newInteger(7)}}));
+            QPDFObjectHandle annotations = QPDFObjectHandle::newArray();
+            annotations.appendItem(annotation);
+            page.replaceKey("/Annots", annotations);
+            write_fixture(*pdf, output_path);
+            return 1;
+        }
         if (fixture == IMAGE_RECOMPRESSION_MALFORMED_RESOURCES) {
             page.replaceKey("/Resources", QPDFObjectHandle::newInteger(7));
             write_fixture(*pdf, output_path);
@@ -629,19 +854,40 @@ extern "C" int image_recompression_create_malformed_fixture(
         }
 
         QPDFObjectHandle xobjects = QPDFObjectHandle::newDictionary();
-        if (fixture == IMAGE_RECOMPRESSION_MALFORMED_NONSTREAM_IMAGE) {
+        if (fixture == IMAGE_RECOMPRESSION_MALFORMED_NONSTREAM_IMAGE ||
+            fixture == IMAGE_RECOMPRESSION_MALFORMED_NONSTREAM_FORM) {
             QPDFObjectHandle fake = QPDFObjectHandle::newDictionary();
             fake.replaceKey(
-                "/Subtype", QPDFObjectHandle::newName("/Image"));
+                "/Subtype",
+                QPDFObjectHandle::newName(
+                    fixture == IMAGE_RECOMPRESSION_MALFORMED_NONSTREAM_IMAGE
+                        ? "/Image"
+                        : "/Form"));
             xobjects.replaceKey("/Bad", fake);
         } else {
+            bool const filtered =
+                fixture == IMAGE_RECOMPRESSION_MALFORMED_CORRUPT_FILTER ||
+                fixture == IMAGE_RECOMPRESSION_MALFORMED_DECODED_OVERSIZE;
             QPDFObjectHandle image = make_policy_image(
-                *pdf, 200, 2, 1,
-                QPDFObjectHandle::newName("/DeviceRGB"), 8,
+                *pdf, 200, filtered ? 1 : 2, 1,
+                QPDFObjectHandle::newName(
+                    filtered ? "/DeviceGray" : "/DeviceRGB"), 8,
                 fixture == IMAGE_RECOMPRESSION_MALFORMED_SAMPLE_COUNT
                     ? std::string("\x00\x20\x40\x80\xff", 5)
                     : std::string("\x00\x20\x40\x80\xa0\xff", 6));
             QPDFObjectHandle dict = image.getDict();
+            if (fixture == IMAGE_RECOMPRESSION_MALFORMED_CORRUPT_FILTER) {
+                image.replaceStreamData(
+                    std::string("not-valid-flate-data"),
+                    QPDFObjectHandle::newName("/FlateDecode"),
+                    QPDFObjectHandle::newNull());
+            } else if (
+                fixture == IMAGE_RECOMPRESSION_MALFORMED_DECODED_OVERSIZE) {
+                image.replaceStreamData(
+                    flate_compress(std::string(1024u * 1024u, '\x5a')),
+                    QPDFObjectHandle::newName("/FlateDecode"),
+                    QPDFObjectHandle::newNull());
+            }
             switch (fixture) {
             case IMAGE_RECOMPRESSION_MALFORMED_WIDTH:
                 dict.replaceKey("/Width", QPDFObjectHandle::newName("/Bad"));
@@ -684,6 +930,8 @@ extern "C" int image_recompression_create_malformed_fixture(
                     "/Width", QPDFObjectHandle::newInteger(65501));
                 break;
             case IMAGE_RECOMPRESSION_MALFORMED_SAMPLE_COUNT:
+            case IMAGE_RECOMPRESSION_MALFORMED_CORRUPT_FILTER:
+            case IMAGE_RECOMPRESSION_MALFORMED_DECODED_OVERSIZE:
                 break;
             default:
                 return 0;
