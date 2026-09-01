@@ -202,9 +202,12 @@ primitive, so qpdf's R6 keys, salts, and IVs do not depend on ambient qpdf
 provider state.
 
 qpdf 12.4 exposes its provider as process-global mutable state. A private mutex
-therefore serializes the short install/configure/write/restore scope. RAII
-restores the exact prior provider on every success or exception, and no other
-QuantaPDF path changes it. Supported shared-library builds additionally hide
+therefore serializes the complete install/configure/write/restore scope. The
+RAII provider guard stays active through `QPDFWriter::write()`, where stream
+IVs are requested, and restores the exact prior provider on every success or
+exception. Restoring the temporary `/Info` after writer configuration does not
+end the provider guard. No other QuantaPDF path changes it. Supported shared-
+library builds additionally hide
 all dependency symbols: Windows exports only `QUANTAPDF_API`; ELF uses an exact
 version script, archive exclusion, hidden default visibility, and local symbol
 binding; Mach-O uses an exact exported-symbol list and hidden dependency
@@ -214,9 +217,13 @@ provider installed before a QuantaPDF call is still overridden and restored;
 concurrent direct mutation of dependency-private qpdf globals by a static-link
 consumer is outside the public ABI contract.
 
-Tests install a sentinel provider before encryption, prove it cannot determine
-the output security material, and prove it is restored afterward. Shared-build
-symbol tests assert that the exact QuantaPDF C ABI is the only dynamic export.
+Under `QUANTAPDF_TESTING`, private non-exported counters and one-shot entropy
+faults observe provider entry, random requests during configuration and write,
+and restoration without exposing qpdf across a shared-library boundary. A
+separate static-link helper may install a sentinel provider and prove it is
+overridden and restored; that test is not used as evidence for shared-copy
+isolation. Shared-build symbol tests assert that the exact QuantaPDF C ABI is
+the only dynamic export.
 Test helpers may use qpdf's static-ID/static-IV facilities only in separate
 fixture processes and never while a public QuantaPDF operation is executing.
 
@@ -233,12 +240,15 @@ present only when the effective value is false.
 Before encryption, QuantaPDF validates an existing `/ID` as a two-string array
 with a nonempty first string. It preserves that permanent first identifier.
 When `/ID` is absent, it generates a fresh 16-byte first identifier with
-`secure_random`. A temporary, private 32-byte random Info value is installed
-only while `setR6EncryptionParameters()` eagerly calls qpdf's `generateID`;
-the original Info object is restored before serialization. This makes qpdf's
-new 16-byte second/update identifier depend on CSPRNG input without adding or
-altering document metadata. The qpdf writer has then cached both IDs and the
-R6 key derivation has consumed ID1. Malformed `/ID` is
+`secure_random`. A temporary `/Info` dictionary containing one 64-character
+printable ASCII hex encoding of 32 random bytes replaces the original trailer
+`/Info` only while `setR6EncryptionParameters()` eagerly calls qpdf's
+`generateID`; the exact original `/Info` handle is restored immediately after
+configuration and before serialization. Replacing rather than augmenting Info,
+and using NUL-free hex, prevents qpdf's C-string MD5 input from truncating
+before the random seed. This makes qpdf's new 16-byte second/update identifier
+depend on CSPRNG input without adding or altering output metadata. The qpdf
+writer has then cached both IDs. Malformed `/ID` is
 `QUANTAPDF_ERROR_FORMAT`. Tests cover absent, valid, malformed, and same-second
 repeated calls. Decryption preserves a valid permanent ID1, emits a
 content-derived deterministic ID2, and never leaves an `/Encrypt` dependency.

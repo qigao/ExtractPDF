@@ -239,10 +239,13 @@ unreferenced objects discarded. Decrypt sets preserve-encryption false and a
 deterministic ID. The signature preflight examines catalog permissions,
 inherited signature fields, `/Type /Sig`, `/Type /DocTimeStamp`, and every
 current-xref object, returning FORMAT for malformed signature structures and
-UNSUPPORTED for valid ones. Encrypt/reencrypt validate or create ID1, inject a
-temporary random Info seed while qpdf eagerly computes ID2, install the private
-provider under an RAII mutex guard, call `setR6EncryptionParameters`, restore
-Info/provider state, and never set deterministic/static IDs. Copy `Buffer` into
+UNSUPPORTED for valid ones. Encrypt/reencrypt validate or create ID1, replace
+`/Info` temporarily with a dictionary holding one NUL-free ASCII-hex CSPRNG
+seed while qpdf eagerly computes ID2, restore the exact original Info handle,
+and never set deterministic/static IDs. Install the private provider under an
+RAII mutex guard before configuration and retain the guard through
+`QPDFWriter::write()` so stream IV requests remain isolated; restore the prior
+provider only after writing or during exception unwinding. Copy `Buffer` into
 malloc storage only after a successful write. Catch `QPDFExc`,
 `std::bad_alloc`, `std::exception`, and unknown exceptions exactly like existing
 backend functions.
@@ -385,9 +388,11 @@ the correct user password, and accepts the owner password. Encrypt the same
 source/policy twice and assert nonzero, valid outputs with different bytes and
 different R6 security material. Reencrypt and assert old credentials fail,
 new user/owner credentials succeed, permissions change, and security material
-is fresh. Install a sentinel qpdf provider before the call, prove QuantaPDF's
-private provider overrides it and restores it afterward, and test explicit
-entropy failure. Cover absent, valid, malformed, and repeated same-second `/ID`
+is fresh. Under `QUANTAPDF_TESTING`, use private non-exported counters and
+one-shot faults to prove provider entry, random requests during both configure
+and write phases, restoration on every exit, and explicit entropy failure. A
+separate static-link helper may verify sentinel-provider override/restore, but
+is not shared-copy isolation evidence. Cover absent, valid, malformed, and repeated same-second `/ID`
 cases, including fresh ID2 and a CSPRNG-created ID1 when missing. Assert the
 encrypted header/catalog declares PDF 1.7 extension level 8.
 
