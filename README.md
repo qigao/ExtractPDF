@@ -67,6 +67,7 @@ The current supported surface includes:
 - catalog-reachable document security audit and immutable policy sanitization
 - immutable CropBox crop, MediaBox trim, poster-split, interactive-content
   flattening, lossless rewrite/GC, and selective image recompression transforms
+- deterministic PDF composition from formatted base-14 text and JPEG/PNG images
 - stable status strings and one allocator-matched `quantapdf_free()` entry point
 
 ## API contract
@@ -101,6 +102,9 @@ Snapshot/output ownership is explicit:
   released with `quantapdf_free()`;
 - `quantapdf_pdf_edit` owns a private PDF graph and never mutates its source
   `quantapdf_document`.
+- `quantapdf_composer` copies text and image inputs at each successful add/draw
+  call. Every successful `quantapdf_composer_finish()` returns an independent
+  `quantapdf_output`; finish does not consume or freeze the composer.
 
 ## ABI-sized structures
 
@@ -141,6 +145,63 @@ All public page rectangles use **displayed page space** rather than raw PDF obje
 This same page-space contract is intended for later text geometry, search quads, images, links, and annotations.
 
 Intrinsic format-specific rotation metadata is intentionally not part of the generic Page API. Page bounds already describe displayed geometry, including `/Rotate` and `/UserUnit`; raw rotation metadata, if needed by callers, belongs in a later PDF-specific metadata surface. Rendering rotation is explicit and per-call.
+
+## PDF composition
+
+The Composer facade creates new PDFs without exposing qpdf or PDFium types.
+Coordinates use the same top-left, y-down point space as the Page API:
+
+```c
+quantapdf_composer *composer = NULL;
+quantapdf_output *output = NULL;
+size_t page_index = 0;
+
+quantapdf_composer_page_options page = {
+    .struct_size = sizeof(quantapdf_composer_page_options),
+    .width_points = 595.0f,
+    .height_points = 842.0f,
+    .background_argb = 0xffffffffu
+};
+quantapdf_composer_text_options style = {
+    .struct_size = sizeof(quantapdf_composer_text_options),
+    .font = QUANTAPDF_COMPOSER_FONT_HELVETICA,
+    .font_size = 12.0f,
+    .argb = 0xff202020u,
+    .line_height_multiplier = 1.2f,
+    .alignment = QUANTAPDF_COMPOSER_TEXT_ALIGN_LEFT,
+    .wrap = 1
+};
+quantapdf_rect text_box = { 36.0f, 36.0f, 559.0f, 180.0f };
+
+if (quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK &&
+    quantapdf_composer_add_page(composer, &page, &page_index) ==
+        QUANTAPDF_OK &&
+    quantapdf_composer_draw_text(
+        composer, page_index, "Hello QuantaPDF", &text_box, &style) ==
+        QUANTAPDF_OK &&
+    quantapdf_composer_finish(composer, &output) == QUANTAPDF_OK) {
+    quantapdf_output_save_file(output, "created.pdf");
+}
+quantapdf_drop_output(output);
+quantapdf_drop_composer(composer);
+```
+
+Register JPEG or PNG bytes once with `quantapdf_composer_add_image()`, then
+place the returned nonzero image ID with `quantapdf_composer_draw_image()`.
+The fit policy can contain, cover (with clipping), or stretch the image.
+Opaque 8-bit RGB PNG and 8-bit RGBA PNG are supported; PNG alpha is preserved
+as a PDF soft mask. JPEG supports 8-bit gray and RGB images.
+
+V1 text accepts UTF-8 input that is representable by WinAnsi and the 12
+Helvetica/Times/Courier base-14 variants. Invalid UTF-8 or unrepresentable
+code points fail explicitly. Complex-script shaping and embedded TTF/OTF fonts
+are intentionally reserved for an additive future API; V1 never substitutes
+missing glyphs silently.
+
+The default capacity is 1,024 pages, 1,000,000 draw operations, and 256 MiB of
+owned text/image samples. Supply `quantapdf_composer_options` to lower or
+raise those limits. Crossing a configured limit returns
+`QUANTAPDF_ERROR_UNSUPPORTED` without partially publishing the operation.
 
 ## Rendering
 

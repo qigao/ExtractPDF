@@ -321,6 +321,83 @@ static int test_png_and_alpha(void)
     return 0;
 }
 
+static int test_limits_state_and_output_isolation(void)
+{
+    static const char truncated_utf8[] = {(char)0xe2, '\0'};
+    quantapdf_composer_options limits = {0};
+    quantapdf_composer_page_options page_options = {0};
+    quantapdf_composer_text_options text_options = {0};
+    quantapdf_composer *composer = NULL;
+    quantapdf_output *first = (quantapdf_output *)(uintptr_t)1;
+    quantapdf_output *second = NULL;
+    quantapdf_document *document = NULL;
+    quantapdf_rect text_bounds = {10.0f, 10.0f, 90.0f, 30.0f};
+    size_t page_index = SIZE_MAX;
+    int page_count = 0;
+
+    CHECK(quantapdf_composer_finish(NULL, &first) ==
+          QUANTAPDF_ERROR_ARGUMENT);
+    CHECK(first == NULL);
+    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    first = (quantapdf_output *)(uintptr_t)1;
+    CHECK(quantapdf_composer_finish(composer, &first) == QUANTAPDF_ERROR_STATE);
+    CHECK(first == NULL);
+    quantapdf_drop_composer(composer);
+
+    limits.struct_size = sizeof(limits);
+    limits.max_operations = 1u;
+    limits.max_resource_bytes = 5u;
+    CHECK(quantapdf_composer_create(&limits, &composer) == QUANTAPDF_OK);
+    page_options.struct_size = sizeof(page_options);
+    page_options.width_points = 100.0f;
+    page_options.height_points = 100.0f;
+    page_options.background_argb = UINT32_C(0xffffffff);
+    CHECK(quantapdf_composer_add_page(
+              composer, &page_options, &page_index) == QUANTAPDF_OK);
+    text_options.struct_size = sizeof(text_options);
+    text_options.font = QUANTAPDF_COMPOSER_FONT_HELVETICA;
+    text_options.font_size = 10.0f;
+    text_options.argb = UINT32_C(0xff000000);
+    text_options.line_height_multiplier = 1.0f;
+    text_options.alignment = QUANTAPDF_COMPOSER_TEXT_ALIGN_LEFT;
+    text_options.wrap = 0;
+    CHECK(quantapdf_composer_draw_text(
+              composer, page_index, truncated_utf8, &text_bounds,
+              &text_options) == QUANTAPDF_ERROR_FORMAT);
+    CHECK(quantapdf_composer_draw_text(
+              composer, page_index, "four", &text_bounds, &text_options) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_composer_draw_text(
+              composer, page_index, "", &text_bounds, &text_options) ==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+
+    CHECK(quantapdf_composer_finish(composer, &first) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_add_page(
+              composer, &page_options, &page_index) == QUANTAPDF_OK);
+    CHECK(page_index == 1u);
+    CHECK(quantapdf_composer_finish(composer, &second) == QUANTAPDF_OK);
+    CHECK(quantapdf_output_save_file(first, COMPOSER_OUTPUT_PDF) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_output_save_file(second, COMPOSER_OUTPUT_SECOND_PDF) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_open(COMPOSER_OUTPUT_PDF, NULL, &document) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_page_count(document, &page_count) == QUANTAPDF_OK);
+    CHECK(page_count == 1);
+    quantapdf_close(document);
+    document = NULL;
+    CHECK(quantapdf_open(COMPOSER_OUTPUT_SECOND_PDF, NULL, &document) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_page_count(document, &page_count) == QUANTAPDF_OK);
+    CHECK(page_count == 2);
+
+    quantapdf_close(document);
+    quantapdf_drop_output(second);
+    quantapdf_drop_output(first);
+    quantapdf_drop_composer(composer);
+    return 0;
+}
+
 int main(void)
 {
     CHECK(test_create_contract() == 0);
@@ -328,5 +405,6 @@ int main(void)
     CHECK(test_finish_text_document() == 0);
     CHECK(test_jpeg_resource_and_placement() == 0);
     CHECK(test_png_and_alpha() == 0);
+    CHECK(test_limits_state_and_output_isolation() == 0);
     return 0;
 }
