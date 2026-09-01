@@ -187,6 +187,11 @@ DeviceN, JPX, soft masks, explicit or color-key masks, stencil masks,
 non-8-bpc samples, non-identity Decode arrays, unsupported filter chains,
 inline images, and images above the per-image byte cap.
 
+A `/Decode` array of the correct length whose entries are finite numbers but
+which is not the identity array is valid and ineligible. A `/Decode` value
+with the wrong type or length, a nonnumeric entry, or a non-finite entry is a
+malformed consumed image dictionary and returns `QUANTAPDF_ERROR_FORMAT`.
+
 Filter support is classified without consuming decoded bytes by the qpdf
 filterability probe. A false probe result is an ineligible/preserve decision.
 After a true probe result, a failure while actually decoding that otherwise
@@ -250,18 +255,19 @@ codec and serialization boundaries are checked on every platform.
 | Data unit | One indirect Image stream plus checked width, height, component count, and normalized options. |
 | Fact source | Original stream bytes in a `copyStream()` handle; the private QPDF graph owns replacement providers. |
 | Public inputs | `document` and `options` are borrowed for the synchronous call and are never retained after return. |
-| Decoded samples | At most one image is decoded/encoded at a time; the encoder owns the raw sample buffer until its `finish()` returns. |
-| Encoded bytes | Written directly through the qpdf writer pipeline; providers do not retain a second PDF-wide encoded-image cache. |
+| Decoded samples | The copied source stream pipes decoded samples directly into `Pl_DCT`. `Pl_DCT` owns at most one complete raw image buffer, bounded by the normalized per-image cap, until `finish()` returns; QuantaPDF does not make a second raw-sample copy. |
+| Encoded bytes | `Pl_DCT` writes directly to the QPDF writer's supplied pipeline; providers do not retain a per-image encoded vector or a second PDF-wide encoded-image cache. |
 | Output | The C facade copies the completed writer buffer into the new owning `quantapdf_output`. |
 | Capacity | `width * height * components` uses checked multiplication and must be at most the normalized per-image cap. The resource traversal uses the source-derived work limit. |
 | Concurrency | One producer/consumer call stack, no queue and no worker threads. ABI v2 still requires caller-side serialization of all public calls. |
 | Failure | Any validation, decode, encode, allocation, provider, or writer failure destroys the private graph and shell; `*out_output` remains NULL. |
 | Shutdown | The synchronous writer finishes every provider before the private graph is destroyed. No borrowed sample pointer escapes the call. |
 
-The cap bounds raw samples for this feature; it is not a claim that total
-process memory equals the cap. QPDF parsing and the existing memory-output
-writer also retain their documented graph/output storage. Peak memory and
-runtime are measured in implementation benchmarks before release, and no
+The cap bounds the one complete raw-sample buffer owned internally by
+`Pl_DCT`; it is not a claim that total process memory equals the cap. QPDF may
+also retain compressed source data while decoding, and QPDF parsing plus the
+existing memory-output writer retain their graph/output storage. Peak memory
+and runtime are measured in implementation benchmarks before release, and no
 throughput or allocation reduction is promised by this design.
 
 ## Security and error semantics
@@ -273,10 +279,24 @@ existing document audit, and returns:
 - `QUANTAPDF_ERROR_UNSUPPORTED` for encrypted input, even with a valid open
   password;
 - `QUANTAPDF_ERROR_UNSUPPORTED` for any recognized signature structure;
+- `QUANTAPDF_ERROR_UNSUPPORTED` when the source-derived traversal work-budget
+  multiplication overflows or the budget is exhausted;
 - `QUANTAPDF_ERROR_FORMAT` for required parser recovery, consumed malformed
-  resource/image structures, or eligible-stream decode failure;
-- `QUANTAPDF_ERROR_NOMEM` for allocation failure;
-- `QUANTAPDF_ERROR_BACKEND` for an unexpected qpdf/libjpeg invariant failure.
+  resource/image structures (including image-dimension/product overflow), or
+  eligible-stream decode failure;
+- `QUANTAPDF_ERROR_NOMEM` only for observable C or C++ allocation failure;
+- `QUANTAPDF_ERROR_BACKEND` for a qpdf/libjpeg runtime failure or unexpected
+  backend invariant failure after structurally valid preflight.
+
+Each retry-capable replacement provider owns a latched `quantapdf_status`.
+Provider setup or execution records its first non-OK status before throwing to
+abort `QPDFWriter`: `std::bad_alloc` latches NOMEM, an explicit private status
+latches that status, and `pipeStreamData()` failure or any other codec/provider
+exception latches BACKEND. The outer writer boundary returns the latched
+status when present; otherwise it applies the normal QPDF exception mapping.
+This makes the provider's boolean protocol lossless at the public status
+boundary. Candidate decode failures are detected during preflight and remain
+FORMAT rather than reaching this provider path.
 
 There is no JavaScript or event execution and no page rasterization. The
 private graph is fully discovered and structurally preflighted before its
@@ -304,17 +324,21 @@ The implementation must prove all of the following:
    tolerance on controlled fixtures;
 5. a shared Image XObject used by multiple pages remains one indirect object
    and is encoded once;
-6. nested Form resources and annotation/Widget appearance Form resources are
-   traversed;
+6. nested Form resources and both annotation and Widget appearances are
+   traversed for `/N`, `/R`, and `/D`, covering direct appearance streams,
+   appearance-state subdictionaries, and nested Forms below every variant;
 7. resource/Form cycles terminate and preserve unique identity;
 8. valid CMYK, ICCBased, Indexed, mask, soft-mask, stencil, non-8-bpc,
    non-identity Decode, inline, unsupported-filter, and over-cap images remain
    unchanged;
 9. a cap of 5 bytes preserves a 2x1 RGB image while a cap of 6 bytes permits
    it, proving the boundary without large allocations;
-10. malformed consumed resources and eligible stream data return FORMAT;
-11. text, search, links, annotations, forms, outline, metadata, destinations,
-    page boxes, and content streams remain semantically unchanged;
+10. malformed consumed resources, malformed Decode arrays, image-dimension or
+    sample-product overflow, and eligible stream data return FORMAT, while
+    traversal-budget overflow/exhaustion returns UNSUPPORTED;
+11. before/after snapshots prove text, search results, links, annotations,
+    forms, outline, metadata, destinations, and page boxes unchanged, and raw
+    page/Form content stream bytes compare exactly;
 12. source observations are unchanged after success and failure;
 13. output survives source close and reopens through both backends;
 14. repeated same-quality output is byte-identical;
@@ -323,9 +347,12 @@ The implementation must prove all of the following:
     than generalized as a universal promise;
 16. quality 100 still rewrites the eligible stream;
 17. signed and encrypted inputs fail closed;
-18. injected allocation/provider faults publish no output;
-19. the installed C consumer compiles, links, and calls the new API;
-20. the ABI export checker reports exactly 88 public exports;
+18. injected allocation/provider faults publish no output and return the
+    precisely latched NOMEM or BACKEND status;
+19. a test-only counter keyed by `QPDFObjGen` proves each shared eligible image
+    has one provider registration and one provider invocation;
+20. the public C test compiles against the sole public header and the
+    ABI export checker reports exactly 88 public exports;
 21. a controlled quality-90 transform equals the complete checked-in golden
     output PDF on Linux, macOS, and Windows;
 22. Linux static, Linux ASan/UBSan, macOS, and Windows pass on one exact SHA.
@@ -340,6 +367,9 @@ encode PNG/Flate/JPX, convert colorspaces, flatten alpha, rasterize pages,
 rewrite inline images, deduplicate different image objects, target a whole-PDF
 size, preserve signatures, compose encryption, incrementally save, expose
 qpdf/PDFium/libjpeg types, or provide a generic `compress_pdf` API.
+Adding a relocatable CMake package configuration or a standalone static-install
+consumer harness is also separate packaging work; this feature does not claim
+that capability.
 
 The explicit future composition remains:
 

@@ -35,6 +35,7 @@
 - `src/backend/qpdf_document.h`: private recompression bridge declaration.
 - `src/backend/qpdf_document.cpp`: fresh-graph preflight, bounded resource traversal, eligibility, provider registration, and serialization.
 - `tests/test_pdf_image_recompression.c`: public C ABI, ownership, determinism, policy, and error tests.
+- `tests/image_recompression_test_helpers.h`: test-only C bridge declarations.
 - `tests/image_recompression_test_helpers.cpp`: qpdf fixture generation and structural inspection without exposing qpdf publicly.
 - `tests/fixtures/image-recompression-expected-q90.pdf`: checked complete output bytes for the controlled cross-platform quality-90 case.
 - `tests/CMakeLists.txt`: two CTest targets and fixture/output definitions.
@@ -69,21 +70,35 @@ struct jpeg_image_spec {
     int quality;
 };
 
-quantapdf_status encode_jpeg(
-    jpeg_image_spec const& spec,
-    unsigned char const* samples,
-    size_t sample_size,
-    std::vector<unsigned char>* output) noexcept;
+class jpeg_encoder {
+  public:
+    ~jpeg_encoder();
+    jpeg_encoder(jpeg_encoder const&) = delete;
+    jpeg_encoder& operator=(jpeg_encoder const&) = delete;
+    static quantapdf_status create(
+        jpeg_image_spec const& spec,
+        Pipeline* next,
+        std::unique_ptr<jpeg_encoder>* out) noexcept;
+    Pipeline* pipeline() noexcept;
+};
 }
 ```
 
+The wrapper owns both `Pl_DCT::CompressConfig` and `Pl_DCT`, so the callback
+configuration outlives the pipeline. It accepts decoded bytes incrementally
+and does not expose a raw-sample or encoded-byte vector API.
+
 - [ ] **Step 1: Add a compile-red characterization test**
 
-Create `tests/test_jpeg_encoder.cpp` with fixed 8x8 gray and 8x8 RGB arrays.
-Call `encode_jpeg()` at qualities 40, 90, and 100, call each case twice, and
-assert nonempty JPEG SOI/EOI markers plus repeat equality. Reference the
-golden arrays by exact symbol names so the first compile fails until the
-adapter and captured bytes exist:
+Create declaration scaffolding in `jpeg_encoder.h` and a `jpeg_encoder.cpp`
+factory stub that clears `*out` and returns `QUANTAPDF_ERROR_BACKEND`. Create
+`tests/test_jpeg_encoder.cpp` with fixed 8x8 gray and 8x8 RGB arrays. For each
+quality 40, 90, and 100, create a `Pl_Buffer` sink and encoder, write the fixed
+array to `encoder->pipeline()`, finish once, and collect sink bytes. Repeat
+each case and assert JPEG SOI/EOI markers plus equality. Golden arrays are
+added after the first successful local encoding in Step 4. This makes the
+initial RED a deliberate test failure, not a CMake configure failure caused
+by a nonexistent source file.
 
 ```cpp
 static void require_same(std::vector<unsigned char> const& a,
@@ -93,19 +108,29 @@ static void require_same(std::vector<unsigned char> const& a,
         std::abort();
 }
 
+static std::vector<unsigned char> encode_once(
+    quantapdf::detail::jpeg_image_spec const& spec,
+    unsigned char const* samples,
+    size_t size)
+{
+    Pl_Buffer sink("jpeg-golden", nullptr);
+    std::unique_ptr<quantapdf::detail::jpeg_encoder> encoder;
+    if (quantapdf::detail::jpeg_encoder::create(spec, &sink, &encoder) !=
+        QUANTAPDF_OK)
+        std::abort();
+    encoder->pipeline()->write(samples, size);
+    encoder->pipeline()->finish();
+    return copy_buffer(sink);
+}
+
 static void encode_twice(
     quantapdf::detail::jpeg_image_spec const& spec,
     unsigned char const* samples,
     size_t size,
     std::vector<unsigned char> const& golden)
 {
-    std::vector<unsigned char> first;
-    std::vector<unsigned char> second;
-    if (quantapdf::detail::encode_jpeg(spec, samples, size, &first) !=
-            QUANTAPDF_OK ||
-        quantapdf::detail::encode_jpeg(spec, samples, size, &second) !=
-            QUANTAPDF_OK)
-        std::abort();
+    auto first = encode_once(spec, samples, size);
+    auto second = encode_once(spec, samples, size);
     require_same(first, second);
     require_same(first, golden);
 }
@@ -133,16 +158,18 @@ Run:
 ```powershell
 cmake --fresh --preset win-release-user
 cmake --build --preset win-release-user --target quantapdf_test_jpeg_encoder
+ctest --test-dir build/Msvc-Release -R '^quantapdf\.jpeg_encoder$' --output-on-failure
 ```
 
-Expected: compilation fails because `jpeg_encoder.h`, `encode_jpeg`, or the
-golden arrays are not defined.
+Expected: configure and build succeed, then `quantapdf.jpeg_encoder` fails
+because the scaffolded `jpeg_encoder::create()` returns BACKEND.
 
 - [ ] **Step 3: Implement the minimal fixed encoder**
 
-In `jpeg_encoder.cpp`, validate output first, clear it, use checked
-`width * height * components`, require components 1 or 3 and quality 1..100,
-and map allocation to `QUANTAPDF_ERROR_NOMEM`. Configure `Pl_DCT` exactly:
+In `jpeg_encoder.cpp`, validate `next` and `out` first, clear `*out`, use
+checked `width * height * components`, require components 1 or 3 and quality
+1..100, and map observable allocation failure to `QUANTAPDF_ERROR_NOMEM`.
+Configure `Pl_DCT` exactly:
 
 ```cpp
 auto config = Pl_DCT::make_compress_config(
@@ -177,9 +204,12 @@ auto config = Pl_DCT::make_compress_config(
     });
 ```
 
-Write samples through `Pl_DCT` into `Pl_Buffer`, finish once, copy the produced
-buffer into `output`, and catch `std::bad_alloc`, `QPDFExc`, and other
-exceptions at this private boundary.
+Construct the owned configuration before the owned `Pl_DCT` and return its
+pipeline. The test writes fixed samples through it into `Pl_Buffer`; the
+production provider instead pipes decoded qpdf bytes directly into it. Catch
+`std::bad_alloc`, `QPDFExc`, and other exceptions at this private factory
+boundary, with only `std::bad_alloc` mapping to NOMEM and codec/runtime errors
+mapping to BACKEND.
 
 - [ ] **Step 4: Capture Windows bytes and make the local test GREEN**
 
@@ -196,12 +226,13 @@ byte array.
 
 - [ ] **Step 5: Verify adapter errors and byte relationships**
 
-Add cases for null output, null nonempty sample input, zero dimensions,
-overflowing dimensions, wrong sample size, components 2/4, and qualities
-0/101. Require `QUANTAPDF_ERROR_ARGUMENT` for caller-shape errors and
-`QUANTAPDF_ERROR_UNSUPPORTED` for checked size overflow. Record only the
-controlled-fixture facts that quality 40 and 90 bytes differ and quality 100
-still emits JPEG.
+Add factory cases for null downstream pipeline, null output holder, zero
+dimensions, overflowing dimensions, components 2/4, and qualities 0/101.
+Require `QUANTAPDF_ERROR_ARGUMENT` for invalid factory shape and
+`QUANTAPDF_ERROR_FORMAT` for checked image-size overflow. Exercise short and
+long sample writes and require a caught codec/runtime failure rather than
+memory over-read or partial publication. Record only the controlled-fixture
+facts that quality 40 and 90 bytes differ and quality 100 still emits JPEG.
 
 Run:
 
@@ -284,11 +315,9 @@ failure sets output to NULL.
 
 ```cmake
 add_executable(quantapdf_test_pdf_image_recompression
-  test_pdf_image_recompression.c
-  image_recompression_test_helpers.cpp)
+  test_pdf_image_recompression.c)
 target_link_libraries(quantapdf_test_pdf_image_recompression PRIVATE
-  QuantaPDF::QuantaPDF qpdf::libqpdf)
-target_compile_features(quantapdf_test_pdf_image_recompression PRIVATE cxx_std_20)
+  QuantaPDF::QuantaPDF)
 add_test(NAME quantapdf.pdf_image_recompression
   COMMAND quantapdf_test_pdf_image_recompression)
 set_tests_properties(quantapdf.pdf_image_recompression PROPERTIES TIMEOUT 60)
@@ -337,7 +366,7 @@ expects UNSUPPORTED only for valid calls until Task 3 replaces the stub.
 - [ ] **Step 5: Commit the ABI slice**
 
 ```powershell
-git add include/quantapdf/quantapdf.h src/pdf_image_recompression.c src/internal.h src/backend/qpdf_document.h src/backend/qpdf_document.cpp CMakeLists.txt abi/quantapdf-v2.exports tests/test_version.c tests/test_pdf_image_recompression.c tests/image_recompression_test_helpers.cpp tests/CMakeLists.txt
+git add include/quantapdf/quantapdf.h src/pdf_image_recompression.c src/internal.h src/backend/qpdf_document.h src/backend/qpdf_document.cpp CMakeLists.txt abi/quantapdf-v2.exports tests/test_version.c tests/test_pdf_image_recompression.c tests/CMakeLists.txt
 git commit -m "feat: add image recompression ABI"
 ```
 
@@ -345,11 +374,14 @@ git commit -m "feat: add image recompression ABI"
 
 **Files:**
 - Modify: `src/backend/qpdf_document.cpp`
-- Modify: `tests/image_recompression_test_helpers.cpp`
+- Create: `tests/image_recompression_test_helpers.h`
+- Create: `tests/image_recompression_test_helpers.cpp`
 - Modify: `tests/test_pdf_image_recompression.c`
+- Modify: `tests/CMakeLists.txt`
 
 **Interfaces:**
-- Consumes: normalized quality/cap bridge and `encode_jpeg()`.
+- Consumes: normalized quality/cap bridge and the private streaming
+  `jpeg_encoder`.
 - Produces: the complete successful implementation of
   `quantapdf_qpdf_recompress_images()` for eligible images.
 
@@ -360,14 +392,19 @@ In the C++ helper, generate one PDF containing:
 - an opaque 8-bit DeviceRGB image used on two pages;
 - an opaque 8-bit DeviceGray image;
 - the RGB image referenced through a nested Form;
-- another eligible image referenced from annotation `/AP /N` Form resources.
+- eligible images below both annotation and Widget appearances, covering
+  `/AP /N`, `/R`, and `/D` as direct streams and as appearance-state
+  subdictionaries, with a nested Form below every variant.
 
-Expose C helper functions that count unique image `QPDFObjGen` identities,
-return raw Filter/DecodeParms/Width/Height facts, and count resource
-occurrences. In the C test assert the valid transform returns OK, output
-reopens, all eligible unique identities use DCTDecode, the shared object is
-still unique, and source facts remain unchanged. Expected before implementation:
-the stub returns UNSUPPORTED.
+Create the helper header/source, then add them to the target with
+`target_sources`, link the test privately to `qpdf::libqpdf`, and enable
+C++20. Expose C helper functions that count unique image `QPDFObjGen`
+identities, return raw Filter/DecodeParms/Width/Height facts, and count
+resource occurrences. Add test-only counters keyed by `QPDFObjGen` for
+provider registration and invocation. In the C test assert the valid transform
+returns OK, output reopens, all eligible unique identities use DCTDecode, the
+shared object is still unique, and both of its counters equal one. Expected
+before implementation: the stub returns UNSUPPORTED.
 
 - [ ] **Step 2: Implement strict fresh-graph and security preflight**
 
@@ -389,17 +426,27 @@ types, and UNSUPPORTED when the budget is exhausted.
 
 For each unique image, validate keys in the spec's order, use checked
 multiplication for expected bytes, preserve valid ineligible classes, and run
-qpdf's null-pipeline filterability probe at `qpdf_dl_all`. A false probe is a
-preserve decision. For a true probe, use `pipeStreamData` into a counting
-pipeline; only plan the image when decode succeeds and the count equals the
-expected bytes. Candidate decode failure or a new qpdf warning is FORMAT.
+qpdf's null-pipeline filterability probe at `qpdf_dl_all`. Treat a correctly
+sized finite numeric non-identity `/Decode` array as valid/ineligible; treat
+wrong type/length, nonnumeric, or non-finite entries as FORMAT. A false filter
+probe is a preserve decision. For a true probe, use `pipeStreamData` into a
+counting pipeline; only plan the image when decode succeeds and the count
+equals the expected bytes. Candidate decode failure or a new qpdf warning is
+FORMAT.
 
 - [ ] **Step 5: Register providers and rewrite each identity once**
 
 Before replacement, store `image.copyStream()` keyed by `QPDFObjGen`. Register
-one retry-capable provider that decodes the copied stream, invokes the fixed
-encoder, and writes encoded bytes to the supplied writer pipeline. Install
-`/DCTDecode`; install `/ColorTransform 0` only for RGB; call
+one retry-capable provider that constructs the fixed encoder over the supplied
+writer pipeline and calls `copy.pipeStreamData(encoder->pipeline(), ..., qpdf_dl_all)`;
+do not call `getStreamData` or materialize a QuantaPDF raw/encoded vector.
+The source pipeline supplies exactly one downstream `finish()`, which finishes
+`Pl_DCT`; the provider must not finish the encoder a second time.
+Each provider has a first-error `quantapdf_status` latch: `std::bad_alloc`
+latches NOMEM, an explicit private status latches itself, and false
+`pipeStreamData` or any other provider/codec exception latches BACKEND before
+aborting the writer. The outer writer catch returns the latch when non-OK.
+Install `/DCTDecode`; install `/ColorTransform 0` only for RGB; call
 `setFilterOnWrite(false)`. Preserve all non-filter image dictionary keys.
 
 - [ ] **Step 6: Serialize and verify positive GREEN**
@@ -408,6 +455,10 @@ Use the existing deterministic memory writer. After write, reject new warnings
 and publish only the complete buffer. Extend tests to render controlled source
 and output pages with PDFium, require unchanged dimensions/quads/occurrence
 counts, and compare per-channel absolute error against fixture-specific bounds.
+Capture before/after snapshots of text, search results, links, annotations,
+forms, outline, metadata, destinations, and page boxes. Compare raw bytes for
+every page and Form content stream exactly; only eligible image stream bytes
+may change.
 
 Run:
 
@@ -431,7 +482,7 @@ the same serialization.
 - [ ] **Step 8: Commit the successful transform**
 
 ```powershell
-git add src/backend/qpdf_document.cpp tests/image_recompression_test_helpers.cpp tests/test_pdf_image_recompression.c
+git add src/backend/qpdf_document.cpp tests/image_recompression_test_helpers.h tests/image_recompression_test_helpers.cpp tests/test_pdf_image_recompression.c tests/CMakeLists.txt
 git commit -m "feat: recompress eligible PDF images"
 ```
 
@@ -466,24 +517,30 @@ cycles and that classification order handles ImageMask before ColorSpace/BPC.
 - [ ] **Step 3: Write RED malformed and security tests**
 
 Generate malformed resources, XObject containers, appearance state values,
-width/height/BPC/ImageMask/Decode scalars, overflowing dimensions, and corrupt
-eligible stream data. Reuse the repository's signed and encrypted fixtures.
-Require exact FORMAT or UNSUPPORTED outcomes and NULL output.
+width/height/BPC/ImageMask/Decode scalars, wrong-length/nonnumeric/non-finite
+Decode arrays, overflowing image dimensions/products, and corrupt eligible
+stream data. Separately force source-derived traversal-budget overflow and
+exhaustion. Reuse the repository's signed and encrypted fixtures. Require
+exact FORMAT or UNSUPPORTED outcomes and NULL output.
 
 - [ ] **Step 4: Make malformed/security behavior GREEN**
 
-Map consumed structural violations and candidate decode failure to FORMAT;
-map work/cap arithmetic limits that cannot be safely traversed to UNSUPPORTED;
-reuse audit signature/encryption findings. Check `pdf->anyWarnings()` after
-preflight and write.
+Map consumed structural violations, image dimension/product overflow, and
+candidate decode failure to FORMAT. Map only source-derived traversal-budget
+multiplication overflow/exhaustion to UNSUPPORTED; an ordinary image above the
+per-image cap remains valid/ineligible and is preserved. Reuse audit
+signature/encryption findings. Check `pdf->anyWarnings()` after preflight and
+write.
 
 - [ ] **Step 5: Add deterministic fault injection**
 
 Follow existing transform hooks: the test-only C hook exposes integer fault
 points immediately before provider registration, during provider encode, and
-before writer-buffer publication. Every injected failure must leave source
-observations unchanged and output NULL; allocation-style points return NOMEM
-and backend invariant points return BACKEND.
+before writer-buffer publication. Assert the provider's first-status latch is
+returned across the QPDFWriter exception boundary. Every injected failure must
+leave source observations unchanged and output NULL; only observable C/C++
+allocation failures return NOMEM, while simulated codec/provider runtime and
+backend invariant failures return BACKEND.
 
 - [ ] **Step 6: Run sanitizers and commit**
 
@@ -507,14 +564,13 @@ git add src/backend/qpdf_document.cpp tests/test_pdf_image_recompression.c tests
 git commit -m "test: harden image recompression policy"
 ```
 
-### Task 5: Documentation, install notice, ABI consumer, and release gate
+### Task 5: Documentation, install notice, ABI check, and release gate
 
 **Files:**
 - Modify: `README.md`
 - Modify: `THIRD_PARTY.md`
 - Modify: `CMakeLists.txt`
 - Modify: `tests/CMakeLists.txt`
-- Modify: `tests/test_installed_consumer.c`
 - Modify: `docs/superpowers/specs/2026-09-01-quantapdf-image-recompression-design.md`
 - Modify: `docs/superpowers/plans/2026-09-01-quantapdf-image-recompression.md`
 
@@ -537,11 +593,14 @@ Derive the package share root as the parent of `qpdf_DIR`, require
 `${CMAKE_INSTALL_DATADIR}/quantapdf/licenses/libjpeg-turbo`. Keep qpdf and
 PDFium notice installation unchanged.
 
-- [ ] **Step 3: Extend the installed C consumer**
+- [ ] **Step 3: Verify the public C and export surfaces**
 
-Compile a `quantapdf_image_recompression_options` initializer, verify the
-2.4.0/ABI 2 macros, and take the address of `quantapdf_recompress_images` so
-the install test proves header, import library, export, and calling convention.
+Keep the public transform test as C, compile its options initializer against
+the sole public header, verify the 2.4.0/ABI 2 macros, and extend the existing
+ABI checker to require exactly the new symbol. Do not claim a relocatable
+CMake package or standalone static installed-consumer test: the project does
+not yet ship package configuration for its private static dependencies, and
+that packaging work is separate from #57.
 
 - [ ] **Step 4: Run the complete local release gate**
 
@@ -553,7 +612,8 @@ cmake --install build/Msvc-Release --prefix build/install-image-recompression
 ```
 
 Expected: 33/33 CTests, version 2.4.0, ABI/SOVERSION 2, exactly 88 exports,
-installed consumer success, and all three dependency notice trees present.
+the public C target linked successfully, and all three dependency notice trees
+present.
 
 - [ ] **Step 5: Update completion evidence and commit**
 
@@ -562,7 +622,7 @@ outputs/commit SHAs. Do not claim PR, full CI, merge, or release before those
 events exist.
 
 ```powershell
-git add README.md THIRD_PARTY.md CMakeLists.txt tests/CMakeLists.txt tests/test_installed_consumer.c docs/superpowers/specs/2026-09-01-quantapdf-image-recompression-design.md docs/superpowers/plans/2026-09-01-quantapdf-image-recompression.md
+git add README.md THIRD_PARTY.md CMakeLists.txt tests/CMakeLists.txt docs/superpowers/specs/2026-09-01-quantapdf-image-recompression-design.md docs/superpowers/plans/2026-09-01-quantapdf-image-recompression.md
 git commit -m "docs: document image recompression contract"
 ```
 
