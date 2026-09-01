@@ -45,6 +45,7 @@ target_compile_definitions(quantapdf_test_pdf_image_recompression PRIVATE
   POSITIVE_SOURCE_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/poster-basic.pdf"
   POSITIVE_FIXTURE_PDF="${CMAKE_CURRENT_BINARY_DIR}/image-recompression-positive.pdf"
   POSITIVE_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/image-recompression-positive-output.pdf"
+  QUALITY40_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/image-recompression-quality40-output.pdf"
   EXPECTED_Q90_BASE64="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/image-recompression-expected-q90.pdf.base64"
   POLICY_FIXTURE_PDF="${CMAKE_CURRENT_BINARY_DIR}/image-recompression-policy.pdf"
   POLICY_OUTPUT_PDF="${CMAKE_CURRENT_BINARY_DIR}/image-recompression-policy-output.pdf"

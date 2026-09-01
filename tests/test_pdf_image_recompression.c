@@ -102,7 +102,7 @@ static void check_malformed_inputs(void)
     int fixture;
 
     for (fixture = IMAGE_RECOMPRESSION_MALFORMED_RESOURCES;
-         fixture <= IMAGE_RECOMPRESSION_MALFORMED_SAMPLE_COUNT;
+         fixture <= IMAGE_RECOMPRESSION_MALFORMED_DECODED_OVERSIZE;
          ++fixture) {
         quantapdf_document *document = NULL;
         CHECK(image_recompression_create_malformed_fixture(
@@ -227,9 +227,10 @@ static void check_fault_atomicity(void)
     quantapdf_close(document);
 }
 
-static void check_render_equivalence(
+static unsigned long long render_difference(
     const char *source_path,
-    const char *output_path)
+    const char *output_path,
+    int enforce_tolerance)
 {
     quantapdf_document *source = NULL;
     quantapdf_document *output = NULL;
@@ -316,11 +317,33 @@ static void check_render_equivalence(
         quantapdf_drop_page(source_page);
         quantapdf_drop_page(output_page);
     }
-    CHECK(maximum_delta <= 24);
     CHECK(total_samples != 0);
-    CHECK(total_delta <= (unsigned long long)total_samples * 2u);
+    if (enforce_tolerance) {
+        CHECK(maximum_delta <= 24);
+        CHECK(total_delta <= (unsigned long long)total_samples * 2u);
+    }
     quantapdf_close(source);
     quantapdf_close(output);
+    return total_delta;
+}
+
+static void check_render_equivalence(
+    const char *source_path,
+    const char *output_path)
+{
+    (void)render_difference(source_path, output_path, 1);
+}
+
+static void check_quality_render_order(
+    const char *source_path,
+    const char *lower_quality_path,
+    const char *higher_quality_path)
+{
+    unsigned long long const lower_error =
+        render_difference(source_path, lower_quality_path, 0);
+    unsigned long long const higher_error =
+        render_difference(source_path, higher_quality_path, 0);
+    CHECK(higher_error <= lower_error);
 }
 
 int main(void)
@@ -434,6 +457,8 @@ int main(void)
             memcmp(data, quality_data, size) != 0);
         CHECK(image_recompression_compare_quality_outputs(
             quality_data, quality_size, data, size, 8));
+        CHECK(quantapdf_output_save_file(
+            quality_output, QUALITY40_OUTPUT_PDF) == QUANTAPDF_OK);
         quantapdf_drop_output(quality_output);
         quality_output = NULL;
         quality_data = NULL;
@@ -465,6 +490,10 @@ int main(void)
         document = NULL;
         check_render_equivalence(
             POSITIVE_FIXTURE_PDF, POSITIVE_OUTPUT_PDF);
+        check_quality_render_order(
+            POSITIVE_FIXTURE_PDF,
+            QUALITY40_OUTPUT_PDF,
+            POSITIVE_OUTPUT_PDF);
     }
     quantapdf_drop_output(positive_output);
     quantapdf_drop_output(repeated_output);
