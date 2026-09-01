@@ -37,8 +37,9 @@ static void sibling_fixture_path(
     char *out_path,
     size_t capacity)
 {
-    const char *slash = strrchr(POSTER_BASIC_PDF, '/');
-    const char *backslash = strrchr(POSTER_BASIC_PDF, '\\');
+    const char *fixture = POSTER_BASIC_PDF;
+    const char *slash = strrchr(fixture, '/');
+    const char *backslash = strrchr(fixture, '\\');
     const char *separator = slash;
     size_t prefix;
     size_t name_size = strlen(name);
@@ -46,9 +47,9 @@ static void sibling_fixture_path(
     if (backslash != NULL && (separator == NULL || backslash > separator))
         separator = backslash;
     CHECK(separator != NULL);
-    prefix = (size_t)(separator - POSTER_BASIC_PDF) + 1;
+    prefix = (size_t)(separator - fixture) + 1;
     CHECK(prefix + name_size + 1 <= capacity);
-    memcpy(out_path, POSTER_BASIC_PDF, prefix);
+    memcpy(out_path, fixture, prefix);
     memcpy(out_path + prefix, name, name_size + 1);
 }
 
