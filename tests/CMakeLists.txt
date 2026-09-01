@@ -20,6 +20,21 @@ add_executable(quantapdf_test_version test_version.c)
 target_link_libraries(quantapdf_test_version PRIVATE QuantaPDF::QuantaPDF)
 add_test(NAME quantapdf.version COMMAND quantapdf_test_version)
 
+add_executable(quantapdf_test_pdf_security
+  test_pdf_security.c
+  pdf_security_test_helpers.cpp)
+target_link_libraries(quantapdf_test_pdf_security PRIVATE
+  QuantaPDF::QuantaPDF
+  qpdf::libqpdf)
+target_compile_features(quantapdf_test_pdf_security PRIVATE cxx_std_20)
+target_compile_definitions(quantapdf_test_pdf_security PRIVATE
+  SECURITY_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
+  SECURITY_SIGNED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotation-mutation-signed.pdf"
+  SECURITY_ENCRYPTED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/encrypted-one-page.pdf"
+  SECURITY_FIXTURE_DIR="${CMAKE_CURRENT_BINARY_DIR}")
+add_test(NAME quantapdf.pdf_security COMMAND quantapdf_test_pdf_security)
+set_tests_properties(quantapdf.pdf_security PROPERTIES TIMEOUT 30)
+
 add_executable(quantapdf_test_pdf_rewrite_lossless
   test_pdf_rewrite_lossless.c
   rewrite_test_helpers.cpp)

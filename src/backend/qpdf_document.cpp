@@ -766,6 +766,1332 @@ static quantapdf_status quantapdf_qpdf_lossless_preflight(QPDF& pdf)
     return QUANTAPDF_OK;
 }
 
+struct quantapdf_qpdf_work_budget {
+    size_t limit = 0;
+    size_t used = 0;
+
+    bool take() noexcept
+    {
+        if (used >= limit)
+            return false;
+        ++used;
+        return true;
+    }
+};
+
+struct quantapdf_qpdf_audit_field_item {
+    QPDFObjectHandle field = QPDFObjectHandle::newNull();
+    QPDFObjectHandle expected_parent = QPDFObjectHandle::newNull();
+    std::string inherited_type;
+    QPDFObjectHandle inherited_value = QPDFObjectHandle::newNull();
+};
+
+static quantapdf_status quantapdf_qpdf_init_work_budget(
+    size_t source_size,
+    quantapdf_qpdf_work_budget *budget)
+{
+    if (source_size > std::numeric_limits<size_t>::max() / 64u)
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    budget->limit = std::max<size_t>(4096u, source_size * 64u);
+    budget->used = 0;
+    return QUANTAPDF_OK;
+}
+
+static quantapdf_status quantapdf_qpdf_classify_action(
+    QPDFObjectHandle action,
+    uint32_t *finding)
+{
+    *finding = 0;
+    if (!action.isDictionary())
+        return QUANTAPDF_ERROR_FORMAT;
+    QPDFObjectHandle type = action.getKey("/S");
+    if (!type.isName())
+        return QUANTAPDF_ERROR_FORMAT;
+    std::string const name = type.getName();
+    if (name == "/JavaScript") {
+        *finding = QUANTAPDF_AUDIT_JAVASCRIPT_ACTION;
+    } else if (name == "/Launch") {
+        *finding = QUANTAPDF_AUDIT_LAUNCH_ACTION;
+    } else if (name == "/URI" || name == "/GoToR" ||
+               name == "/GoToE" || name == "/SubmitForm" ||
+               name == "/ImportData") {
+        *finding = QUANTAPDF_AUDIT_EXTERNAL_ACTION;
+    } else if (name != "/GoTo") {
+        *finding = QUANTAPDF_AUDIT_OTHER_ACTION;
+    }
+    return QUANTAPDF_OK;
+}
+
+static quantapdf_status quantapdf_qpdf_work_push(
+    QPDFObjectHandle object,
+    std::vector<QPDFObjectHandle> *work,
+    std::set<QPDFObjGen> *seen,
+    quantapdf_qpdf_work_budget *budget)
+{
+    if (!budget->take())
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    if (object.isIndirect() && !seen->insert(object.getObjGen()).second)
+        return QUANTAPDF_OK;
+    work->push_back(object);
+    return QUANTAPDF_OK;
+}
+
+static quantapdf_status quantapdf_qpdf_audit_push_action(
+    QPDFObjectHandle action,
+    std::vector<QPDFObjectHandle> *work,
+    std::set<QPDFObjGen> *seen,
+    quantapdf_qpdf_work_budget *budget)
+{
+    return quantapdf_qpdf_work_push(action, work, seen, budget);
+}
+
+static quantapdf_status quantapdf_qpdf_audit_actions(
+    std::vector<QPDFObjectHandle> *work,
+    std::set<QPDFObjGen> *seen,
+    quantapdf_qpdf_work_budget *budget,
+    uint32_t *findings)
+{
+    while (!work->empty()) {
+        QPDFObjectHandle action = work->back();
+        work->pop_back();
+        if (!action.isDictionary())
+            return QUANTAPDF_ERROR_FORMAT;
+        uint32_t finding = 0;
+        quantapdf_status const classification =
+            quantapdf_qpdf_classify_action(action, &finding);
+        if (classification != QUANTAPDF_OK)
+            return classification;
+        *findings |= finding;
+
+        if (!action.hasKey("/Next"))
+            continue;
+        QPDFObjectHandle next = action.getKey("/Next");
+        if (next.isDictionary()) {
+            quantapdf_status const status = quantapdf_qpdf_audit_push_action(
+                next, work, seen, budget);
+            if (status != QUANTAPDF_OK)
+                return status;
+        } else if (next.isArray()) {
+            int const count = next.getArrayNItems();
+            for (int index = 0; index < count; ++index) {
+                QPDFObjectHandle item = next.getArrayItem(index);
+                if (!item.isDictionary())
+                    return QUANTAPDF_ERROR_FORMAT;
+                quantapdf_status const status =
+                    quantapdf_qpdf_audit_push_action(
+                        item, work, seen, budget);
+                if (status != QUANTAPDF_OK)
+                    return status;
+            }
+        } else {
+            return QUANTAPDF_ERROR_FORMAT;
+        }
+    }
+    return QUANTAPDF_OK;
+}
+
+static bool quantapdf_qpdf_name_key_less(
+    std::string const& left,
+    std::string const& right)
+{
+    return std::lexicographical_compare(
+        left.begin(), left.end(), right.begin(), right.end(),
+        [](char a, char b) {
+            return static_cast<unsigned char>(a) <
+                static_cast<unsigned char>(b);
+        });
+}
+
+static quantapdf_status quantapdf_qpdf_audit_javascript_name_tree(
+    QPDFObjectHandle tree,
+    std::vector<QPDFObjectHandle> *action_work,
+    std::set<QPDFObjGen> *action_seen,
+    quantapdf_qpdf_work_budget *budget)
+{
+    struct frame {
+        QPDFObjectHandle node = QPDFObjectHandle::newNull();
+        bool initialized = false;
+        int next_child = 0;
+        int child_count = 0;
+        bool has_range = false;
+        std::string first;
+        std::string last;
+        bool has_limits = false;
+        std::string limit_first;
+        std::string limit_last;
+    };
+    std::vector<frame> node_work;
+    std::set<QPDFObjGen> node_seen;
+    if (!budget->take())
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    if (tree.isIndirect())
+        node_seen.insert(tree.getObjGen());
+    node_work.emplace_back();
+    node_work.back().node = tree;
+
+    while (!node_work.empty()) {
+        frame& current = node_work.back();
+        if (!current.initialized) {
+            QPDFObjectHandle node = current.node;
+            if (!node.isDictionary())
+                return QUANTAPDF_ERROR_FORMAT;
+            bool const has_kids = node.hasKey("/Kids");
+            bool const has_names = node.hasKey("/Names");
+            if (has_kids && has_names)
+                return QUANTAPDF_ERROR_FORMAT;
+            if (node.hasKey("/Limits")) {
+                QPDFObjectHandle limits = node.getKey("/Limits");
+                if (!limits.isArray() || limits.getArrayNItems() != 2)
+                    return QUANTAPDF_ERROR_FORMAT;
+                for (int index = 0; index < 2; ++index) {
+                    if (!budget->take())
+                        return QUANTAPDF_ERROR_UNSUPPORTED;
+                    if (!limits.getArrayItem(index).isString())
+                        return QUANTAPDF_ERROR_FORMAT;
+                }
+                current.has_limits = true;
+                current.limit_first =
+                    limits.getArrayItem(0).getStringValue();
+                current.limit_last =
+                    limits.getArrayItem(1).getStringValue();
+            }
+            if (has_kids) {
+                QPDFObjectHandle kids = node.getKey("/Kids");
+                if (!kids.isArray())
+                    return QUANTAPDF_ERROR_FORMAT;
+                current.child_count = kids.getArrayNItems();
+            } else if (has_names) {
+                QPDFObjectHandle names = node.getKey("/Names");
+                if (!names.isArray())
+                    return QUANTAPDF_ERROR_FORMAT;
+                int const count = names.getArrayNItems();
+                if ((count & 1) != 0)
+                    return QUANTAPDF_ERROR_FORMAT;
+                for (int index = 0; index < count; index += 2) {
+                    if (!budget->take())
+                        return QUANTAPDF_ERROR_UNSUPPORTED;
+                    QPDFObjectHandle key = names.getArrayItem(index);
+                    if (!key.isString())
+                        return QUANTAPDF_ERROR_FORMAT;
+                    std::string const value = key.getStringValue();
+                    if (current.has_range &&
+                        !quantapdf_qpdf_name_key_less(current.last, value))
+                        return QUANTAPDF_ERROR_FORMAT;
+                    if (!current.has_range) {
+                        current.first = value;
+                        current.has_range = true;
+                    }
+                    current.last = value;
+                    QPDFObjectHandle action = names.getArrayItem(index + 1);
+                    if (!action.isDictionary())
+                        return QUANTAPDF_ERROR_FORMAT;
+                    quantapdf_status const status =
+                        quantapdf_qpdf_audit_push_action(
+                            action, action_work, action_seen, budget);
+                    if (status != QUANTAPDF_OK)
+                        return status;
+                }
+            }
+            current.initialized = true;
+        }
+
+        if (current.next_child < current.child_count) {
+            QPDFObjectHandle kids = current.node.getKey("/Kids");
+            QPDFObjectHandle child =
+                kids.getArrayItem(current.next_child++);
+            if (!budget->take())
+                return QUANTAPDF_ERROR_UNSUPPORTED;
+            if (!child.isDictionary())
+                return QUANTAPDF_ERROR_FORMAT;
+            if (child.isIndirect() &&
+                !node_seen.insert(child.getObjGen()).second)
+                return QUANTAPDF_ERROR_FORMAT;
+            node_work.emplace_back();
+            node_work.back().node = child;
+            continue;
+        }
+
+        if (current.has_limits &&
+            (!current.has_range || current.limit_first != current.first ||
+             current.limit_last != current.last))
+            return QUANTAPDF_ERROR_FORMAT;
+
+        bool const has_range = current.has_range;
+        std::string const first = current.first;
+        std::string const last = current.last;
+        node_work.pop_back();
+        if (!node_work.empty() && has_range) {
+            frame& parent = node_work.back();
+            if (parent.has_range &&
+                !quantapdf_qpdf_name_key_less(parent.last, first))
+                return QUANTAPDF_ERROR_FORMAT;
+            if (!parent.has_range) {
+                parent.first = first;
+                parent.has_range = true;
+            }
+            parent.last = last;
+        }
+    }
+    return QUANTAPDF_OK;
+}
+
+static quantapdf_status quantapdf_qpdf_audit_signature_fields(
+    QPDFObjectHandle acroform,
+    quantapdf_qpdf_work_budget *budget,
+    uint32_t *findings)
+{
+    if (!acroform.hasKey("/Fields"))
+        return QUANTAPDF_OK;
+    QPDFObjectHandle fields = acroform.getKey("/Fields");
+    if (!fields.isArray())
+        return QUANTAPDF_ERROR_FORMAT;
+
+    std::vector<quantapdf_qpdf_audit_field_item> work;
+    std::set<QPDFObjGen> seen;
+    int const field_count = fields.getArrayNItems();
+    for (int index = 0; index < field_count; ++index) {
+        if (!budget->take())
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        quantapdf_qpdf_audit_field_item item;
+        item.field = fields.getArrayItem(index);
+        work.push_back(std::move(item));
+    }
+
+    while (!work.empty()) {
+        quantapdf_qpdf_audit_field_item item = std::move(work.back());
+        work.pop_back();
+        QPDFObjectHandle field = item.field;
+        if (!field.isDictionary())
+            return QUANTAPDF_ERROR_FORMAT;
+        if (field.isIndirect() && !seen.insert(field.getObjGen()).second)
+            return QUANTAPDF_ERROR_FORMAT;
+
+        QPDFObjectHandle actual_parent = field.getKey("/Parent");
+        if ((item.expected_parent.isNull() && !actual_parent.isNull()) ||
+            (!item.expected_parent.isNull() &&
+             !quantapdf_qpdf_same_object(
+                 item.expected_parent, actual_parent)))
+            return QUANTAPDF_ERROR_FORMAT;
+
+        std::string field_type = item.inherited_type;
+        QPDFObjectHandle type = field.getKey("/FT");
+        if (!type.isNull()) {
+            if (!type.isName())
+                return QUANTAPDF_ERROR_FORMAT;
+            field_type = type.getName();
+        }
+        QPDFObjectHandle value = field.getKey("/V");
+        if (value.isNull())
+            value = item.inherited_value;
+        if (field_type == "/Sig" && !value.isNull()) {
+            if (!value.isDictionary())
+                return QUANTAPDF_ERROR_FORMAT;
+            QPDFObjectHandle signature_type = value.getKey("/Type");
+            if (!signature_type.isNull() &&
+                (!signature_type.isName() ||
+                 signature_type.getName() != "/Sig"))
+                return QUANTAPDF_ERROR_FORMAT;
+            *findings |= QUANTAPDF_AUDIT_SIGNATURE;
+        }
+
+        QPDFObjectHandle kids = field.getKey("/Kids");
+        if (kids.isNull())
+            continue;
+        if (!kids.isArray())
+            return QUANTAPDF_ERROR_FORMAT;
+        int const kid_count = kids.getArrayNItems();
+        for (int index = 0; index < kid_count; ++index) {
+            if (!budget->take())
+                return QUANTAPDF_ERROR_UNSUPPORTED;
+            quantapdf_qpdf_audit_field_item child;
+            child.field = kids.getArrayItem(index);
+            child.expected_parent = field;
+            child.inherited_type = field_type;
+            child.inherited_value = value;
+            work.push_back(std::move(child));
+        }
+    }
+    return QUANTAPDF_OK;
+}
+
+static quantapdf_status quantapdf_qpdf_audit_catalog_signatures(
+    QPDFObjectHandle root,
+    quantapdf_qpdf_work_budget *budget,
+    uint32_t *findings)
+{
+    if (!root.hasKey("/Perms"))
+        return QUANTAPDF_OK;
+    QPDFObjectHandle permissions = root.getKey("/Perms");
+    if (!permissions.isDictionary())
+        return QUANTAPDF_ERROR_FORMAT;
+    for (char const *key : {"/DocMDP", "/UR", "/UR3"}) {
+        if (!permissions.hasKey(key))
+            continue;
+        if (!budget->take())
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        QPDFObjectHandle signature = permissions.getKey(key);
+        if (!signature.isDictionary())
+            return QUANTAPDF_ERROR_FORMAT;
+        QPDFObjectHandle type = signature.getKey("/Type");
+        if (!type.isNull() &&
+            (!type.isName() || type.getName() != "/Sig"))
+            return QUANTAPDF_ERROR_FORMAT;
+        *findings |= QUANTAPDF_AUDIT_SIGNATURE;
+    }
+    return QUANTAPDF_OK;
+}
+
+static bool quantapdf_qpdf_audit_rich_media(std::string const& subtype)
+{
+    return subtype == "/RichMedia" || subtype == "/3D" ||
+        subtype == "/Movie" || subtype == "/Sound" ||
+        subtype == "/Screen";
+}
+
+static quantapdf_status quantapdf_qpdf_audit_graph(
+    QPDFObjectHandle root,
+    quantapdf_qpdf_work_budget *budget,
+    uint32_t *findings)
+{
+    std::vector<QPDFObjectHandle> graph_work;
+    std::vector<QPDFObjectHandle> action_work;
+    std::set<QPDFObjGen> graph_seen;
+    std::set<QPDFObjGen> action_seen;
+    quantapdf_status status = quantapdf_qpdf_work_push(
+        root, &graph_work, &graph_seen, budget);
+    if (status != QUANTAPDF_OK)
+        return status;
+
+    if (root.hasKey("/OpenAction")) {
+        QPDFObjectHandle open_action = root.getKey("/OpenAction");
+        if (!open_action.isArray() && !open_action.isName() &&
+            !open_action.isString()) {
+            status = quantapdf_qpdf_audit_push_action(
+                open_action, &action_work, &action_seen, budget);
+            if (status != QUANTAPDF_OK)
+                return status;
+        }
+    }
+
+    if (root.hasKey("/Names")) {
+        QPDFObjectHandle names = root.getKey("/Names");
+        if (names.hasKey("/JavaScript")) {
+            status = quantapdf_qpdf_audit_javascript_name_tree(
+                names.getKey("/JavaScript"), &action_work,
+                &action_seen, budget);
+            if (status != QUANTAPDF_OK)
+                return status;
+        }
+    }
+
+    while (!graph_work.empty()) {
+        QPDFObjectHandle object = graph_work.back();
+        graph_work.pop_back();
+        if (object.isStream()) {
+            QPDFObjectHandle dictionary = object.getDict();
+            QPDFObjectHandle type = dictionary.getKey("/Type");
+            if (type.isName() && type.getName() == "/EmbeddedFile")
+                *findings |= QUANTAPDF_AUDIT_EMBEDDED_FILE;
+            object = dictionary;
+        }
+        if (object.isArray()) {
+            int const count = object.getArrayNItems();
+            for (int index = 0; index < count; ++index) {
+                status = quantapdf_qpdf_work_push(
+                    object.getArrayItem(index), &graph_work,
+                    &graph_seen, budget);
+                if (status != QUANTAPDF_OK)
+                    return status;
+            }
+            continue;
+        }
+        if (!object.isDictionary())
+            continue;
+
+        if (object.hasKey("/AF") || object.hasKey("/EF"))
+            *findings |= QUANTAPDF_AUDIT_EMBEDDED_FILE;
+        if (object.hasKey("/A")) {
+            status = quantapdf_qpdf_audit_push_action(
+                object.getKey("/A"), &action_work, &action_seen, budget);
+            if (status != QUANTAPDF_OK)
+                return status;
+        }
+        if (object.hasKey("/AA")) {
+            QPDFObjectHandle additional = object.getKey("/AA");
+            if (!additional.isDictionary())
+                return QUANTAPDF_ERROR_FORMAT;
+            for (std::string const& key : additional.getKeys()) {
+                status = quantapdf_qpdf_audit_push_action(
+                    additional.getKey(key), &action_work,
+                    &action_seen, budget);
+                if (status != QUANTAPDF_OK)
+                    return status;
+            }
+        }
+        if (object.hasKey("/Annots")) {
+            QPDFObjectHandle annots = object.getKey("/Annots");
+            if (!annots.isArray())
+                return QUANTAPDF_ERROR_FORMAT;
+            int const count = annots.getArrayNItems();
+            for (int index = 0; index < count; ++index) {
+                if (!budget->take())
+                    return QUANTAPDF_ERROR_UNSUPPORTED;
+                QPDFObjectHandle annotation = annots.getArrayItem(index);
+                if (!annotation.isDictionary())
+                    return QUANTAPDF_ERROR_FORMAT;
+                QPDFObjectHandle subtype = annotation.getKey("/Subtype");
+                if (!subtype.isName())
+                    continue;
+                std::string const name = subtype.getName();
+                if (name == "/FileAttachment")
+                    *findings |= QUANTAPDF_AUDIT_EMBEDDED_FILE;
+                if (quantapdf_qpdf_audit_rich_media(name))
+                    *findings |= QUANTAPDF_AUDIT_RICH_MEDIA;
+            }
+        }
+        for (std::string const& key : object.getKeys()) {
+            status = quantapdf_qpdf_work_push(
+                object.getKey(key), &graph_work, &graph_seen, budget);
+            if (status != QUANTAPDF_OK)
+                return status;
+        }
+    }
+    return quantapdf_qpdf_audit_actions(
+        &action_work, &action_seen, budget, findings);
+}
+
+static quantapdf_status quantapdf_qpdf_audit_document(
+    QPDF& pdf,
+    size_t source_size,
+    uint32_t *findings)
+{
+    quantapdf_qpdf_work_budget budget;
+    quantapdf_status status =
+        quantapdf_qpdf_init_work_budget(source_size, &budget);
+    if (status != QUANTAPDF_OK)
+        return status;
+
+    QPDFObjectHandle root = pdf.getRoot();
+    if (!root.isDictionary())
+        return QUANTAPDF_ERROR_FORMAT;
+    if (pdf.isEncrypted())
+        *findings |= QUANTAPDF_AUDIT_ENCRYPTION;
+
+    status = quantapdf_qpdf_audit_catalog_signatures(
+        root, &budget, findings);
+    if (status != QUANTAPDF_OK)
+        return status;
+
+    if (root.hasKey("/Names")) {
+        QPDFObjectHandle names = root.getKey("/Names");
+        if (!names.isDictionary())
+            return QUANTAPDF_ERROR_FORMAT;
+        if (names.hasKey("/JavaScript"))
+            *findings |= QUANTAPDF_AUDIT_JAVASCRIPT_ACTION;
+        if (names.hasKey("/EmbeddedFiles"))
+            *findings |= QUANTAPDF_AUDIT_EMBEDDED_FILE;
+    }
+
+    if (root.hasKey("/AcroForm")) {
+        QPDFObjectHandle acroform = root.getKey("/AcroForm");
+        if (!acroform.isDictionary())
+            return QUANTAPDF_ERROR_FORMAT;
+        if (acroform.hasKey("/XFA"))
+            *findings |= QUANTAPDF_AUDIT_XFA;
+        status = quantapdf_qpdf_audit_signature_fields(
+            acroform, &budget, findings);
+        if (status != QUANTAPDF_OK)
+            return status;
+    }
+    return quantapdf_qpdf_audit_graph(root, &budget, findings);
+}
+
+static quantapdf_status quantapdf_qpdf_sanitize_queue_action(
+    QPDFObjectHandle action,
+    uint32_t flags,
+    std::vector<QPDFObjectHandle> *work,
+    std::set<QPDFObjGen> *seen,
+    quantapdf_qpdf_work_budget *budget,
+    bool *selected)
+{
+    if (!budget->take())
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    uint32_t finding = 0;
+    quantapdf_status const status =
+        quantapdf_qpdf_classify_action(action, &finding);
+    if (status != QUANTAPDF_OK)
+        return status;
+    *selected = (finding & flags) != 0;
+    if (*selected)
+        return QUANTAPDF_OK;
+    if (action.isIndirect() && !seen->insert(action.getObjGen()).second)
+        return QUANTAPDF_OK;
+    work->push_back(action);
+    return QUANTAPDF_OK;
+}
+
+static quantapdf_status quantapdf_qpdf_sanitize_actions(
+    uint32_t flags,
+    std::vector<QPDFObjectHandle> *work,
+    std::set<QPDFObjGen> *seen,
+    std::set<QPDFObjGen> *emptied_by_selected_removal,
+    quantapdf_qpdf_work_budget *budget)
+{
+    while (!work->empty()) {
+        QPDFObjectHandle action = work->back();
+        work->pop_back();
+        if (!action.hasKey("/Next"))
+            continue;
+
+        QPDFObjectHandle next = action.getKey("/Next");
+        if (next.isDictionary()) {
+            bool selected = false;
+            quantapdf_status const status =
+                quantapdf_qpdf_sanitize_queue_action(
+                    next, flags, work, seen, budget, &selected);
+            if (status != QUANTAPDF_OK)
+                return status;
+            if (selected)
+                action.removeKey("/Next");
+            continue;
+        }
+        if (!next.isArray())
+            return QUANTAPDF_ERROR_FORMAT;
+
+        std::vector<int> selected_indices;
+        int const count = next.getArrayNItems();
+        selected_indices.reserve(static_cast<size_t>(count));
+        for (int index = 0; index < count; ++index) {
+            bool selected = false;
+            quantapdf_status const status =
+                quantapdf_qpdf_sanitize_queue_action(
+                    next.getArrayItem(index), flags, work, seen,
+                    budget, &selected);
+            if (status != QUANTAPDF_OK)
+                return status;
+            if (selected)
+                selected_indices.push_back(index);
+        }
+        for (auto index = selected_indices.rbegin();
+             index != selected_indices.rend(); ++index) {
+            next.eraseItem(*index);
+        }
+        bool const emptied =
+            !selected_indices.empty() && next.getArrayNItems() == 0;
+        if (emptied && next.isIndirect())
+            emptied_by_selected_removal->insert(next.getObjGen());
+        bool const shared_emptied =
+            next.isIndirect() && next.getArrayNItems() == 0 &&
+            emptied_by_selected_removal->find(next.getObjGen()) !=
+                emptied_by_selected_removal->end();
+        if (emptied || shared_emptied)
+            action.removeKey("/Next");
+    }
+    return QUANTAPDF_OK;
+}
+
+static quantapdf_status quantapdf_qpdf_sanitize_javascript_name_tree(
+    QPDFObjectHandle tree,
+    uint32_t flags,
+    std::vector<QPDFObjectHandle> *action_work,
+    std::set<QPDFObjGen> *action_seen,
+    quantapdf_qpdf_work_budget *budget)
+{
+    struct frame {
+        QPDFObjectHandle node = QPDFObjectHandle::newNull();
+        bool initialized = false;
+        int next_child = 0;
+        int child_count = 0;
+        bool has_range = false;
+        std::string first;
+        std::string last;
+        bool changed = false;
+    };
+    std::vector<frame> node_work;
+    std::set<QPDFObjGen> node_seen;
+    if (!budget->take())
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    if (tree.isIndirect())
+        node_seen.insert(tree.getObjGen());
+    node_work.emplace_back();
+    node_work.back().node = tree;
+
+    while (!node_work.empty()) {
+        frame& current = node_work.back();
+        if (!current.initialized) {
+            if (current.node.hasKey("/Limits")) {
+                for (int index = 0; index < 2; ++index) {
+                    if (!budget->take())
+                        return QUANTAPDF_ERROR_UNSUPPORTED;
+                }
+            }
+            if (current.node.hasKey("/Kids")) {
+                current.child_count =
+                    current.node.getKey("/Kids").getArrayNItems();
+            } else if (current.node.hasKey("/Names")) {
+                QPDFObjectHandle names = current.node.getKey("/Names");
+                std::vector<int> selected_pairs;
+                int const count = names.getArrayNItems();
+                selected_pairs.reserve(static_cast<size_t>(count / 2));
+                for (int index = 0; index < count; index += 2) {
+                    if (!budget->take())
+                        return QUANTAPDF_ERROR_UNSUPPORTED;
+                    bool selected = false;
+                    quantapdf_status const status =
+                        quantapdf_qpdf_sanitize_queue_action(
+                            names.getArrayItem(index + 1), flags,
+                            action_work, action_seen, budget, &selected);
+                    if (status != QUANTAPDF_OK)
+                        return status;
+                    if (selected)
+                        selected_pairs.push_back(index);
+                }
+                for (auto index = selected_pairs.rbegin();
+                     index != selected_pairs.rend(); ++index) {
+                    names.eraseItem(*index + 1);
+                    names.eraseItem(*index);
+                }
+                current.changed = !selected_pairs.empty();
+                int const retained_count = names.getArrayNItems();
+                if (retained_count != 0) {
+                    current.has_range = true;
+                    current.first =
+                        names.getArrayItem(0).getStringValue();
+                    current.last = names.getArrayItem(
+                        retained_count - 2).getStringValue();
+                }
+            }
+            current.initialized = true;
+        }
+
+        if (current.next_child < current.child_count) {
+            QPDFObjectHandle child = current.node.getKey("/Kids").getArrayItem(
+                current.next_child++);
+            if (!budget->take())
+                return QUANTAPDF_ERROR_UNSUPPORTED;
+            if (child.isIndirect() &&
+                !node_seen.insert(child.getObjGen()).second)
+                continue;
+            node_work.emplace_back();
+            node_work.back().node = child;
+            continue;
+        }
+
+        if (current.changed && current.node.hasKey("/Limits")) {
+            if (!current.has_range) {
+                current.node.removeKey("/Limits");
+            } else {
+                QPDFObjectHandle limits = current.node.getKey("/Limits");
+                if (limits.getArrayItem(0).getStringValue() != current.first ||
+                    limits.getArrayItem(1).getStringValue() != current.last) {
+                    QPDFObjectHandle replacement = QPDFObjectHandle::newArray();
+                    replacement.appendItem(
+                        QPDFObjectHandle::newString(current.first));
+                    replacement.appendItem(
+                        QPDFObjectHandle::newString(current.last));
+                    current.node.replaceKey("/Limits", replacement);
+                }
+            }
+        }
+
+        bool const has_range = current.has_range;
+        std::string const first = current.first;
+        std::string const last = current.last;
+        bool const changed = current.changed;
+        node_work.pop_back();
+        if (!node_work.empty()) {
+            frame& parent = node_work.back();
+            parent.changed = parent.changed || changed;
+            if (has_range) {
+                if (!parent.has_range) {
+                    parent.first = first;
+                    parent.has_range = true;
+                }
+                parent.last = last;
+            }
+        }
+    }
+    return QUANTAPDF_OK;
+}
+
+enum class quantapdf_qpdf_alias_role : unsigned {
+    root,
+    custom,
+    catalog_names,
+    acroform,
+    additional_actions,
+    action,
+    javascript_action,
+    next_array,
+    annots_array,
+    annotation,
+    associated_files,
+    associated_file,
+    embedded_files,
+    javascript_node,
+    javascript_kids,
+    javascript_names,
+    page_tree,
+    page_kids,
+    page
+};
+
+struct quantapdf_qpdf_alias_item {
+    QPDFObjectHandle object = QPDFObjectHandle::newNull();
+    quantapdf_qpdf_alias_role role = quantapdf_qpdf_alias_role::custom;
+    QPDFObjectHandle anchor = QPDFObjectHandle::newNull();
+};
+
+static quantapdf_status quantapdf_qpdf_alias_push(
+    QPDFObjectHandle object,
+    quantapdf_qpdf_alias_role role,
+    QPDFObjectHandle anchor,
+    std::vector<quantapdf_qpdf_alias_item> *work,
+    std::set<std::pair<QPDFObjGen, unsigned>> *seen,
+    std::map<QPDFObjGen, uint32_t> *roles,
+    quantapdf_qpdf_work_budget *budget)
+{
+    if (!budget->take())
+        return QUANTAPDF_ERROR_UNSUPPORTED;
+    if (object.isIndirect()) {
+        QPDFObjGen const id = object.getObjGen();
+        anchor = object;
+        (*roles)[id] |= UINT32_C(1) << static_cast<unsigned>(role);
+        if (!seen->insert({id, static_cast<unsigned>(role)}).second)
+            return QUANTAPDF_OK;
+    }
+    work->push_back({object, role, anchor});
+    return QUANTAPDF_OK;
+}
+
+static void quantapdf_qpdf_alias_mark_target(
+    QPDFObjectHandle object,
+    QPDFObjectHandle anchor,
+    std::set<QPDFObjGen> *targets)
+{
+    if (object.isIndirect())
+        targets->insert(object.getObjGen());
+    else if (anchor.isIndirect())
+        targets->insert(anchor.getObjGen());
+}
+
+static quantapdf_status quantapdf_qpdf_alias_action_selected(
+    QPDFObjectHandle action,
+    uint32_t flags,
+    bool *selected)
+{
+    uint32_t finding = 0;
+    quantapdf_status const status =
+        quantapdf_qpdf_classify_action(action, &finding);
+    if (status != QUANTAPDF_OK)
+        return status;
+    *selected = (finding & flags) != 0;
+    return QUANTAPDF_OK;
+}
+
+static bool quantapdf_qpdf_alias_rich_annotation_selected(
+    QPDFObjectHandle annotation,
+    uint32_t flags)
+{
+    QPDFObjectHandle subtype = annotation.getKey("/Subtype");
+    if (!subtype.isName())
+        return false;
+    std::string const name = subtype.getName();
+    return ((flags & QUANTAPDF_SANITIZE_EMBEDDED_FILES) != 0 &&
+            name == "/FileAttachment") ||
+        ((flags & QUANTAPDF_SANITIZE_RICH_MEDIA) != 0 &&
+         quantapdf_qpdf_audit_rich_media(name));
+}
+
+static quantapdf_status quantapdf_qpdf_preflight_aliases(
+    QPDF& pdf,
+    size_t source_size,
+    uint32_t flags)
+{
+    quantapdf_qpdf_work_budget budget;
+    quantapdf_status status =
+        quantapdf_qpdf_init_work_budget(source_size, &budget);
+    if (status != QUANTAPDF_OK)
+        return status;
+
+    std::vector<quantapdf_qpdf_alias_item> work;
+    std::set<std::pair<QPDFObjGen, unsigned>> seen;
+    std::map<QPDFObjGen, uint32_t> roles;
+    std::set<QPDFObjGen> targets;
+    QPDFObjectHandle root = pdf.getRoot();
+    status = quantapdf_qpdf_alias_push(
+        root, quantapdf_qpdf_alias_role::root,
+        QPDFObjectHandle::newNull(), &work, &seen,
+        &roles, &budget);
+    if (status != QUANTAPDF_OK)
+        return status;
+
+    while (!work.empty()) {
+        quantapdf_qpdf_alias_item item = std::move(work.back());
+        work.pop_back();
+        QPDFObjectHandle identity = item.object;
+        QPDFObjectHandle object = item.object;
+        if (object.isStream())
+            object = object.getDict();
+
+        if (object.isArray()) {
+            int const count = object.getArrayNItems();
+            for (int index = 0; index < count; ++index) {
+                QPDFObjectHandle child = object.getArrayItem(index);
+                quantapdf_qpdf_alias_role child_role =
+                    quantapdf_qpdf_alias_role::custom;
+                switch (item.role) {
+                case quantapdf_qpdf_alias_role::next_array:
+                    child_role = quantapdf_qpdf_alias_role::action;
+                    break;
+                case quantapdf_qpdf_alias_role::annots_array:
+                    child_role = quantapdf_qpdf_alias_role::annotation;
+                    break;
+                case quantapdf_qpdf_alias_role::associated_files:
+                    child_role = quantapdf_qpdf_alias_role::associated_file;
+                    break;
+                case quantapdf_qpdf_alias_role::javascript_kids:
+                    child_role = quantapdf_qpdf_alias_role::javascript_node;
+                    break;
+                case quantapdf_qpdf_alias_role::javascript_names:
+                    child_role = (index & 1) == 0
+                        ? quantapdf_qpdf_alias_role::custom
+                        : quantapdf_qpdf_alias_role::javascript_action;
+                    break;
+                case quantapdf_qpdf_alias_role::page_kids: {
+                    QPDFObjectHandle type = child.getKey("/Type");
+                    child_role = type.isName() && type.getName() == "/Pages"
+                        ? quantapdf_qpdf_alias_role::page_tree
+                        : quantapdf_qpdf_alias_role::page;
+                    break;
+                }
+                default:
+                    break;
+                }
+                status = quantapdf_qpdf_alias_push(
+                    child, child_role, item.anchor, &work,
+                    &seen, &roles, &budget);
+                if (status != QUANTAPDF_OK)
+                    return status;
+            }
+            if (item.role == quantapdf_qpdf_alias_role::next_array) {
+                for (int index = 0; index < count; ++index) {
+                    bool selected = false;
+                    status = quantapdf_qpdf_alias_action_selected(
+                        object.getArrayItem(index), flags, &selected);
+                    if (status != QUANTAPDF_OK)
+                        return status;
+                    if (selected) {
+                        quantapdf_qpdf_alias_mark_target(
+                            identity, item.anchor, &targets);
+                        break;
+                    }
+                }
+            } else if (item.role ==
+                       quantapdf_qpdf_alias_role::annots_array) {
+                for (int index = 0; index < count; ++index) {
+                    if (quantapdf_qpdf_alias_rich_annotation_selected(
+                            object.getArrayItem(index), flags)) {
+                        quantapdf_qpdf_alias_mark_target(
+                            identity, item.anchor, &targets);
+                        break;
+                    }
+                }
+            } else if (item.role ==
+                           quantapdf_qpdf_alias_role::javascript_names &&
+                       (flags & QUANTAPDF_SANITIZE_JAVASCRIPT_ACTIONS) == 0) {
+                for (int index = 1; index < count; index += 2) {
+                    bool selected = false;
+                    status = quantapdf_qpdf_alias_action_selected(
+                        object.getArrayItem(index), flags, &selected);
+                    if (status != QUANTAPDF_OK)
+                        return status;
+                    if (selected) {
+                        quantapdf_qpdf_alias_mark_target(
+                            identity, item.anchor, &targets);
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+        if (!object.isDictionary())
+            continue;
+
+        bool const removed_javascript_subtree =
+            (flags & QUANTAPDF_SANITIZE_JAVASCRIPT_ACTIONS) != 0 &&
+            (item.role == quantapdf_qpdf_alias_role::javascript_node ||
+             item.role == quantapdf_qpdf_alias_role::javascript_action);
+        if (!removed_javascript_subtree &&
+            (flags & QUANTAPDF_SANITIZE_EMBEDDED_FILES) != 0 &&
+            (object.hasKey("/AF") || object.hasKey("/EF"))) {
+            quantapdf_qpdf_alias_mark_target(
+                identity, item.anchor, &targets);
+        }
+
+        if (item.role == quantapdf_qpdf_alias_role::root) {
+            if (object.hasKey("/Names")) {
+                QPDFObjectHandle names = object.getKey("/Names");
+                if (((flags & QUANTAPDF_SANITIZE_JAVASCRIPT_ACTIONS) != 0 &&
+                     names.hasKey("/JavaScript")) ||
+                    ((flags & QUANTAPDF_SANITIZE_EMBEDDED_FILES) != 0 &&
+                     names.hasKey("/EmbeddedFiles"))) {
+                    quantapdf_qpdf_alias_mark_target(
+                        names, item.anchor, &targets);
+                }
+            }
+            if (object.hasKey("/AcroForm") &&
+                (flags & QUANTAPDF_SANITIZE_XFA) != 0) {
+                QPDFObjectHandle acroform = object.getKey("/AcroForm");
+                if (acroform.hasKey("/XFA"))
+                    quantapdf_qpdf_alias_mark_target(
+                        acroform, item.anchor, &targets);
+            }
+            if (object.hasKey("/OpenAction")) {
+                QPDFObjectHandle action = object.getKey("/OpenAction");
+                if (!action.isArray() && !action.isName() &&
+                    !action.isString()) {
+                    bool selected = false;
+                    status = quantapdf_qpdf_alias_action_selected(
+                        action, flags, &selected);
+                    if (status != QUANTAPDF_OK)
+                        return status;
+                    if (selected)
+                        quantapdf_qpdf_alias_mark_target(
+                            identity, item.anchor, &targets);
+                }
+            }
+        }
+
+        if (!removed_javascript_subtree && object.hasKey("/A")) {
+            bool selected = false;
+            status = quantapdf_qpdf_alias_action_selected(
+                object.getKey("/A"), flags, &selected);
+            if (status != QUANTAPDF_OK)
+                return status;
+            if (selected)
+                quantapdf_qpdf_alias_mark_target(
+                    identity, item.anchor, &targets);
+        }
+        if (!removed_javascript_subtree && object.hasKey("/AA")) {
+            QPDFObjectHandle additional = object.getKey("/AA");
+            size_t selected_count = 0;
+            std::set<std::string> const keys = additional.getKeys();
+            for (std::string const& key : keys) {
+                bool selected = false;
+                status = quantapdf_qpdf_alias_action_selected(
+                    additional.getKey(key), flags, &selected);
+                if (status != QUANTAPDF_OK)
+                    return status;
+                if (selected)
+                    ++selected_count;
+            }
+            if (selected_count != 0)
+                quantapdf_qpdf_alias_mark_target(
+                    additional, item.anchor, &targets);
+            if (selected_count != 0 && selected_count == keys.size())
+                quantapdf_qpdf_alias_mark_target(
+                    identity, item.anchor, &targets);
+        }
+
+        bool const action_context =
+            item.role == quantapdf_qpdf_alias_role::action ||
+            item.role == quantapdf_qpdf_alias_role::javascript_action;
+        if (action_context && !removed_javascript_subtree &&
+            object.hasKey("/Next")) {
+            QPDFObjectHandle next = object.getKey("/Next");
+            if (next.isDictionary()) {
+                bool selected = false;
+                status = quantapdf_qpdf_alias_action_selected(
+                    next, flags, &selected);
+                if (status != QUANTAPDF_OK)
+                    return status;
+                if (selected)
+                    quantapdf_qpdf_alias_mark_target(
+                        identity, item.anchor, &targets);
+            } else {
+                int const count = next.getArrayNItems();
+                int selected_count = 0;
+                for (int index = 0; index < count; ++index) {
+                    bool selected = false;
+                    status = quantapdf_qpdf_alias_action_selected(
+                        next.getArrayItem(index), flags, &selected);
+                    if (status != QUANTAPDF_OK)
+                        return status;
+                    if (selected)
+                        ++selected_count;
+                }
+                if (selected_count == count && count != 0)
+                    quantapdf_qpdf_alias_mark_target(
+                        identity, item.anchor, &targets);
+            }
+        }
+
+        for (std::string const& key : object.getKeys()) {
+            QPDFObjectHandle child = object.getKey(key);
+            quantapdf_qpdf_alias_role child_role =
+                quantapdf_qpdf_alias_role::custom;
+            if (item.role == quantapdf_qpdf_alias_role::root &&
+                key == "/Names") {
+                child_role = quantapdf_qpdf_alias_role::catalog_names;
+            } else if (item.role == quantapdf_qpdf_alias_role::root &&
+                       key == "/Pages") {
+                child_role = quantapdf_qpdf_alias_role::page_tree;
+            } else if (item.role == quantapdf_qpdf_alias_role::root &&
+                       key == "/AcroForm") {
+                child_role = quantapdf_qpdf_alias_role::acroform;
+            } else if (item.role == quantapdf_qpdf_alias_role::root &&
+                       key == "/OpenAction" && !child.isArray() &&
+                       !child.isName() && !child.isString()) {
+                child_role = quantapdf_qpdf_alias_role::action;
+            } else if (item.role == quantapdf_qpdf_alias_role::catalog_names &&
+                       key == "/JavaScript") {
+                child_role = quantapdf_qpdf_alias_role::javascript_node;
+            } else if (item.role == quantapdf_qpdf_alias_role::javascript_node &&
+                       key == "/Kids") {
+                child_role = quantapdf_qpdf_alias_role::javascript_kids;
+            } else if (item.role == quantapdf_qpdf_alias_role::javascript_node &&
+                       key == "/Names") {
+                child_role = quantapdf_qpdf_alias_role::javascript_names;
+            } else if (item.role == quantapdf_qpdf_alias_role::page_tree &&
+                       key == "/Kids") {
+                child_role = quantapdf_qpdf_alias_role::page_kids;
+            } else if ((item.role == quantapdf_qpdf_alias_role::page ||
+                        item.role == quantapdf_qpdf_alias_role::page_tree) &&
+                       key == "/Parent") {
+                child_role = quantapdf_qpdf_alias_role::page_tree;
+            } else if (item.role == quantapdf_qpdf_alias_role::annotation &&
+                       key == "/P" && child.isDictionary() &&
+                       child.getKey("/Type").isName() &&
+                       child.getKey("/Type").getName() == "/Page") {
+                child_role = quantapdf_qpdf_alias_role::page;
+            } else if (item.role == quantapdf_qpdf_alias_role::annotation &&
+                       key == "/IRT" && child.isDictionary() &&
+                       child.getKey("/Subtype").isName()) {
+                child_role = quantapdf_qpdf_alias_role::annotation;
+            } else if (item.role == quantapdf_qpdf_alias_role::annotation &&
+                       key == "/Popup" && child.isDictionary() &&
+                       child.getKey("/Subtype").isName() &&
+                       child.getKey("/Subtype").getName() == "/Popup") {
+                child_role = quantapdf_qpdf_alias_role::annotation;
+            } else if (item.role == quantapdf_qpdf_alias_role::annotation &&
+                       key == "/Parent" && object.getKey("/Subtype").isName() &&
+                       object.getKey("/Subtype").getName() == "/Popup" &&
+                       child.isDictionary() &&
+                       child.getKey("/Subtype").isName()) {
+                child_role = quantapdf_qpdf_alias_role::annotation;
+            } else if (item.role ==
+                           quantapdf_qpdf_alias_role::additional_actions) {
+                child_role = quantapdf_qpdf_alias_role::action;
+            } else if (action_context && key == "/Next") {
+                if (child.isArray()) {
+                    child_role = quantapdf_qpdf_alias_role::next_array;
+                } else {
+                    child_role = item.role ==
+                            quantapdf_qpdf_alias_role::javascript_action
+                        ? quantapdf_qpdf_alias_role::javascript_action
+                        : quantapdf_qpdf_alias_role::action;
+                }
+            } else if (key == "/A") {
+                child_role = quantapdf_qpdf_alias_role::action;
+            } else if (key == "/AA") {
+                child_role = quantapdf_qpdf_alias_role::additional_actions;
+            } else if (key == "/Annots") {
+                child_role = quantapdf_qpdf_alias_role::annots_array;
+            } else if (key == "/AF") {
+                child_role = quantapdf_qpdf_alias_role::associated_files;
+            } else if (key == "/EF") {
+                child_role = quantapdf_qpdf_alias_role::embedded_files;
+            }
+            status = quantapdf_qpdf_alias_push(
+                child, child_role, item.anchor, &work, &seen,
+                &roles, &budget);
+            if (status != QUANTAPDF_OK)
+                return status;
+        }
+    }
+
+    for (QPDFObjGen const& target : targets) {
+        uint32_t const role_mask = roles[target];
+        if ((role_mask & (role_mask - 1u)) != 0)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+    }
+    return QUANTAPDF_OK;
+}
+
+static quantapdf_status quantapdf_qpdf_sanitize_graph(
+    QPDF& pdf,
+    size_t source_size,
+    uint32_t flags)
+{
+    quantapdf_qpdf_work_budget budget;
+    quantapdf_status status =
+        quantapdf_qpdf_init_work_budget(source_size, &budget);
+    if (status != QUANTAPDF_OK)
+        return status;
+
+    QPDFObjectHandle root = pdf.getRoot();
+    std::vector<QPDFObjectHandle> graph_work;
+    std::vector<QPDFObjectHandle> action_work;
+    std::set<QPDFObjGen> graph_seen;
+    std::set<QPDFObjGen> action_seen;
+    std::set<QPDFObjGen> emptied_by_selected_removal;
+
+    if (root.hasKey("/Names")) {
+        if (!budget.take())
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        QPDFObjectHandle names = root.getKey("/Names");
+        bool selected_removed = false;
+        if ((flags & QUANTAPDF_SANITIZE_JAVASCRIPT_ACTIONS) != 0 &&
+            names.hasKey("/JavaScript")) {
+            names.removeKey("/JavaScript");
+            selected_removed = true;
+        }
+        if ((flags & QUANTAPDF_SANITIZE_EMBEDDED_FILES) != 0 &&
+            names.hasKey("/EmbeddedFiles")) {
+            names.removeKey("/EmbeddedFiles");
+            selected_removed = true;
+        }
+        if (selected_removed && names.getKeys().empty())
+            root.removeKey("/Names");
+        else if ((flags & QUANTAPDF_SANITIZE_JAVASCRIPT_ACTIONS) == 0 &&
+                 names.hasKey("/JavaScript")) {
+            status = quantapdf_qpdf_sanitize_javascript_name_tree(
+                names.getKey("/JavaScript"), flags, &action_work,
+                &action_seen, &budget);
+            if (status != QUANTAPDF_OK)
+                return status;
+        }
+    }
+
+    if (root.hasKey("/AcroForm") &&
+        (flags & QUANTAPDF_SANITIZE_XFA) != 0) {
+        if (!budget.take())
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+        root.getKey("/AcroForm").removeKey("/XFA");
+    }
+
+    if (root.hasKey("/OpenAction")) {
+        QPDFObjectHandle open_action = root.getKey("/OpenAction");
+        if (!open_action.isArray() && !open_action.isName() &&
+            !open_action.isString()) {
+            bool selected = false;
+            status = quantapdf_qpdf_sanitize_queue_action(
+                open_action, flags, &action_work, &action_seen,
+                &budget, &selected);
+            if (status != QUANTAPDF_OK)
+                return status;
+            if (selected)
+                root.removeKey("/OpenAction");
+        }
+    }
+
+    status = quantapdf_qpdf_work_push(
+        root, &graph_work, &graph_seen, &budget);
+    if (status != QUANTAPDF_OK)
+        return status;
+    while (!graph_work.empty()) {
+        QPDFObjectHandle object = graph_work.back();
+        graph_work.pop_back();
+        if (object.isStream())
+            object = object.getDict();
+        if (object.isArray()) {
+            int const count = object.getArrayNItems();
+            for (int index = 0; index < count; ++index) {
+                status = quantapdf_qpdf_work_push(
+                    object.getArrayItem(index), &graph_work,
+                    &graph_seen, &budget);
+                if (status != QUANTAPDF_OK)
+                    return status;
+            }
+            continue;
+        }
+        if (!object.isDictionary())
+            continue;
+
+        if ((flags & QUANTAPDF_SANITIZE_EMBEDDED_FILES) != 0) {
+            object.removeKey("/AF");
+            object.removeKey("/EF");
+        }
+
+        if (object.hasKey("/A")) {
+            bool selected = false;
+            status = quantapdf_qpdf_sanitize_queue_action(
+                object.getKey("/A"), flags, &action_work,
+                &action_seen, &budget, &selected);
+            if (status != QUANTAPDF_OK)
+                return status;
+            if (selected)
+                object.removeKey("/A");
+        }
+
+        if (object.hasKey("/AA")) {
+            QPDFObjectHandle additional = object.getKey("/AA");
+            std::vector<std::string> selected_keys;
+            for (std::string const& key : additional.getKeys()) {
+                bool selected = false;
+                status = quantapdf_qpdf_sanitize_queue_action(
+                    additional.getKey(key), flags, &action_work,
+                    &action_seen, &budget, &selected);
+                if (status != QUANTAPDF_OK)
+                    return status;
+                if (selected)
+                    selected_keys.push_back(key);
+            }
+            for (std::string const& key : selected_keys)
+                additional.removeKey(key);
+            bool const emptied =
+                !selected_keys.empty() && additional.getKeys().empty();
+            if (emptied && additional.isIndirect()) {
+                emptied_by_selected_removal.insert(additional.getObjGen());
+            }
+            bool const shared_emptied =
+                additional.isIndirect() && additional.getKeys().empty() &&
+                emptied_by_selected_removal.find(additional.getObjGen()) !=
+                    emptied_by_selected_removal.end();
+            if (emptied || shared_emptied)
+                object.removeKey("/AA");
+        }
+
+        if (object.hasKey("/Annots")) {
+            QPDFObjectHandle annots = object.getKey("/Annots");
+            std::vector<int> selected_indices;
+            int const count = annots.getArrayNItems();
+            selected_indices.reserve(static_cast<size_t>(count));
+            for (int index = 0; index < count; ++index) {
+                if (!budget.take())
+                    return QUANTAPDF_ERROR_UNSUPPORTED;
+                QPDFObjectHandle annotation = annots.getArrayItem(index);
+                QPDFObjectHandle subtype = annotation.getKey("/Subtype");
+                if (!subtype.isName())
+                    continue;
+                std::string const name = subtype.getName();
+                if (((flags & QUANTAPDF_SANITIZE_EMBEDDED_FILES) != 0 &&
+                     name == "/FileAttachment") ||
+                    ((flags & QUANTAPDF_SANITIZE_RICH_MEDIA) != 0 &&
+                     quantapdf_qpdf_audit_rich_media(name))) {
+                    selected_indices.push_back(index);
+                }
+            }
+            for (auto index = selected_indices.rbegin();
+                 index != selected_indices.rend(); ++index) {
+                annots.eraseItem(*index);
+            }
+        }
+
+        for (std::string const& key : object.getKeys()) {
+            status = quantapdf_qpdf_work_push(
+                object.getKey(key), &graph_work, &graph_seen, &budget);
+            if (status != QUANTAPDF_OK)
+                return status;
+        }
+    }
+
+    return quantapdf_qpdf_sanitize_actions(
+        flags, &action_work, &action_seen,
+        &emptied_by_selected_removal, &budget);
+}
+
 static quantapdf_status quantapdf_qpdf_public_crop_to_pdf(
     quantapdf_qpdf_page_geometry const& geometry,
     quantapdf_rect const& requested,
@@ -2925,6 +4251,129 @@ extern "C" quantapdf_status quantapdf_qpdf_rewrite_lossless(
 
         quantapdf_status const status = quantapdf_qpdf_write_memory(
             *pdf, out_data, out_size);
+        if (status != QUANTAPDF_OK)
+            return status;
+        if (pdf->anyWarnings()) {
+            std::free(*out_data);
+            *out_data = nullptr;
+            *out_size = 0;
+            return QUANTAPDF_ERROR_FORMAT;
+        }
+        return QUANTAPDF_OK;
+    } catch (QPDFExc const& error) {
+        return quantapdf_status_from_qpdf(error);
+    } catch (std::bad_alloc const&) {
+        return QUANTAPDF_ERROR_NOMEM;
+    } catch (std::exception const&) {
+        return QUANTAPDF_ERROR_BACKEND;
+    } catch (...) {
+        return QUANTAPDF_ERROR_BACKEND;
+    }
+}
+
+extern "C" quantapdf_status quantapdf_qpdf_document_audit(
+    quantapdf_qpdf_document *document,
+    uint32_t *out_findings)
+{
+    if (out_findings == nullptr)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    *out_findings = 0;
+    if (document == nullptr || document->pdf == nullptr ||
+        document->source_data == nullptr || document->source_size == 0)
+        return QUANTAPDF_ERROR_ARGUMENT;
+
+    try {
+        auto pdf = QPDF::create();
+        pdf->setSuppressWarnings(true);
+        pdf->setAttemptRecovery(false);
+        pdf->processMemoryFile(
+            "quantapdf-document-audit",
+            reinterpret_cast<char const *>(document->source_data),
+            document->source_size,
+            document->password.c_str());
+        if (pdf->anyWarnings())
+            return QUANTAPDF_ERROR_FORMAT;
+        uint32_t findings = 0;
+        quantapdf_status const status = quantapdf_qpdf_audit_document(
+            *pdf, document->source_size, &findings);
+        if (status != QUANTAPDF_OK)
+            return status;
+        if (pdf->anyWarnings())
+            return QUANTAPDF_ERROR_FORMAT;
+        *out_findings = findings;
+        return QUANTAPDF_OK;
+    } catch (QPDFExc const& error) {
+        return quantapdf_status_from_qpdf(error);
+    } catch (std::bad_alloc const&) {
+        return QUANTAPDF_ERROR_NOMEM;
+    } catch (std::exception const&) {
+        return QUANTAPDF_ERROR_BACKEND;
+    } catch (...) {
+        return QUANTAPDF_ERROR_BACKEND;
+    }
+}
+
+extern "C" quantapdf_status quantapdf_qpdf_sanitize(
+    quantapdf_qpdf_document *document,
+    uint32_t flags,
+    unsigned char **out_data,
+    size_t *out_size)
+{
+    if (out_data == nullptr || out_size == nullptr)
+        return QUANTAPDF_ERROR_ARGUMENT;
+    *out_data = nullptr;
+    *out_size = 0;
+    if (document == nullptr || document->pdf == nullptr ||
+        document->source_data == nullptr || document->source_size == 0 ||
+        flags == 0 || (flags & ~QUANTAPDF_SANITIZE_ALL) != 0)
+        return QUANTAPDF_ERROR_ARGUMENT;
+
+    try {
+        auto pdf = QPDF::create();
+        pdf->setSuppressWarnings(true);
+        pdf->setAttemptRecovery(false);
+        pdf->processMemoryFile(
+            "quantapdf-sanitize",
+            reinterpret_cast<char const *>(document->source_data),
+            document->source_size,
+            document->password.c_str());
+        if (pdf->anyWarnings())
+            return QUANTAPDF_ERROR_FORMAT;
+
+        uint32_t findings = 0;
+        quantapdf_status status = quantapdf_qpdf_audit_document(
+            *pdf, document->source_size, &findings);
+        if (status != QUANTAPDF_OK)
+            return status;
+        if (pdf->anyWarnings())
+            return QUANTAPDF_ERROR_FORMAT;
+        if ((findings & (QUANTAPDF_AUDIT_SIGNATURE |
+                         QUANTAPDF_AUDIT_ENCRYPTION)) != 0)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+
+        status = quantapdf_qpdf_preflight_aliases(
+            *pdf, document->source_size, flags);
+        if (status != QUANTAPDF_OK)
+            return status;
+
+        status = quantapdf_qpdf_sanitize_graph(
+            *pdf, document->source_size, flags);
+        if (status != QUANTAPDF_OK)
+            return status;
+        if (pdf->anyWarnings())
+            return QUANTAPDF_ERROR_FORMAT;
+
+        findings = 0;
+        status = quantapdf_qpdf_audit_document(
+            *pdf, document->source_size, &findings);
+        if (status != QUANTAPDF_OK)
+            return status;
+        if (pdf->anyWarnings())
+            return QUANTAPDF_ERROR_FORMAT;
+        if ((findings & flags) != 0)
+            return QUANTAPDF_ERROR_UNSUPPORTED;
+
+        status = quantapdf_qpdf_write_memory(*pdf, out_data, out_size);
         if (status != QUANTAPDF_OK)
             return status;
         if (pdf->anyWarnings()) {

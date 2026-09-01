@@ -64,6 +64,7 @@ The current supported surface includes:
 - URI/internal links, annotations, document metadata, and outlines
 - immutable AcroForm snapshots and isolated PDF edit sessions
 - page export/range export, output merging, and file saving
+- catalog-reachable document security audit and immutable policy sanitization
 - immutable CropBox crop, MediaBox trim, poster-split, interactive-content
   flattening, and lossless rewrite/GC transforms
 - stable status strings and one allocator-matched `quantapdf_free()` entry point
@@ -184,6 +185,66 @@ quantapdf_render_thumbnail(page, max_width, max_height, &bitmap);
 ```
 
 renders opaque RGB while preserving the page aspect ratio. The result fits inside the requested pixel box and never upscales beyond the page's 72-DPI size. Thumbnail rendering derives a DPI and reuses the same renderer rather than maintaining a separate raster path.
+
+## Document audit and sanitization
+
+Initialize the size-tagged audit result before calling the audit API, then test
+the independent finding bits that matter to your policy:
+
+```c
+quantapdf_audit_result audit = {
+    .struct_size = sizeof(quantapdf_audit_result),
+    .findings = 0
+};
+
+if (quantapdf_document_audit(doc, &audit) == QUANTAPDF_OK) {
+    if (audit.findings & QUANTAPDF_AUDIT_JAVASCRIPT_ACTION) {
+        /* JavaScript action or JavaScript name tree is reachable. */
+    }
+    if (audit.findings & QUANTAPDF_AUDIT_SIGNATURE) {
+        /* A signature structure is present; validity is not checked. */
+    }
+    if (audit.findings & QUANTAPDF_AUDIT_ENCRYPTION) {
+        /* The input is encrypted, even if it was opened with a password. */
+    }
+}
+```
+
+Sanitization returns a new immutable output and never mutates the opened
+document:
+
+```c
+quantapdf_output *output = NULL;
+
+if (quantapdf_sanitize(doc, QUANTAPDF_SANITIZE_ALL, &output) ==
+    QUANTAPDF_OK) {
+    const unsigned char *data = NULL;
+    size_t size = 0;
+
+    quantapdf_output_data(output, &data, &size);
+    /* data[0..size) is borrowed read-only storage owned by output. */
+
+    quantapdf_close(doc);
+    doc = NULL;
+    /* data remains valid because output owns its bytes independently. */
+
+    quantapdf_drop_output(output);
+}
+```
+
+`QUANTAPDF_SANITIZE_ALL` removes the seven sanitizable active-content classes.
+Safe internal `/GoTo` navigation is not reported as dangerous and is not
+removed. Signed or encrypted inputs are intentionally rejected by
+`quantapdf_sanitize()` with `QUANTAPDF_ERROR_UNSUPPORTED` because rewriting
+would invalidate a signature or silently decrypt the document.
+
+The audit is a strict, catalog-reachable structural inspection of conventional
+PDF security and active-content mechanisms. It is not antivirus or malware
+detection, content keyword scanning, cryptographic signature validation, or
+proof that arbitrary custom object edges are safe. Malformed conventional
+structures return `QUANTAPDF_ERROR_FORMAT`; a bounded traversal or a requested
+removal that cannot be proven complete returns `QUANTAPDF_ERROR_UNSUPPORTED`
+without publishing output.
 
 ## Lossless rewrite and garbage collection
 
