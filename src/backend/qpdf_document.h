@@ -37,10 +37,10 @@ typedef struct quantapdf_qpdf_image_recompression_test_stats {
 } quantapdf_qpdf_image_recompression_test_stats;
 
 typedef struct quantapdf_qpdf_security_test_stats {
-    size_t provider_entries;
+    size_t context_entries;
     size_t configure_requests;
     size_t write_requests;
-    size_t provider_restores;
+    size_t context_exits;
 } quantapdf_qpdf_security_test_stats;
 
 quantapdf_status quantapdf_qpdf_open_memory(

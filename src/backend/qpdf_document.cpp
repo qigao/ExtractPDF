@@ -31,7 +31,6 @@
 #include <new>
 #include <limits>
 #include <map>
-#include <mutex>
 #include <set>
 #include <string>
 #include <type_traits>
@@ -7370,86 +7369,127 @@ enum class quantapdf_qpdf_security_operation {
     reencrypt
 };
 
+struct quantapdf_qpdf_random_context {
+    int test_fault;
+    int phase;
+    quantapdf_qpdf_security_test_stats *test_stats;
+};
+
+thread_local quantapdf_qpdf_random_context *
+    quantapdf_qpdf_current_random_context = nullptr;
+
 class quantapdf_qpdf_random_provider final : public RandomDataProvider
 {
   public:
-    quantapdf_qpdf_random_provider(
-        int test_fault,
-        int const *phase,
-        quantapdf_qpdf_security_test_stats *test_stats) :
-        test_fault(test_fault),
-        phase(phase),
-        test_stats(test_stats)
-    {
-    }
-
     void provideRandomData(unsigned char *data, size_t size) override
     {
-        if (test_stats != nullptr) {
-            if (*phase == 1)
-                ++test_stats->configure_requests;
+        quantapdf_qpdf_random_context *const context =
+            quantapdf_qpdf_current_random_context;
+        if (context != nullptr && context->test_stats != nullptr) {
+            if (context->phase == 1)
+                ++context->test_stats->configure_requests;
             else
-                ++test_stats->write_requests;
+                ++context->test_stats->write_requests;
         }
-        if ((test_fault == 1 && *phase == 1) ||
-            (test_fault == 2 && *phase == 2))
+        if (context != nullptr &&
+            ((context->test_fault == 1 && context->phase == 1) ||
+             (context->test_fault == 2 && context->phase == 2)))
             throw std::runtime_error("QuantaPDF test entropy failure");
         quantapdf_status const status = quantapdf_secure_random(data, size);
         if (status != QUANTAPDF_OK)
             throw std::runtime_error("QuantaPDF secure random failed");
     }
-
-  private:
-    int test_fault;
-    int const *phase;
-    quantapdf_qpdf_security_test_stats *test_stats;
 };
 
-std::mutex quantapdf_qpdf_provider_mutex;
+quantapdf_qpdf_random_provider *quantapdf_qpdf_process_random_provider()
+{
+    // qpdf retains this raw pointer globally; it must outlive every qpdf call.
+    static auto *provider = new quantapdf_qpdf_random_provider();
+    return provider;
+}
 
-class quantapdf_qpdf_provider_guard final
+class quantapdf_qpdf_random_provider_initializer final
 {
   public:
-    quantapdf_qpdf_provider_guard(
+    quantapdf_qpdf_random_provider_initializer()
+    {
+        QUtil::setRandomDataProvider(
+            quantapdf_qpdf_process_random_provider());
+    }
+};
+
+quantapdf_qpdf_random_provider_initializer
+    quantapdf_qpdf_random_provider_process_initializer;
+
+class quantapdf_qpdf_random_context_guard final
+{
+  public:
+    quantapdf_qpdf_random_context_guard(
         int test_fault,
         quantapdf_qpdf_security_test_stats *test_stats) :
-        lock(quantapdf_qpdf_provider_mutex),
-        provider(test_fault, &phase, test_stats),
+        context{test_fault, 1, test_stats},
+        previous(quantapdf_qpdf_current_random_context),
         test_stats(test_stats)
     {
-        previous = QUtil::getRandomDataProvider();
-        QUtil::setRandomDataProvider(&provider);
-        installed = true;
+        quantapdf_qpdf_current_random_context = &context;
         if (test_stats != nullptr)
-            ++test_stats->provider_entries;
+            ++test_stats->context_entries;
     }
 
-    ~quantapdf_qpdf_provider_guard()
+    ~quantapdf_qpdf_random_context_guard()
     {
-        if (installed)
-            QUtil::setRandomDataProvider(previous);
-        if (installed && test_stats != nullptr)
-            ++test_stats->provider_restores;
+        quantapdf_qpdf_current_random_context = previous;
+        if (test_stats != nullptr)
+            ++test_stats->context_exits;
     }
 
-    quantapdf_qpdf_provider_guard(
-        quantapdf_qpdf_provider_guard const&) = delete;
-    quantapdf_qpdf_provider_guard& operator=(
-        quantapdf_qpdf_provider_guard const&) = delete;
+    quantapdf_qpdf_random_context_guard(
+        quantapdf_qpdf_random_context_guard const&) = delete;
+    quantapdf_qpdf_random_context_guard& operator=(
+        quantapdf_qpdf_random_context_guard const&) = delete;
 
     void enter_write_phase() noexcept
     {
-        phase = 2;
+        context.phase = 2;
     }
 
   private:
-    std::unique_lock<std::mutex> lock;
-    int phase = 1;
-    quantapdf_qpdf_random_provider provider;
-    RandomDataProvider *previous = nullptr;
-    bool installed = false;
+    quantapdf_qpdf_random_context context;
+    quantapdf_qpdf_random_context *previous;
     quantapdf_qpdf_security_test_stats *test_stats;
 };
+
+quantapdf_status quantapdf_qpdf_security_signature_dictionary(
+    QPDFObjectHandle object,
+    bool *out_is_signature)
+{
+    *out_is_signature = false;
+    if (!object.isDictionary())
+        return QUANTAPDF_OK;
+
+    QPDFObjectHandle type = object.getKey("/Type");
+    bool const tagged = type.isName() &&
+        (type.getName() == "/Sig" || type.getName() == "/DocTimeStamp");
+    bool const signature_shaped = object.hasKey("/ByteRange");
+    if (!tagged && !signature_shaped)
+        return QUANTAPDF_OK;
+    *out_is_signature = true;
+    if (!tagged || !object.hasKey("/ByteRange") ||
+        !object.hasKey("/Contents"))
+        return QUANTAPDF_ERROR_FORMAT;
+
+    QPDFObjectHandle byte_range = object.getKey("/ByteRange");
+    QPDFObjectHandle contents = object.getKey("/Contents");
+    if (!byte_range.isArray() || byte_range.getArrayNItems() < 4 ||
+        (byte_range.getArrayNItems() % 2) != 0 || !contents.isString())
+        return QUANTAPDF_ERROR_FORMAT;
+    for (int index = 0; index < byte_range.getArrayNItems(); ++index) {
+        QPDFObjectHandle value = byte_range.getArrayItem(index);
+        if (!value.isInteger() || value.getIntValue() < 0)
+            return QUANTAPDF_ERROR_FORMAT;
+    }
+    return QUANTAPDF_ERROR_UNSUPPORTED;
+}
 
 quantapdf_status quantapdf_qpdf_security_signature_preflight(
     QPDF& pdf,
@@ -7468,24 +7508,22 @@ quantapdf_status quantapdf_qpdf_security_signature_preflight(
             object = object.getDict();
         if (!object.isDictionary())
             continue;
-        QPDFObjectHandle type = object.getKey("/Type");
-        if (type.isName() &&
-            (type.getName() == "/Sig" ||
-             type.getName() == "/DocTimeStamp"))
-            return QUANTAPDF_ERROR_UNSUPPORTED;
+        bool is_signature = false;
+        status = quantapdf_qpdf_security_signature_dictionary(
+            object, &is_signature);
+        if (status != QUANTAPDF_OK)
+            return status;
         QPDFObjectHandle field_type = object.getKey("/FT");
         QPDFObjectHandle value = object.getKey("/V");
         if (field_type.isName() && field_type.getName() == "/Sig" &&
             !value.isNull()) {
             if (!value.isDictionary())
                 return QUANTAPDF_ERROR_FORMAT;
-            QPDFObjectHandle value_type = value.getKey("/Type");
-            if (!value_type.isNull() &&
-                (!value_type.isName() ||
-                 (value_type.getName() != "/Sig" &&
-                  value_type.getName() != "/DocTimeStamp")))
+            status = quantapdf_qpdf_security_signature_dictionary(
+                value, &is_signature);
+            if (status == QUANTAPDF_OK || !is_signature)
                 return QUANTAPDF_ERROR_FORMAT;
-            return QUANTAPDF_ERROR_UNSUPPORTED;
+            return status;
         }
     }
     return QUANTAPDF_OK;
@@ -7621,7 +7659,10 @@ quantapdf_status quantapdf_qpdf_security_rewrite(
             writer.setDeterministicID(true);
             writer.write();
         } else {
-            quantapdf_qpdf_provider_guard provider_guard(
+            if (QUtil::getRandomDataProvider() !=
+                quantapdf_qpdf_process_random_provider())
+                return QUANTAPDF_ERROR_UNSUPPORTED;
+            quantapdf_qpdf_random_context_guard random_context_guard(
                 test_fault, test_stats);
             QPDFObjectHandle trailer = pdf->getTrailer();
             bool const had_info = trailer.hasKey("/Info");
@@ -7658,7 +7699,7 @@ quantapdf_status quantapdf_qpdf_security_rewrite(
                 trailer.replaceKey("/Info", original_info);
             else
                 trailer.removeKey("/Info");
-            provider_guard.enter_write_phase();
+            random_context_guard.enter_write_phase();
             writer.write();
         }
 

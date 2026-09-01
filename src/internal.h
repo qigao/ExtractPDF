@@ -46,10 +46,10 @@ struct quantapdf_document {
     int test_image_every_provider_once;
     int test_image_fault;
     int test_security_fault;
-    size_t test_security_provider_entries;
+    size_t test_security_context_entries;
     size_t test_security_configure_requests;
     size_t test_security_write_requests;
-    size_t test_security_provider_restores;
+    size_t test_security_context_exits;
 #endif
 };
 

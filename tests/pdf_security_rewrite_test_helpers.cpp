@@ -1,13 +1,28 @@
+#include <quantapdf/quantapdf.h>
+
 #include <qpdf/Constants.h>
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFWriter.hh>
+#include <qpdf/QUtil.hh>
+#include <qpdf/RandomDataProvider.hh>
 
+#include <atomic>
 #include <cstddef>
 #include <cstring>
 #include <fstream>
 #include <iomanip>
 #include <iterator>
 #include <sstream>
+#include <thread>
+
+class quantapdf_security_sentinel_provider final : public RandomDataProvider
+{
+  public:
+    void provideRandomData(unsigned char *data, size_t size) override
+    {
+        std::memset(data, 0xa5, size);
+    }
+};
 
 extern "C" {
 
@@ -151,18 +166,33 @@ int quantapdf_security_create_signature_fixture(
     int encrypt)
 {
     if (source_path == nullptr || output_path == nullptr ||
-        kind < 1 || kind > 4)
+        kind < 1 || kind > 6)
         return 0;
     try {
         auto pdf = QPDF::create();
         pdf->processFile(source_path);
         QPDFObjectHandle signature = QPDFObjectHandle::newNull();
-        if (kind != 4) {
+        if (kind >= 1 && kind <= 3) {
+            QPDFObjectHandle byte_range = QPDFObjectHandle::newArray();
+            for (int index = 0; index < 4; ++index)
+                byte_range.appendItem(QPDFObjectHandle::newInteger(0));
             signature = pdf->makeIndirectObject(
                 QPDFObjectHandle::newDictionary({
                     {"/Type", QPDFObjectHandle::newName(
                         kind == 2 ? "/DocTimeStamp" : "/Sig")},
+                    {"/ByteRange", byte_range},
                     {"/Contents", QPDFObjectHandle::newString("signed")}}));
+        } else if (kind >= 5) {
+            QPDFObjectHandle byte_range = QPDFObjectHandle::newArray();
+            for (int index = 0; index < 4; ++index)
+                byte_range.appendItem(QPDFObjectHandle::newInteger(0));
+            QPDFObjectHandle malformed = QPDFObjectHandle::newDictionary({
+                {"/ByteRange", byte_range},
+                {"/Contents", QPDFObjectHandle::newString("signed")}});
+            if (kind == 6)
+                malformed.replaceKey(
+                    "/Type", QPDFObjectHandle::newName("/NotSignature"));
+            signature = pdf->makeIndirectObject(malformed);
         }
         if (kind == 1) {
             pdf->getRoot().replaceKey(
@@ -240,7 +270,8 @@ int quantapdf_security_create_incremental_signature_fixture(
         std::ostringstream update;
         size_t const object_offset = bytes.size();
         update << object_number
-               << " 0 obj\n<< /Type /Sig >>\nendobj\n";
+               << " 0 obj\n<< /Type /Sig /ByteRange [0 0 0 0] "
+                  "/Contents <00> >>\nendobj\n";
         size_t const xref_offset = object_offset + update.str().size();
         update << "xref\n" << object_number << " 1\n"
                << std::setw(10) << std::setfill('0') << object_offset
@@ -330,6 +361,65 @@ int quantapdf_security_canonicalize_fixture(
     } catch (...) {
         return 0;
     }
+}
+
+int quantapdf_security_check_static_provider_boundary(
+    char const *source_path)
+{
+    if (source_path == nullptr)
+        return 0;
+
+    RandomDataProvider *const original = QUtil::getRandomDataProvider();
+    quantapdf_security_sentinel_provider sentinel;
+    QUtil::setRandomDataProvider(&sentinel);
+    quantapdf_document *document = nullptr;
+    quantapdf_output *output = nullptr;
+    quantapdf_encryption_options options = {
+        QUANTAPDF_ENCRYPTION_OPTIONS_V1_SIZE,
+        QUANTAPDF_ENCRYPTION_AES_256,
+        "provider-user",
+        "provider-owner",
+        QUANTAPDF_PERMISSION_ALL,
+        1};
+    bool boundary_ok =
+        quantapdf_open(source_path, nullptr, &document) == QUANTAPDF_OK &&
+        quantapdf_encrypt_pdf(document, &options, &output) ==
+            QUANTAPDF_ERROR_UNSUPPORTED &&
+        output == nullptr &&
+        QUtil::getRandomDataProvider() == &sentinel;
+    quantapdf_drop_output(output);
+    quantapdf_close(document);
+    QUtil::setRandomDataProvider(original);
+    if (!boundary_ok)
+        return 0;
+
+    document = nullptr;
+    if (quantapdf_open(source_path, nullptr, &document) != QUANTAPDF_OK)
+        return 0;
+    std::atomic<bool> stop{false};
+    std::atomic<bool> worker_ok{true};
+    std::thread worker([&]() {
+        try {
+            unsigned char bytes[64];
+            while (!stop.load(std::memory_order_relaxed))
+                QUtil::initializeWithRandomBytes(bytes, sizeof(bytes));
+        } catch (...) {
+            worker_ok.store(false, std::memory_order_relaxed);
+        }
+    });
+    for (int iteration = 0; iteration < 16; ++iteration) {
+        output = nullptr;
+        if (quantapdf_encrypt_pdf(document, &options, &output) !=
+            QUANTAPDF_OK) {
+            worker_ok.store(false, std::memory_order_relaxed);
+            break;
+        }
+        quantapdf_drop_output(output);
+    }
+    stop.store(true, std::memory_order_relaxed);
+    worker.join();
+    quantapdf_close(document);
+    return worker_ok.load(std::memory_order_relaxed) ? 1 : 0;
 }
 
 }

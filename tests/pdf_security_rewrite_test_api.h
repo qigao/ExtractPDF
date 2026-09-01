@@ -16,11 +16,11 @@ void quantapdf_security_test_set_fault(
     quantapdf_document *document,
     int fault);
 
-void quantapdf_security_test_get_provider_stats(
+void quantapdf_security_test_get_random_context_stats(
     const quantapdf_document *document,
-    size_t *out_entries,
+    size_t *out_context_entries,
     size_t *out_configure_requests,
     size_t *out_write_requests,
-    size_t *out_restores);
+    size_t *out_context_exits);
 
 #endif

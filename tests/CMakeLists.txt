@@ -128,14 +128,20 @@ add_executable(quantapdf_test_pdf_security_rewrite
   test_pdf_security_rewrite_semantics.c
   pdf_security_rewrite_test_helpers.cpp
   pdf_security_rewrite_fault_hook.c)
+find_package(Threads REQUIRED)
 target_include_directories(quantapdf_test_pdf_security_rewrite PRIVATE
   "${PROJECT_SOURCE_DIR}/src")
 target_link_libraries(quantapdf_test_pdf_security_rewrite PRIVATE
   QuantaPDF::QuantaPDF
-  qpdf::libqpdf)
+  qpdf::libqpdf
+  Threads::Threads)
 target_compile_features(quantapdf_test_pdf_security_rewrite PRIVATE cxx_std_20)
 target_compile_definitions(quantapdf_test_pdf_security_rewrite PRIVATE
   QUANTAPDF_TESTING=1)
+if(NOT BUILD_SHARED_LIBS)
+  target_compile_definitions(quantapdf_test_pdf_security_rewrite PRIVATE
+    QUANTAPDF_SECURITY_STATIC_BUILD=1)
+endif()
 target_compile_definitions(quantapdf_test_pdf_security_rewrite PRIVATE
   SECURITY_PLAIN_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/one-page.pdf"
   SECURITY_SIGNED_PDF="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/annotation-mutation-signed.pdf"

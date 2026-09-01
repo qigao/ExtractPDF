@@ -67,6 +67,9 @@ int quantapdf_security_create_id_fixture(
 
 void quantapdf_security_check_public_semantics(void);
 
+int quantapdf_security_check_static_provider_boundary(
+    const char *source_path);
+
 _Static_assert(
     QUANTAPDF_ENCRYPTION_AES_256 == 1,
     "stable encryption method value");
@@ -498,8 +501,8 @@ static int test_signed_and_legacy_policy(void)
     CHECK(output == NULL);
     quantapdf_close(signed_document);
 
-    for (kind = 1; kind <= 4; ++kind) {
-        quantapdf_status const expected = kind == 4
+    for (kind = 1; kind <= 6; ++kind) {
+        quantapdf_status const expected = kind >= 4
             ? QUANTAPDF_ERROR_FORMAT
             : QUANTAPDF_ERROR_UNSUPPORTED;
         CHECK(quantapdf_security_create_signature_fixture(
@@ -596,10 +599,10 @@ static int test_entropy_and_publication_faults(void)
         "owner",
         0u,
         1};
-    size_t entries = 0;
+    size_t context_entries = 0;
     size_t configure_requests = 0;
     size_t write_requests = 0;
-    size_t restores = 0;
+    size_t context_exits = 0;
 
     CHECK(quantapdf_open(SECURITY_PLAIN_PDF, NULL, &plain) == QUANTAPDF_OK);
 
@@ -608,10 +611,11 @@ static int test_entropy_and_publication_faults(void)
     CHECK(quantapdf_encrypt_pdf(plain, &options, &output) ==
           QUANTAPDF_ERROR_BACKEND);
     CHECK(output == NULL);
-    quantapdf_security_test_get_provider_stats(
-        plain, &entries, &configure_requests, &write_requests, &restores);
-    CHECK(entries == 1u && configure_requests >= 1u &&
-          write_requests == 0u && restores == 1u);
+    quantapdf_security_test_get_random_context_stats(
+        plain, &context_entries, &configure_requests, &write_requests,
+        &context_exits);
+    CHECK(context_entries == 1u && configure_requests >= 1u &&
+          write_requests == 0u && context_exits == 1u);
 
     output = (quantapdf_output *)(uintptr_t)1u;
     quantapdf_security_test_set_fault(
@@ -619,10 +623,11 @@ static int test_entropy_and_publication_faults(void)
     CHECK(quantapdf_encrypt_pdf(plain, &options, &output) ==
           QUANTAPDF_ERROR_BACKEND);
     CHECK(output == NULL);
-    quantapdf_security_test_get_provider_stats(
-        plain, &entries, &configure_requests, &write_requests, &restores);
-    CHECK(entries == 1u && configure_requests >= 1u &&
-          write_requests >= 1u && restores == 1u);
+    quantapdf_security_test_get_random_context_stats(
+        plain, &context_entries, &configure_requests, &write_requests,
+        &context_exits);
+    CHECK(context_entries == 1u && configure_requests >= 1u &&
+          write_requests >= 1u && context_exits == 1u);
 
     output = (quantapdf_output *)(uintptr_t)1u;
     quantapdf_security_test_set_fault(
@@ -890,5 +895,9 @@ int main(void)
     CHECK(test_text_and_render_semantics() == 0);
     CHECK(test_file_identifier_policy() == 0);
     quantapdf_security_check_public_semantics();
+#if defined(QUANTAPDF_SECURITY_STATIC_BUILD)
+    CHECK(quantapdf_security_check_static_provider_boundary(
+              SECURITY_PLAIN_PDF));
+#endif
     return 0;
 }

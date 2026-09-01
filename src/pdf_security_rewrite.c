@@ -86,10 +86,10 @@ static quantapdf_status quantapdf_security_rewrite(
 #if defined(QUANTAPDF_TESTING)
     test_fault = document->test_security_fault;
     document->test_security_fault = QUANTAPDF_TEST_SECURITY_FAULT_NONE;
-    document->test_security_provider_entries = 0;
+    document->test_security_context_entries = 0;
     document->test_security_configure_requests = 0;
     document->test_security_write_requests = 0;
-    document->test_security_provider_restores = 0;
+    document->test_security_context_exits = 0;
     if (test_fault == QUANTAPDF_TEST_SECURITY_FAULT_OUTPUT_NOMEM)
         return QUANTAPDF_ERROR_NOMEM;
 #endif
@@ -110,10 +110,10 @@ static quantapdf_status quantapdf_security_rewrite(
             &output->data, &output->size);
     }
 #if defined(QUANTAPDF_TESTING)
-    document->test_security_provider_entries = test_stats.provider_entries;
+    document->test_security_context_entries = test_stats.context_entries;
     document->test_security_configure_requests = test_stats.configure_requests;
     document->test_security_write_requests = test_stats.write_requests;
-    document->test_security_provider_restores = test_stats.provider_restores;
+    document->test_security_context_exits = test_stats.context_exits;
 #endif
     if (status != QUANTAPDF_OK) {
         free(output->data);
