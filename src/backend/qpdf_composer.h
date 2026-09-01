@@ -27,6 +27,14 @@ quantapdf_status quantapdf_png_decode(
     uint32_t *out_width,
     uint32_t *out_height);
 
+quantapdf_status quantapdf_jpeg_validate(
+    const unsigned char *data,
+    size_t size,
+    size_t max_working_bytes,
+    uint32_t *out_width,
+    uint32_t *out_height,
+    int *out_components);
+
 #ifdef __cplusplus
 }
 #endif

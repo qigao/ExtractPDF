@@ -37,6 +37,7 @@ endif()
 add_library(quantapdf_backend STATIC
   src/backend/qpdf_document.cpp
   src/backend/qpdf_composer.cpp
+  src/backend/jpeg_validator.c
   src/backend/jpeg_encoder.cpp
   src/backend/pdfium_document.cpp
   src/backend/pdfium_runtime.cpp)
@@ -47,6 +48,7 @@ target_include_directories(quantapdf_backend PRIVATE
 target_link_libraries(quantapdf_backend PRIVATE
   QuantaPDF::PDFium
   qpdf::libqpdf
+  JPEG::JPEG
   ZLIB::ZLIB)
 set_target_properties(quantapdf_backend PROPERTIES
   POSITION_INDEPENDENT_CODE ON)

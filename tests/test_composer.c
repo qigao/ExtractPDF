@@ -243,12 +243,14 @@ static int test_png_and_alpha(void)
     quantapdf_rect alpha_bounds = {10.0f, 40.0f, 50.0f, 60.0f};
     unsigned char *opaque_png = NULL;
     unsigned char *alpha_png = NULL;
+    const unsigned char *pdf_data = NULL;
     const unsigned char *pixels = NULL;
     size_t opaque_size = 0u;
     size_t alpha_size = 0u;
     size_t page_index = SIZE_MAX;
     size_t image_count = 0u;
     size_t pixel_size = 0u;
+    size_t pdf_size = 0u;
     int width = 0;
     int height = 0;
     int stride = 0;
@@ -283,6 +285,8 @@ static int test_png_and_alpha(void)
               composer, page_index, alpha_id, &alpha_bounds,
               &image_options) == QUANTAPDF_OK);
     CHECK(quantapdf_composer_finish(composer, &output) == QUANTAPDF_OK);
+    CHECK(quantapdf_output_data(output, &pdf_data, &pdf_size) == QUANTAPDF_OK);
+    CHECK(pdf_size > 8u && memcmp(pdf_data, "%PDF-1.4", 8u) == 0);
     CHECK(quantapdf_output_save_file(output, COMPOSER_OUTPUT_PDF) ==
           QUANTAPDF_OK);
     CHECK(quantapdf_open(COMPOSER_OUTPUT_PDF, NULL, &document) ==
@@ -324,6 +328,8 @@ static int test_png_and_alpha(void)
 static int test_limits_state_and_output_isolation(void)
 {
     static const char truncated_utf8[] = {(char)0xe2, '\0'};
+    static const char unmapped_winansi_gap[] = {
+        (char)0xe2, (char)0x80, (char)0x95, '\0'};
     quantapdf_composer_options limits = {0};
     quantapdf_composer_page_options page_options = {0};
     quantapdf_composer_text_options text_options = {0};
@@ -365,6 +371,9 @@ static int test_limits_state_and_output_isolation(void)
               composer, page_index, truncated_utf8, &text_bounds,
               &text_options) == QUANTAPDF_ERROR_FORMAT);
     CHECK(quantapdf_composer_draw_text(
+              composer, page_index, unmapped_winansi_gap, &text_bounds,
+              &text_options) == QUANTAPDF_ERROR_FORMAT);
+    CHECK(quantapdf_composer_draw_text(
               composer, page_index, "four", &text_bounds, &text_options) ==
           QUANTAPDF_OK);
     CHECK(quantapdf_composer_draw_text(
@@ -398,6 +407,177 @@ static int test_limits_state_and_output_isolation(void)
     return 0;
 }
 
+static int test_decoder_resource_and_format_guards(void)
+{
+    quantapdf_composer_options limits = {0};
+    quantapdf_composer *composer = NULL;
+    quantapdf_composer_image_id image_id = UINT32_MAX;
+    unsigned char *jpeg = NULL;
+    unsigned char *truncated = NULL;
+    unsigned char *oversized_png = NULL;
+    size_t jpeg_size = 0u;
+    size_t truncated_size = 0u;
+    size_t oversized_size = 0u;
+
+    CHECK(quantapdf_test_make_jpeg(&jpeg, &jpeg_size));
+    CHECK(quantapdf_test_make_truncated_jpeg(
+        jpeg, jpeg_size, &truncated, &truncated_size));
+    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_add_image(
+              composer, truncated, truncated_size, &image_id) ==
+          QUANTAPDF_ERROR_FORMAT);
+    CHECK(image_id == 0u);
+    quantapdf_drop_composer(composer);
+    composer = NULL;
+
+    limits.struct_size = sizeof(limits);
+    limits.max_resource_bytes = jpeg_size + 8u * 4u * 3u - 1u;
+    CHECK(quantapdf_composer_create(&limits, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_add_image(
+              composer, jpeg, jpeg_size, &image_id) ==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+    quantapdf_drop_composer(composer);
+    composer = NULL;
+
+    CHECK(quantapdf_test_make_oversized_png(
+        &oversized_png, &oversized_size));
+    limits.max_resource_bytes = 1024u;
+    CHECK(quantapdf_composer_create(&limits, &composer) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_add_image(
+              composer, oversized_png, oversized_size, &image_id) ==
+          QUANTAPDF_ERROR_UNSUPPORTED);
+
+    quantapdf_drop_composer(composer);
+    free(oversized_png);
+    free(truncated);
+    free(jpeg);
+    return 0;
+}
+
+static int test_layout_order_fit_and_locale(void)
+{
+    quantapdf_composer_page_options page_options = {0};
+    quantapdf_composer_text_options text_options = {0};
+    quantapdf_composer_image_options image_options = {0};
+    quantapdf_composer *composer = NULL;
+    quantapdf_output *output = NULL;
+    quantapdf_composer_image_id image_id = 0u;
+    quantapdf_rect text_bounds = {0.0f, 0.0f, 100.0f, 20.0f};
+    quantapdf_rect wrap_bounds = {0.0f, 30.0f, 18.0f, 80.0f};
+    quantapdf_rect overlap = {20.0f, 100.0f, 120.0f, 150.0f};
+    quantapdf_rect contain = {10.0f, 10.0f, 110.0f, 110.0f};
+    quantapdf_rect cover = {10.0f, 120.0f, 110.0f, 220.0f};
+    quantapdf_rect stretch = {10.0f, 230.0f, 110.0f, 330.0f};
+    unsigned char *png = NULL;
+    const unsigned char *data = NULL;
+    size_t png_size = 0u;
+    size_t output_size = 0u;
+    size_t page = SIZE_MAX;
+    quantapdf_status finish_status;
+
+    CHECK(quantapdf_test_make_png(0, &png, &png_size));
+    CHECK(quantapdf_composer_create(NULL, &composer) == QUANTAPDF_OK);
+    page_options.struct_size = sizeof(page_options);
+    page_options.width_points = 200.0f;
+    page_options.height_points = 400.0f;
+    page_options.background_argb = UINT32_C(0xffffffff);
+    CHECK(quantapdf_composer_add_page(
+              composer, &page_options, &page) == QUANTAPDF_OK);
+    CHECK(page == 0u);
+    CHECK(quantapdf_composer_add_page(
+              composer, &page_options, &page) == QUANTAPDF_OK);
+    CHECK(page == 1u);
+    CHECK(quantapdf_composer_add_page(
+              composer, &page_options, &page) == QUANTAPDF_OK);
+    CHECK(page == 2u);
+    CHECK(quantapdf_composer_add_page(
+              composer, &page_options, &page) == QUANTAPDF_OK);
+    CHECK(page == 3u);
+    CHECK(quantapdf_composer_add_image(
+              composer, png, png_size, &image_id) == QUANTAPDF_OK);
+    free(png);
+
+    text_options.struct_size = sizeof(text_options);
+    text_options.font = QUANTAPDF_COMPOSER_FONT_HELVETICA;
+    text_options.font_size = 10.0f;
+    text_options.argb = UINT32_C(0xff204080);
+    text_options.line_height_multiplier = 1.0f;
+    text_options.alignment = QUANTAPDF_COMPOSER_TEXT_ALIGN_CENTER;
+    text_options.wrap = 0;
+    CHECK(quantapdf_composer_draw_text(
+              composer, 0u, "WWW", &text_bounds, &text_options) ==
+          QUANTAPDF_OK);
+    text_bounds.y0 = 20.0f;
+    text_bounds.y1 = 40.0f;
+    text_options.alignment = QUANTAPDF_COMPOSER_TEXT_ALIGN_RIGHT;
+    CHECK(quantapdf_composer_draw_text(
+              composer, 0u, "WWW", &text_bounds, &text_options) ==
+          QUANTAPDF_OK);
+    text_options.alignment = QUANTAPDF_COMPOSER_TEXT_ALIGN_LEFT;
+    text_options.wrap = 1;
+    CHECK(quantapdf_composer_draw_text(
+              composer, 0u, "WW", &wrap_bounds, &text_options) ==
+          QUANTAPDF_OK);
+
+    image_options.struct_size = sizeof(image_options);
+    image_options.fit = QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
+    CHECK(quantapdf_composer_draw_image(
+              composer, 1u, image_id, &overlap, &image_options) ==
+          QUANTAPDF_OK);
+    CHECK(quantapdf_composer_draw_text(
+              composer, 1u, "Z", &overlap, &text_options) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_draw_text(
+              composer, 2u, "Z", &overlap, &text_options) == QUANTAPDF_OK);
+    CHECK(quantapdf_composer_draw_image(
+              composer, 2u, image_id, &overlap, &image_options) ==
+          QUANTAPDF_OK);
+
+    image_options.fit = QUANTAPDF_COMPOSER_IMAGE_FIT_CONTAIN;
+    CHECK(quantapdf_composer_draw_image(
+              composer, 3u, image_id, &contain, &image_options) ==
+          QUANTAPDF_OK);
+    image_options.fit = QUANTAPDF_COMPOSER_IMAGE_FIT_COVER;
+    CHECK(quantapdf_composer_draw_image(
+              composer, 3u, image_id, &cover, &image_options) ==
+          QUANTAPDF_OK);
+    image_options.fit = QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH;
+    CHECK(quantapdf_composer_draw_image(
+              composer, 3u, image_id, &stretch, &image_options) ==
+          QUANTAPDF_OK);
+
+    quantapdf_test_use_comma_locale(1);
+    finish_status = quantapdf_composer_finish(composer, &output);
+    quantapdf_test_use_comma_locale(0);
+    CHECK(finish_status == QUANTAPDF_OK);
+    CHECK(quantapdf_output_data(output, &data, &output_size) == QUANTAPDF_OK);
+    CHECK(output_size > 8u && memcmp(data, "%PDF-1.4", 8u) == 0);
+    CHECK(quantapdf_test_pdf_content_contains(
+        data, output_size, 0u, "35.84 390 Tm (WWW) Tj"));
+    CHECK(quantapdf_test_pdf_content_contains(
+        data, output_size, 0u, "71.68 370 Tm (WWW) Tj"));
+    CHECK(quantapdf_test_pdf_content_contains(
+        data, output_size, 0u, "0.1255 0.251 0.502 rg"));
+    CHECK(quantapdf_test_pdf_content_count(
+              data, output_size, 0u, "(W) Tj ET") == 2u);
+    CHECK(quantapdf_test_pdf_content_order(
+        data, output_size, 1u, "/Im1 Do", "(Z) Tj"));
+    CHECK(quantapdf_test_pdf_content_order(
+        data, output_size, 2u, "(Z) Tj", "/Im1 Do"));
+    CHECK(quantapdf_test_pdf_content_contains(
+        data, output_size, 3u, "100 0 0 50 10 315 cm /Im1 Do"));
+    CHECK(quantapdf_test_pdf_content_contains(
+        data, output_size, 3u,
+        "10 180 100 100 re W n 200 0 0 100 -40 180 cm /Im1 Do"));
+    CHECK(quantapdf_test_pdf_content_contains(
+        data, output_size, 3u, "100 0 0 100 10 70 cm /Im1 Do"));
+    CHECK(quantapdf_test_pdf_content_count(
+              data, output_size, 3u, "/Im1 Do") == 3u);
+
+    quantapdf_drop_output(output);
+    quantapdf_drop_composer(composer);
+    return 0;
+}
+
 int main(void)
 {
     CHECK(test_create_contract() == 0);
@@ -406,5 +586,7 @@ int main(void)
     CHECK(test_jpeg_resource_and_placement() == 0);
     CHECK(test_png_and_alpha() == 0);
     CHECK(test_limits_state_and_output_isolation() == 0);
+    CHECK(test_decoder_resource_and_format_guards() == 0);
+    CHECK(test_layout_order_fit_and_locale() == 0);
     return 0;
 }

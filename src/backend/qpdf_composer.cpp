@@ -1,6 +1,7 @@
 #include "qpdf_composer.h"
 
 #include "../internal.h"
+#include "base14_metrics.h"
 
 #include <qpdf/Buffer.hh>
 #include <qpdf/QPDF.hh>
@@ -15,8 +16,11 @@
 #include <cstring>
 #include <iomanip>
 #include <limits>
+#include <locale>
 #include <memory>
+#include <optional>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -28,6 +32,22 @@ uint32_t read_be32(unsigned char const* data)
         (static_cast<uint32_t>(data[1]) << 16u) |
         (static_cast<uint32_t>(data[2]) << 8u) |
         static_cast<uint32_t>(data[3]);
+}
+
+bool checked_multiply(size_t left, size_t right, size_t& result)
+{
+    if (left != 0u && right > std::numeric_limits<size_t>::max() / left)
+        return false;
+    result = left * right;
+    return true;
+}
+
+bool checked_add(size_t left, size_t right, size_t& result)
+{
+    if (right > std::numeric_limits<size_t>::max() - left)
+        return false;
+    result = left + right;
+    return true;
 }
 
 unsigned char paeth_predictor(
@@ -49,6 +69,7 @@ unsigned char paeth_predictor(
 std::string number(double value)
 {
     std::ostringstream stream;
+    stream.imbue(std::locale::classic());
     stream << std::fixed << std::setprecision(4) << value;
     std::string result = stream.str();
     while (result.size() > 1u && result.back() == '0')
@@ -68,7 +89,7 @@ char const* base_font_name(quantapdf_composer_font font)
     return names[static_cast<int>(font)];
 }
 
-unsigned char winansi_byte(unsigned int codepoint)
+std::optional<unsigned char> winansi_byte(unsigned int codepoint)
 {
     struct mapping {
         unsigned int unicode;
@@ -88,7 +109,7 @@ unsigned char winansi_byte(unsigned int codepoint)
         if (item.unicode == codepoint)
             return item.byte;
     }
-    return '?';
+    return std::nullopt;
 }
 
 std::string to_winansi(char const* utf8)
@@ -110,7 +131,10 @@ std::string to_winansi(char const* utf8)
         }
         for (unsigned int i = 1; i < count; ++i)
             codepoint = (codepoint << 6) | (cursor[i] & 0x3f);
-        result.push_back(static_cast<char>(winansi_byte(codepoint)));
+        auto const mapped = winansi_byte(codepoint);
+        if (!mapped.has_value())
+            throw std::invalid_argument("text is not representable in WinAnsi");
+        result.push_back(static_cast<char>(*mapped));
         cursor += count;
     }
     return result;
@@ -118,19 +142,7 @@ std::string to_winansi(char const* utf8)
 
 double glyph_width(unsigned char glyph, quantapdf_composer_font font)
 {
-    if (font >= QUANTAPDF_COMPOSER_FONT_COURIER)
-        return 600.0;
-    if (glyph == ' ' || glyph == '\t')
-        return font >= QUANTAPDF_COMPOSER_FONT_TIMES_ROMAN ? 250.0 : 278.0;
-    if (glyph >= '0' && glyph <= '9')
-        return 500.0;
-    if (glyph == 'i' || glyph == 'l' || glyph == 'I')
-        return 278.0;
-    if (glyph == 'm' || glyph == 'M' || glyph == 'w' || glyph == 'W')
-        return 833.0;
-    if (glyph < 0x30)
-        return 278.0;
-    return font >= QUANTAPDF_COMPOSER_FONT_TIMES_ROMAN ? 500.0 : 556.0;
+    return quantapdf::detail::base14_glyph_width(glyph, font);
 }
 
 double text_width(
@@ -221,88 +233,100 @@ QPDFObjectHandle make_font(quantapdf_composer_font font)
     return dictionary;
 }
 
+void append_text_content(
+    std::string& content,
+    quantapdf_composer_page_state const& page,
+    quantapdf_composer_operation const& operation)
+{
+    auto const& options = operation.value.text.options;
+    auto text = to_winansi(operation.value.text.text_utf8);
+    auto lines = layout_lines(
+        text, options, operation.bounds.x1 - operation.bounds.x0);
+    double const line_height =
+        options.font_size * options.line_height_multiplier;
+    double y = page.height_points - operation.bounds.y0 - options.font_size;
+    double const red = ((options.argb >> 16u) & 0xffu) / 255.0;
+    double const green = ((options.argb >> 8u) & 0xffu) / 255.0;
+    double const blue = (options.argb & 0xffu) / 255.0;
+    for (auto const& line: lines) {
+        double const width = text_width(line, options.font, options.font_size);
+        double x = operation.bounds.x0;
+        if (options.alignment == QUANTAPDF_COMPOSER_TEXT_ALIGN_CENTER)
+            x += (operation.bounds.x1 - operation.bounds.x0 - width) / 2.0;
+        else if (options.alignment == QUANTAPDF_COMPOSER_TEXT_ALIGN_RIGHT)
+            x = operation.bounds.x1 - width;
+        if (y < page.height_points - operation.bounds.y1)
+            break;
+        content += "BT /F" + std::to_string(static_cast<int>(options.font)) +
+            " " + number(options.font_size) + " Tf " + number(red) + " " +
+            number(green) + " " + number(blue) + " rg 1 0 0 1 " + number(x) +
+            " " + number(y) + " Tm " + pdf_string(line) + " Tj ET\n";
+        y -= line_height;
+    }
+}
+
+void append_image_content(
+    std::string& content,
+    quantapdf_composer const* composer,
+    quantapdf_composer_page_state const& page,
+    quantapdf_composer_operation const& operation)
+{
+    auto const& image =
+        composer->images[operation.value.image.image_id - 1u];
+    double const box_width = operation.bounds.x1 - operation.bounds.x0;
+    double const box_height = operation.bounds.y1 - operation.bounds.y0;
+    double draw_width = box_width;
+    double draw_height = box_height;
+    double draw_x = operation.bounds.x0;
+    double draw_top = operation.bounds.y0;
+    bool const clip = operation.value.image.options.fit ==
+        QUANTAPDF_COMPOSER_IMAGE_FIT_COVER;
+    if (operation.value.image.options.fit !=
+        QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH) {
+        double const scale_x = box_width / image.width;
+        double const scale_y = box_height / image.height;
+        double const scale = operation.value.image.options.fit ==
+                QUANTAPDF_COMPOSER_IMAGE_FIT_CONTAIN
+            ? std::min(scale_x, scale_y)
+            : std::max(scale_x, scale_y);
+        draw_width = image.width * scale;
+        draw_height = image.height * scale;
+        draw_x += (box_width - draw_width) / 2.0;
+        draw_top += (box_height - draw_height) / 2.0;
+    }
+    content += "q ";
+    if (clip) {
+        content += number(operation.bounds.x0) + " " +
+            number(page.height_points - operation.bounds.y1) + " " +
+            number(box_width) + " " + number(box_height) + " re W n ";
+    }
+    content += number(draw_width) + " 0 0 " + number(draw_height) + " " +
+        number(draw_x) + " " +
+        number(page.height_points - draw_top - draw_height) + " cm /Im" +
+        std::to_string(operation.value.image.image_id) + " Do Q\n";
+}
+
 std::string page_content(
     quantapdf_composer const* composer,
     std::size_t page_index)
 {
     auto const& page = composer->pages[page_index];
     std::string content;
-    double red = ((page.background_argb >> 16u) & 0xffu) / 255.0;
-    double green = ((page.background_argb >> 8u) & 0xffu) / 255.0;
-    double blue = (page.background_argb & 0xffu) / 255.0;
+    double const red = ((page.background_argb >> 16u) & 0xffu) / 255.0;
+    double const green = ((page.background_argb >> 8u) & 0xffu) / 255.0;
+    double const blue = (page.background_argb & 0xffu) / 255.0;
     content += "q " + number(red) + " " + number(green) + " " +
         number(blue) + " rg 0 0 " + number(page.width_points) + " " +
         number(page.height_points) + " re f Q\n";
 
     for (std::size_t i = 0; i < composer->operation_count; ++i) {
         auto const& operation = composer->operations[i];
-        if (operation.page_index != page_index ||
-            operation.kind != QUANTAPDF_COMPOSER_OPERATION_TEXT)
+        if (operation.page_index != page_index)
             continue;
-        auto const& options = operation.value.text.options;
-        auto text = to_winansi(operation.value.text.text_utf8);
-        auto lines = layout_lines(
-            text, options, operation.bounds.x1 - operation.bounds.x0);
-        double line_height = options.font_size * options.line_height_multiplier;
-        double y = page.height_points - operation.bounds.y0 - options.font_size;
-        red = ((options.argb >> 16u) & 0xffu) / 255.0;
-        green = ((options.argb >> 8u) & 0xffu) / 255.0;
-        blue = (options.argb & 0xffu) / 255.0;
-        for (auto const& line: lines) {
-            double width = text_width(line, options.font, options.font_size);
-            double x = operation.bounds.x0;
-            if (options.alignment == QUANTAPDF_COMPOSER_TEXT_ALIGN_CENTER)
-                x += (operation.bounds.x1 - operation.bounds.x0 - width) / 2.0;
-            else if (options.alignment == QUANTAPDF_COMPOSER_TEXT_ALIGN_RIGHT)
-                x = operation.bounds.x1 - width;
-            if (y < page.height_points - operation.bounds.y1)
-                break;
-            content += "BT /F" + std::to_string(static_cast<int>(options.font)) +
-                " " + number(options.font_size) + " Tf " + number(red) +
-                " " + number(green) + " " + number(blue) + " rg 1 0 0 1 " +
-                number(x) + " " + number(y) + " Tm " + pdf_string(line) +
-                " Tj ET\n";
-            y -= line_height;
-        }
-    }
-    for (std::size_t i = 0; i < composer->operation_count; ++i) {
-        auto const& operation = composer->operations[i];
-        if (operation.page_index != page_index ||
-            operation.kind != QUANTAPDF_COMPOSER_OPERATION_IMAGE)
-            continue;
-        auto const& image =
-            composer->images[operation.value.image.image_id - 1u];
-        double box_width = operation.bounds.x1 - operation.bounds.x0;
-        double box_height = operation.bounds.y1 - operation.bounds.y0;
-        double draw_width = box_width;
-        double draw_height = box_height;
-        double draw_x = operation.bounds.x0;
-        double draw_top = operation.bounds.y0;
-        bool clip = operation.value.image.options.fit ==
-            QUANTAPDF_COMPOSER_IMAGE_FIT_COVER;
-        if (operation.value.image.options.fit !=
-            QUANTAPDF_COMPOSER_IMAGE_FIT_STRETCH) {
-            double scale_x = box_width / image.width;
-            double scale_y = box_height / image.height;
-            double scale = operation.value.image.options.fit ==
-                    QUANTAPDF_COMPOSER_IMAGE_FIT_CONTAIN
-                ? std::min(scale_x, scale_y)
-                : std::max(scale_x, scale_y);
-            draw_width = image.width * scale;
-            draw_height = image.height * scale;
-            draw_x += (box_width - draw_width) / 2.0;
-            draw_top += (box_height - draw_height) / 2.0;
-        }
-        content += "q ";
-        if (clip) {
-            content += number(operation.bounds.x0) + " " +
-                number(page.height_points - operation.bounds.y1) + " " +
-                number(box_width) + " " + number(box_height) + " re W n ";
-        }
-        content += number(draw_width) + " 0 0 " + number(draw_height) + " " +
-            number(draw_x) + " " +
-            number(page.height_points - draw_top - draw_height) + " cm /Im" +
-            std::to_string(operation.value.image.image_id) + " Do Q\n";
+        if (operation.kind == QUANTAPDF_COMPOSER_OPERATION_TEXT)
+            append_text_content(content, page, operation);
+        else
+            append_image_content(content, composer, page, operation);
     }
     return content;
 }
@@ -328,6 +352,15 @@ extern "C" quantapdf_status quantapdf_png_decode(
     bool have_header = false;
     bool have_data = false;
     bool have_end = false;
+    bool data_ended = false;
+    bool have_palette = false;
+    size_t components = 0u;
+    size_t row_size = 0u;
+    size_t inflated_size = 0u;
+    size_t sample_size = 0u;
+    size_t pixels = 0u;
+    size_t rgb_size = 0u;
+    size_t alpha_size = 0u;
     std::vector<unsigned char> compressed;
 
     if (out_rgb == nullptr || out_rgb_size == nullptr ||
@@ -362,7 +395,10 @@ extern "C" quantapdf_status quantapdf_png_decode(
                 return QUANTAPDF_ERROR_FORMAT;
 
             if (std::memcmp(type, "IHDR", 4u) == 0) {
-                if (have_header || have_data || chunk_size != 13u)
+                size_t row_with_filter = 0u;
+                size_t working_size = size;
+                if (have_header || have_data || offset != 12u ||
+                    chunk_size != 13u)
                     return QUANTAPDF_ERROR_FORMAT;
                 width = read_be32(payload);
                 height = read_be32(payload + 4u);
@@ -372,9 +408,26 @@ extern "C" quantapdf_status quantapdf_png_decode(
                     payload[10u] != 0u || payload[11u] != 0u ||
                     payload[12u] != 0u)
                     return QUANTAPDF_ERROR_UNSUPPORTED;
+                components = color_type == 6u ? 4u : 3u;
+                if (!checked_multiply(width, components, row_size) ||
+                    !checked_add(row_size, 1u, row_with_filter) ||
+                    !checked_multiply(
+                        row_with_filter, height, inflated_size) ||
+                    !checked_multiply(row_size, height, sample_size) ||
+                    !checked_multiply(width, height, pixels) ||
+                    !checked_multiply(pixels, 3u, rgb_size))
+                    return QUANTAPDF_ERROR_UNSUPPORTED;
+                alpha_size = color_type == 6u ? pixels : 0u;
+                if (!checked_add(working_size, inflated_size, working_size) ||
+                    !checked_add(working_size, sample_size, working_size) ||
+                    !checked_add(working_size, rgb_size, working_size) ||
+                    !checked_add(working_size, alpha_size, working_size) ||
+                    working_size > max_decoded_bytes)
+                    return QUANTAPDF_ERROR_UNSUPPORTED;
+                compressed.reserve(size);
                 have_header = true;
             } else if (std::memcmp(type, "IDAT", 4u) == 0) {
-                if (!have_header || have_end ||
+                if (!have_header || have_end || data_ended ||
                     static_cast<size_t>(chunk_size) >
                         std::numeric_limits<size_t>::max() - compressed.size())
                     return QUANTAPDF_ERROR_FORMAT;
@@ -385,28 +438,23 @@ extern "C" quantapdf_status quantapdf_png_decode(
                 if (!have_header || !have_data || chunk_size != 0u)
                     return QUANTAPDF_ERROR_FORMAT;
                 have_end = true;
+            } else if (std::memcmp(type, "PLTE", 4u) == 0) {
+                if (!have_header || have_data || have_palette ||
+                    chunk_size == 0u || chunk_size > 768u ||
+                    chunk_size % 3u != 0u)
+                    return QUANTAPDF_ERROR_FORMAT;
+                have_palette = true;
             } else if ((type[0] & 0x20u) == 0u &&
                        std::memcmp(type, "PLTE", 4u) != 0) {
                 return QUANTAPDF_ERROR_UNSUPPORTED;
             }
+            if (have_data && std::memcmp(type, "IDAT", 4u) != 0)
+                data_ended = true;
             offset += 4u + static_cast<size_t>(chunk_size) + 4u;
         }
         if (!have_end || offset != size || compressed.empty())
             return QUANTAPDF_ERROR_FORMAT;
 
-        size_t const components = color_type == 6u ? 4u : 3u;
-        if (static_cast<size_t>(width) >
-            (std::numeric_limits<size_t>::max() - 1u) / components)
-            return QUANTAPDF_ERROR_UNSUPPORTED;
-        size_t const row_size = static_cast<size_t>(width) * components;
-        if (static_cast<size_t>(height) >
-            std::numeric_limits<size_t>::max() / (row_size + 1u))
-            return QUANTAPDF_ERROR_UNSUPPORTED;
-        size_t const inflated_size = (row_size + 1u) * height;
-        if (static_cast<size_t>(height) >
-            std::numeric_limits<size_t>::max() / row_size)
-            return QUANTAPDF_ERROR_UNSUPPORTED;
-        size_t const sample_size = row_size * height;
         if (inflated_size > std::numeric_limits<uLongf>::max() ||
             compressed.size() > std::numeric_limits<uLong>::max())
             return QUANTAPDF_ERROR_UNSUPPORTED;
@@ -452,14 +500,6 @@ extern "C" quantapdf_status quantapdf_png_decode(
             }
         }
 
-        size_t const pixels = static_cast<size_t>(width) * height;
-        if (pixels > std::numeric_limits<size_t>::max() / 3u)
-            return QUANTAPDF_ERROR_UNSUPPORTED;
-        size_t const rgb_size = pixels * 3u;
-        size_t const alpha_size = color_type == 6u ? pixels : 0u;
-        if (rgb_size > max_decoded_bytes ||
-            alpha_size > max_decoded_bytes - rgb_size)
-            return QUANTAPDF_ERROR_UNSUPPORTED;
         auto* rgb = static_cast<unsigned char*>(std::malloc(rgb_size));
         auto* alpha = alpha_size == 0u
             ? nullptr
@@ -601,6 +641,7 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
         writer.setOutputMemory();
         writer.setStaticID(true);
         writer.setObjectStreamMode(qpdf_o_disable);
+        writer.setMinimumPDFVersion("1.4");
         writer.write();
         std::unique_ptr<Buffer> buffer(writer.getBuffer());
         if (buffer->getSize() == 0u)
@@ -612,6 +653,8 @@ extern "C" quantapdf_status quantapdf_qpdf_compose(
         *out_data = copied;
         *out_size = buffer->getSize();
         return QUANTAPDF_OK;
+    } catch (std::invalid_argument const&) {
+        return QUANTAPDF_ERROR_FORMAT;
     } catch (std::bad_alloc const&) {
         return QUANTAPDF_ERROR_NOMEM;
     } catch (...) {

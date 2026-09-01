@@ -14,6 +14,31 @@ static int quantapdf_composer_rect_valid(const quantapdf_rect *rect)
         rect->x1 > rect->x0 && rect->y1 > rect->y0;
 }
 
+static int quantapdf_composer_codepoint_is_winansi(uint32_t codepoint)
+{
+    static const uint32_t special[] = {
+        UINT32_C(0x20ac), UINT32_C(0x201a), UINT32_C(0x0192),
+        UINT32_C(0x201e), UINT32_C(0x2026), UINT32_C(0x2020),
+        UINT32_C(0x2021), UINT32_C(0x02c6), UINT32_C(0x2030),
+        UINT32_C(0x0160), UINT32_C(0x2039), UINT32_C(0x0152),
+        UINT32_C(0x017d), UINT32_C(0x2018), UINT32_C(0x2019),
+        UINT32_C(0x201c), UINT32_C(0x201d), UINT32_C(0x2022),
+        UINT32_C(0x2013), UINT32_C(0x2014), UINT32_C(0x02dc),
+        UINT32_C(0x2122), UINT32_C(0x0161), UINT32_C(0x203a),
+        UINT32_C(0x0153), UINT32_C(0x017e), UINT32_C(0x0178)};
+    size_t i;
+
+    if ((codepoint >= 0x20u && codepoint <= 0x7eu) ||
+        (codepoint >= 0xa0u && codepoint <= 0xffu) ||
+        codepoint == '\n' || codepoint == '\r' || codepoint == '\t')
+        return 1;
+    for (i = 0u; i < sizeof(special) / sizeof(special[0]); ++i) {
+        if (special[i] == codepoint)
+            return 1;
+    }
+    return 0;
+}
+
 static int quantapdf_composer_utf8_is_winansi(const char *text)
 {
     const unsigned char *cursor = (const unsigned char *)text;
@@ -43,18 +68,7 @@ static int quantapdf_composer_utf8_is_winansi(const char *text)
         if ((count == 3u && codepoint < 0x800u) ||
             (codepoint >= 0xd800u && codepoint <= 0xdfffu))
             return 0;
-        if (!((codepoint >= 0x20u && codepoint <= 0x7eu) ||
-              (codepoint >= 0xa0u && codepoint <= 0xffu) ||
-              codepoint == '\n' || codepoint == '\r' ||
-              codepoint == '\t' || codepoint == 0x20acu ||
-              (codepoint >= 0x2013u && codepoint <= 0x2026u) ||
-              codepoint == 0x0192u || codepoint == 0x02c6u ||
-              codepoint == 0x02dcu || codepoint == 0x0152u ||
-              codepoint == 0x0153u || codepoint == 0x0160u ||
-              codepoint == 0x0161u || codepoint == 0x0178u ||
-              codepoint == 0x017du || codepoint == 0x017eu ||
-              codepoint == 0x2030u || codepoint == 0x2039u ||
-              codepoint == 0x203au || codepoint == 0x2122u))
+        if (!quantapdf_composer_codepoint_is_winansi(codepoint))
             return 0;
         cursor += count;
     }
@@ -113,64 +127,6 @@ static quantapdf_status quantapdf_composer_reserve_image(
     composer->images = grown;
     composer->image_capacity = new_capacity;
     return QUANTAPDF_OK;
-}
-
-static int quantapdf_composer_probe_jpeg(
-    const unsigned char *data,
-    size_t size,
-    uint32_t *out_width,
-    uint32_t *out_height,
-    int *out_components)
-{
-    size_t offset = 2u;
-
-    if (size < 4u || data[0] != 0xffu || data[1] != 0xd8u ||
-        data[size - 2u] != 0xffu || data[size - 1u] != 0xd9u)
-        return 0;
-    while (offset + 1u < size) {
-        unsigned int marker;
-        size_t segment_size;
-
-        while (offset < size && data[offset] == 0xffu)
-            ++offset;
-        if (offset >= size)
-            return 0;
-        marker = data[offset++];
-        if (marker == 0x00u || marker == 0xd8u || marker == 0xd9u ||
-            (marker >= 0xd0u && marker <= 0xd7u))
-            continue;
-        if (offset + 2u > size)
-            return 0;
-        segment_size = ((size_t)data[offset] << 8u) | data[offset + 1u];
-        if (segment_size < 2u || segment_size > size - offset)
-            return 0;
-        if ((marker >= 0xc0u && marker <= 0xc3u) ||
-            (marker >= 0xc5u && marker <= 0xc7u) ||
-            (marker >= 0xc9u && marker <= 0xcbu) ||
-            (marker >= 0xcdu && marker <= 0xcfu)) {
-            unsigned int components;
-            unsigned int width;
-            unsigned int height;
-            if (segment_size < 8u || data[offset + 2u] != 8u)
-                return 0;
-            height = ((unsigned int)data[offset + 3u] << 8u) |
-                data[offset + 4u];
-            width = ((unsigned int)data[offset + 5u] << 8u) |
-                data[offset + 6u];
-            components = data[offset + 7u];
-            if (width == 0u || height == 0u ||
-                (components != 1u && components != 3u))
-                return 0;
-            *out_width = (uint32_t)width;
-            *out_height = (uint32_t)height;
-            *out_components = (int)components;
-            return 1;
-        }
-        if (marker == 0xdau)
-            return 0;
-        offset += segment_size;
-    }
-    return 0;
 }
 
 static size_t quantapdf_composer_limit_or_default(
@@ -301,11 +257,15 @@ quantapdf_status quantapdf_composer_add_image(
         image.components = 3;
         image.has_alpha = image.alpha_data != NULL;
     } else {
-        if (!quantapdf_composer_probe_jpeg(
-                data, size, &image.width, &image.height, &image.components))
-            return QUANTAPDF_ERROR_FORMAT;
-        if (size > composer->max_resource_bytes - composer->resource_bytes)
-            return QUANTAPDF_ERROR_UNSUPPORTED;
+        status = quantapdf_jpeg_validate(
+            data,
+            size,
+            composer->max_resource_bytes - composer->resource_bytes,
+            &image.width,
+            &image.height,
+            &image.components);
+        if (status != QUANTAPDF_OK)
+            return status;
         image.data = (unsigned char *)malloc(size);
         if (image.data == NULL)
             return QUANTAPDF_ERROR_NOMEM;
@@ -356,15 +316,16 @@ quantapdf_status quantapdf_composer_draw_text(
     text_size = strlen(text_utf8) + 1u;
     if (text_size > composer->max_resource_bytes - composer->resource_bytes)
         return QUANTAPDF_ERROR_UNSUPPORTED;
-    status = quantapdf_composer_reserve_operation(composer);
-    if (status != QUANTAPDF_OK)
-        return status;
-
     memset(&operation, 0, sizeof(operation));
     operation.value.text.text_utf8 = (char *)malloc(text_size);
     if (operation.value.text.text_utf8 == NULL)
         return QUANTAPDF_ERROR_NOMEM;
     memcpy(operation.value.text.text_utf8, text_utf8, text_size);
+    status = quantapdf_composer_reserve_operation(composer);
+    if (status != QUANTAPDF_OK) {
+        free(operation.value.text.text_utf8);
+        return status;
+    }
     operation.kind = QUANTAPDF_COMPOSER_OPERATION_TEXT;
     operation.page_index = page_index;
     operation.bounds = *bounds;

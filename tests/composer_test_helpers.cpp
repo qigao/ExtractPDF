@@ -4,11 +4,15 @@
 
 #include <qpdf/Buffer.hh>
 #include <qpdf/Pl_Buffer.hh>
+#include <qpdf/QPDF.hh>
+#include <qpdf/QPDFObjectHandle.hh>
 #include <zlib.h>
 
 #include <cstdlib>
 #include <cstring>
+#include <locale>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace {
@@ -36,6 +40,44 @@ void append_chunk(
     crc = crc32(crc, png.data() + crc_start, static_cast<uInt>(size + 4u));
     append_u32(png, crc);
 }
+
+std::string page_content(
+    unsigned char const* data,
+    size_t size,
+    size_t page_index)
+{
+    QPDF pdf;
+    pdf.processMemoryFile(
+        "composer-test.pdf", reinterpret_cast<char const*>(data), size);
+    auto pages = pdf.getAllPages();
+    if (page_index >= pages.size())
+        return {};
+    auto contents = pages[page_index].getKey("/Contents");
+    if (contents.isStream()) {
+        auto buffer = contents.getStreamData(qpdf_dl_all);
+        return std::string(
+            reinterpret_cast<char const*>(buffer->getBuffer()),
+            buffer->getSize());
+    }
+    std::string result;
+    if (contents.isArray()) {
+        for (int i = 0; i < contents.getArrayNItems(); ++i) {
+            auto buffer = contents.getArrayItem(i).getStreamData(qpdf_dl_all);
+            result.append(
+                reinterpret_cast<char const*>(buffer->getBuffer()),
+                buffer->getSize());
+        }
+    }
+    return result;
+}
+
+class comma_numpunct final : public std::numpunct<char> {
+  protected:
+    char do_decimal_point() const override
+    {
+        return ',';
+    }
+};
 
 } // namespace
 
@@ -113,4 +155,137 @@ extern "C" int quantapdf_test_make_png(
     *out_data = copied;
     *out_size = png.size();
     return 1;
+}
+
+extern "C" int quantapdf_test_make_oversized_png(
+    unsigned char** out_data,
+    size_t* out_size)
+{
+    static unsigned char const signature[] = {
+        0x89u, 'P', 'N', 'G', 0x0du, 0x0au, 0x1au, 0x0au};
+    unsigned char ihdr[13] = {
+        0u, 1u, 0u, 0u, 0u, 1u, 0u, 0u, 8u, 6u, 0u, 0u, 0u};
+    unsigned char compressed[] = {0x78u, 0x9cu, 0x03u, 0x00u, 0x00u, 0x00u,
+                                  0x00u, 0x01u};
+    std::vector<unsigned char> png(signature, signature + sizeof(signature));
+
+    if (out_data == nullptr || out_size == nullptr)
+        return 0;
+    *out_data = nullptr;
+    *out_size = 0u;
+    append_chunk(png, "IHDR", ihdr, sizeof(ihdr));
+    append_chunk(png, "IDAT", compressed, sizeof(compressed));
+    append_chunk(png, "IEND", nullptr, 0u);
+    auto* copied = static_cast<unsigned char*>(std::malloc(png.size()));
+    if (copied == nullptr)
+        return 0;
+    std::memcpy(copied, png.data(), png.size());
+    *out_data = copied;
+    *out_size = png.size();
+    return 1;
+}
+
+extern "C" int quantapdf_test_make_truncated_jpeg(
+    unsigned char const* data,
+    size_t size,
+    unsigned char** out_data,
+    size_t* out_size)
+{
+    size_t offset = 2u;
+
+    if (data == nullptr || out_data == nullptr || out_size == nullptr ||
+        size < 4u)
+        return 0;
+    *out_data = nullptr;
+    *out_size = 0u;
+    while (offset + 4u <= size) {
+        if (data[offset] != 0xffu) {
+            ++offset;
+            continue;
+        }
+        unsigned char marker = data[offset + 1u];
+        if (marker == 0xdau) {
+            size_t segment_size =
+                (static_cast<size_t>(data[offset + 2u]) << 8u) |
+                data[offset + 3u];
+            size_t const end = offset + 2u + segment_size;
+            if (segment_size < 2u || end > size)
+                return 0;
+            auto* copied = static_cast<unsigned char*>(std::malloc(end + 2u));
+            if (copied == nullptr)
+                return 0;
+            std::memcpy(copied, data, end);
+            copied[end] = 0xffu;
+            copied[end + 1u] = 0xd9u;
+            *out_data = copied;
+            *out_size = end + 2u;
+            return 1;
+        }
+        ++offset;
+    }
+    return 0;
+}
+
+extern "C" int quantapdf_test_pdf_content_contains(
+    unsigned char const* data,
+    size_t size,
+    size_t page_index,
+    char const* needle)
+{
+    try {
+        return needle != nullptr &&
+            page_content(data, size, page_index).find(needle) !=
+                std::string::npos;
+    } catch (...) {
+        return 0;
+    }
+}
+
+extern "C" int quantapdf_test_pdf_content_order(
+    unsigned char const* data,
+    size_t size,
+    size_t page_index,
+    char const* first,
+    char const* second)
+{
+    try {
+        std::string const content = page_content(data, size, page_index);
+        size_t const first_at = content.find(first == nullptr ? "" : first);
+        size_t const second_at = content.find(second == nullptr ? "" : second);
+        return first != nullptr && second != nullptr &&
+            first_at != std::string::npos && second_at != std::string::npos &&
+            first_at < second_at;
+    } catch (...) {
+        return 0;
+    }
+}
+
+extern "C" size_t quantapdf_test_pdf_content_count(
+    unsigned char const* data,
+    size_t size,
+    size_t page_index,
+    char const* needle)
+{
+    try {
+        std::string const content = page_content(data, size, page_index);
+        std::string const value = needle == nullptr ? "" : needle;
+        size_t count = 0u;
+        size_t offset = 0u;
+        if (value.empty())
+            return 0u;
+        while ((offset = content.find(value, offset)) != std::string::npos) {
+            ++count;
+            offset += value.size();
+        }
+        return count;
+    } catch (...) {
+        return 0u;
+    }
+}
+
+extern "C" void quantapdf_test_use_comma_locale(int enabled)
+{
+    std::locale::global(enabled
+            ? std::locale(std::locale::classic(), new comma_numpunct())
+            : std::locale::classic());
 }

@@ -198,9 +198,10 @@ code points fail explicitly. Complex-script shaping and embedded TTF/OTF fonts
 are intentionally reserved for an additive future API; V1 never substitutes
 missing glyphs silently.
 
-The default capacity is 1,024 pages, 1,000,000 draw operations, and 256 MiB of
-owned text/image samples. Supply `quantapdf_composer_options` to lower or
-raise those limits. Crossing a configured limit returns
+The default capacity is 1,024 pages, 1,000,000 draw operations, and 256 MiB for
+owned text/image resources and bounded image-decoder working memory. Supply
+`quantapdf_composer_options` to lower or raise those limits. Crossing a
+configured limit returns
 `QUANTAPDF_ERROR_UNSUPPORTED` without partially publishing the operation.
 
 ## Rendering

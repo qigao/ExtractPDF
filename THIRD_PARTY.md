@@ -48,3 +48,24 @@ The qpdf package's installed copyright file and PDFium's root `LICENSE` plus
 complete `licenses/` directory are the authoritative redistribution notices.
 The installed libjpeg-turbo copyright file is the authoritative notice for the
 JPEG codec boundary.
+
+## Adobe Core 14 font metrics
+
+- Source: Adobe Font Metrics files for the 14 PDF Core Fonts, distributed by
+  Matplotlib in `mpl-data/fonts/pdfcorefonts`
+- Use: numeric advance-width tables for Composer Base 14 text layout
+- License: the AFM files and accompanying notice permit use, copying,
+  modification, and distribution for any purpose without charge, provided the
+  copyright notices are retained. QuantaPDF derives numeric metrics only and
+  does not redistribute the AFM files.
+
+Copyright (c) 1985, 1987, 1989, 1990, 1997 Adobe Systems Incorporated. All
+Rights Reserved.
+
+The AFM files and their accompanying readme may be used, copied, and
+distributed for any purpose and without charge, with or without modification,
+provided that all copyright notices are retained; AFM files are not distributed
+without the readme; modifications are prominently noted; the permission
+paragraph is not modified; and the distributor does not represent that Adobe
+supports use of the AFM files. Adobe Systems has no responsibility or
+obligation to support their use.
