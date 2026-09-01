@@ -59,6 +59,23 @@ struct quantapdf_output {
     size_t size;
 };
 
+typedef struct quantapdf_composer_page_state {
+    float width_points;
+    float height_points;
+    uint32_t background_argb;
+} quantapdf_composer_page_state;
+
+struct quantapdf_composer {
+    size_t max_pages;
+    size_t max_operations;
+    size_t max_resource_bytes;
+    quantapdf_composer_page_state *pages;
+    size_t page_count;
+    size_t page_capacity;
+    size_t operation_count;
+    size_t resource_bytes;
+};
+
 quantapdf_status quantapdf_document_page_user_unit(
     quantapdf_document *document,
     int page_index,

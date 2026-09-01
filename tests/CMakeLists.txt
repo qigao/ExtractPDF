@@ -16,6 +16,11 @@ add_executable(quantapdf_test_status test_status.c)
 target_link_libraries(quantapdf_test_status PRIVATE QuantaPDF::QuantaPDF)
 add_test(NAME quantapdf.status COMMAND quantapdf_test_status)
 
+add_executable(quantapdf_test_composer test_composer.c)
+target_link_libraries(quantapdf_test_composer PRIVATE QuantaPDF::QuantaPDF)
+add_test(NAME quantapdf.composer COMMAND quantapdf_test_composer)
+set_tests_properties(quantapdf.composer PROPERTIES TIMEOUT 30)
+
 add_executable(quantapdf_test_jpeg_encoder
   test_jpeg_encoder.cpp
   ../src/backend/jpeg_encoder.cpp)
